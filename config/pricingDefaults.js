@@ -1,0 +1,73 @@
+const DEFAULT_PRICING_CONFIG = {
+    basePricePerCm2: 3.0,
+    minPrice: 90,
+    pmuPrice: 149,
+    color_black: 1.0,
+    color_mixed: 1.2,
+    color_multi: 1.4,
+    color_difficult: 1.5,
+    depth_shallow: 0.9,
+    depth_normal: 1.0,
+    depth_deep: 1.1,
+    depth_very_deep: 1.3,
+    age_under1: 1.2,
+    age_1to3: 1.1,
+    age_3to5: 1.05,
+    age_5to10: 1.0,
+    age_over10: 0.9,
+    skin_1: 1.0,
+    skin_2: 1.0,
+    skin_3: 1.05,
+    skin_4: 1.15,
+    skin_5: 1.3,
+    skin_6: 1.3,
+    location_arm: 1.0,
+    location_leg: 1.0,
+    location_torso: 1.0,
+    location_neck: 1.2,
+    location_face: 1.2,
+    location_hand: 1.3,
+    location_foot: 1.3,
+    layering_none: 1.0,
+    layering_once: 1.2,
+    layering_multi: 1.4,
+    goal_full: 1.0,
+    goal_partial: 0.7,
+    goal_lighten: 0.6,
+    gruppen_rabatt: 0.15,
+    klein_max_cm2: 50,
+    mittelgross_max_cm2: 150,
+    max_punkte: 4,
+};
+
+const SIZE_MIDPOINTS = {
+    xs: 3,
+    sm: 8,
+    md: 13.5,
+    lg: 21,
+    xl: 33,
+    xxl: 45,
+};
+
+const DIFFICULT_COLORS = ['white', 'yellow', 'skin_tone'];
+
+const BODY_LOCATION_KEYS = [
+    'face',
+    'neck',
+    'chest',
+    'back',
+    'shoulder',
+    'abdomen',
+    'hip',
+    'arm',
+    'leg',
+    'hand',
+    'foot',
+];
+
+module.exports = {
+    DEFAULT_PRICING_CONFIG,
+    SIZE_MIDPOINTS,
+    DIFFICULT_COLORS,
+    BODY_LOCATION_KEYS,
+};
