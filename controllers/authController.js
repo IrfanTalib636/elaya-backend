@@ -139,11 +139,11 @@ const registerStudio = asyncHandler(async (req, res) => {
     ]);
 
     if (existingUser) {
-        throw new ApiError(409, 'email already registered');
+        throw new ApiError(409, 'Email already registered');
     }
 
     if (existingStudio) {
-        throw new ApiError(409, 'studio_code already exists');
+        throw new ApiError(409, 'Studio code already exists');
     }
 
     let user = null;

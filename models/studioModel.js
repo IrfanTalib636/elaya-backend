@@ -21,7 +21,7 @@ const studioSchema = new mongoose.Schema(
         },
         studio_code: {
             type: String,
-            required: [true, 'studio_code is required'],
+            required: [true, 'studio code is required'],
             unique: true,
             uppercase: true,
             trim: true,
