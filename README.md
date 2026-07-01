@@ -5,7 +5,7 @@ Shared REST API for the Elaya platform — Customer Web Portal, Studio Web Dashb
 **Stack:** Node.js · Express 5 · MongoDB · Mongoose · JWT · Zod  
 **API base path:** `/api/v1`  
 **Planned production host:** [Railway](https://railway.app)  
-**Last updated:** 2026-06-27
+**Last updated:** 2026-07-01
 
 ---
 
@@ -46,6 +46,14 @@ Shared REST API for the Elaya platform — Customer Web Portal, Studio Web Dashb
 |---|---|---|
 | List pagination | ✅ Done | `page` + `limit` on GET `/cases`, `/appointments`, `/sessions` |
 
+### M2 additions (frontend integration support)
+
+| Area | Status | Notes |
+|---|---|---|
+| Customer CRUD API | ✅ Done | GET/POST `/customers`, GET/PATCH `/customers/:id` — studio-scoped |
+| Customer Zod validator | ✅ Done | `validators/customerValidator.js` — create / update / list-query schemas |
+| Appointment populate | ✅ Done | `listAppointments` + `getAppointment` now `.populate('customer', 'vorname nachname email')` and `.populate('case', 'caseId tc_title type')` |
+
 **Known gaps (non-blocking polish):** Anamnesis CRUD API, zone-level lockout, persist `uvBlockDate`/`medicationBlockDate` on booking, `pruefeSperrfristReaktivierung`.
 
 ### Changelog
@@ -68,6 +76,8 @@ Shared REST API for the Elaya platform — Customer Web Portal, Studio Web Dashb
 [2026-06-27] — Platform config + per-studio toggles (feature flags) — GET/PATCH /config/*; studio admin seed; Swagger fixes
 [2026-06-27] — Pagination on GET /cases, /appointments, /sessions (page, limit, pagination meta)
 [2026-06-27] — Swagger role labels on every endpoint (Auth + Who can call)
+[2026-07-01] — Customer CRUD API (GET/POST /customers, GET/PATCH /customers/:id) with Zod schemas + Swagger
+[2026-07-01] — Appointment populate: customer name + case info returned in list/detail responses
 ```
 
 ---
