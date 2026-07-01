@@ -79,11 +79,7 @@ const createCustomer = asyncHandler(async (req, res) => {
     const { vorname, nachname, email, telefon, geburtsdatum, strasse, plz, ort, land, notizen } =
         req.body;
 
-    if (!vorname || !nachname || !email || !telefon) {
-        throw new ApiError(400, 'vorname, nachname, email and telefon are required');
-    }
-
-    const existing = await User.findOne({ email: email.toLowerCase().trim() });
+    const existing = await User.findOne({ email });
     if (existing) throw new ApiError(409, 'A user with this email already exists');
 
     const studioId = isAdmin(req.user.role) ? req.body.studio_id : req.user.studio_id;
@@ -93,17 +89,17 @@ const createCustomer = asyncHandler(async (req, res) => {
     const tempPassword = crypto.randomBytes(16).toString('hex');
 
     const user = await User.create({
-        email: email.toLowerCase().trim(),
+        email,
         password: tempPassword,
         role: USER_ROLES.CUSTOMER,
     });
 
     const customer = await Customer.create({
         user: user._id,
-        vorname: vorname.trim(),
-        nachname: nachname.trim(),
-        email: email.toLowerCase().trim(),
-        telefon: telefon.trim(),
+        vorname,
+        nachname,
+        email,
+        telefon,
         geburtsdatum: geburtsdatum || null,
         strasse: strasse || '',
         plz: plz || '',

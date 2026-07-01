@@ -256,7 +256,13 @@ const listAppointments = asyncHandler(async (req, res) => {
     const { page, limit, skip } = parsePagination(req.query);
 
     const [appointments, total] = await Promise.all([
-        Appointment.find(filter).sort({ date: 1 }).skip(skip).limit(limit).lean(),
+        Appointment.find(filter)
+            .sort({ date: 1 })
+            .skip(skip)
+            .limit(limit)
+            .populate('customer', 'vorname nachname email')
+            .populate('case', 'caseId tc_title type')
+            .lean(),
         Appointment.countDocuments(filter),
     ]);
 
@@ -270,7 +276,9 @@ const listAppointments = asyncHandler(async (req, res) => {
 });
 
 const getAppointment = asyncHandler(async (req, res) => {
-    const appointment = await Appointment.findById(req.params.id);
+    const appointment = await Appointment.findById(req.params.id)
+        .populate('customer', 'vorname nachname email telefon')
+        .populate('case', 'caseId tc_title type bodyLabel');
 
     if (!appointment) {
         throw new ApiError(404, 'Appointment not found');
