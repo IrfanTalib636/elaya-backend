@@ -170,7 +170,12 @@ const listSessions = asyncHandler(async (req, res) => {
     const { page, limit, skip } = parsePagination(req.query);
     const selectFields = isCustomer(req.user.role) ? CUSTOMER_SESSION_SELECT : '';
 
-    const sessionQuery = Session.find(filter).sort({ treatment_date: -1 }).skip(skip).limit(limit);
+    const sessionQuery = Session.find(filter)
+        .populate('case', 'caseId bodyLabel tc_title')
+        .populate('customer', 'vorname nachname')
+        .sort({ treatment_date: -1 })
+        .skip(skip)
+        .limit(limit);
     if (selectFields) {
         sessionQuery.select(selectFields);
     }

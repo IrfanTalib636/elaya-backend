@@ -5,7 +5,7 @@ Shared REST API for the Elaya platform — Customer Web Portal, Studio Web Dashb
 **Stack:** Node.js · Express 5 · MongoDB · Mongoose · JWT · Zod  
 **API base path:** `/api/v1`  
 **Planned production host:** [Railway](https://railway.app)  
-**Last updated:** 2026-07-01
+**Last updated:** 2026-07-03
 
 ---
 
@@ -52,9 +52,14 @@ Shared REST API for the Elaya platform — Customer Web Portal, Studio Web Dashb
 |---|---|---|
 | Customer CRUD API | ✅ Done | GET/POST `/customers`, GET/PATCH `/customers/:id` — studio-scoped |
 | Customer Zod validator | ✅ Done | `validators/customerValidator.js` — create / update / list-query schemas |
-| Appointment populate | ✅ Done | `listAppointments` + `getAppointment` now `.populate('customer', 'vorname nachname email')` and `.populate('case', 'caseId tc_title type')` |
+| Appointment populate | ✅ Done | `listAppointments` + `getAppointment` populate customer + case |
+| Case list populate | ✅ Done | `listCases` populates `customer` (vorname, nachname, email) |
+| Session list populate | ✅ Done | `listSessions` populates `case` + `customer` |
+| Studio settings API | ✅ Done | GET/PATCH `/studio/settings` — profile, hours, rooms, staff, buffer time |
 
-**Known gaps (non-blocking polish):** Anamnesis CRUD API, zone-level lockout, persist `uvBlockDate`/`medicationBlockDate` on booking, `pruefeSperrfristReaktivierung`.
+**M2 remaining (client doc):** CRM pipeline compute + endpoint; shop orders API; analytics support for coin/shop fees.
+
+**Known gaps (non-blocking polish):** Anamnesis CRUD API, zone-level lockout, persist `uvBlockDate`/`medicationBlockDate` on booking, `pruefeSperrfristReaktivierung`, auto `pipeline_stufe` recomputation, admin studio approval endpoint.
 
 ### Changelog
 
@@ -78,6 +83,8 @@ Shared REST API for the Elaya platform — Customer Web Portal, Studio Web Dashb
 [2026-06-27] — Swagger role labels on every endpoint (Auth + Who can call)
 [2026-07-01] — Customer CRUD API (GET/POST /customers, GET/PATCH /customers/:id) with Zod schemas + Swagger
 [2026-07-01] — Appointment populate: customer name + case info returned in list/detail responses
+[2026-07-02] — Studio settings API — GET/PATCH /studio/settings (profile, öffnungszeiten, räume, mitarbeiter); admin by studioId
+[2026-07-03] — listCases + listSessions populate for studio list pages; dev seed default room + staff
 ```
 
 ---
@@ -93,6 +100,7 @@ backend/
 │   ├── pricingDefaults.js # 7-factor pricing multipliers (client §5d)
 │   ├── elaycoinConfig.js  # Elaycoin situations + platform limits (client §7)
 │   ├── platformDefaults.js # Platform config defaults (elaya_admin_config → platform_config)
+│   ├── studioDefaults.js  # Opening hours defaults + staff roles
 │   └── swagger.js         # OpenAPI / Swagger UI setup
 ├── controllers/
 │   ├── authController.js
@@ -100,7 +108,8 @@ backend/
 │   ├── caseController.js
 │   ├── configController.js
 │   ├── elaycoinController.js
-│   └── sessionController.js
+│   ├── sessionController.js
+│   └── studioController.js
 ├── middleware/
 │   ├── authMiddleware.js      # protect, authorize
 │   ├── authRateLimiter.js
@@ -125,6 +134,7 @@ backend/
 │   ├── elaycoinRoute.js
 │   ├── healthRoute.js
 │   ├── sessionRoute.js
+│   ├── studioRoute.js
 │   └── index.js
 ├── scripts/
 │   ├── bootstrapAdmin.js  # One-time production super admin (guarded)
@@ -135,7 +145,8 @@ backend/
 │   ├── caseValidator.js
 │   ├── configValidator.js
 │   ├── paginationValidator.js
-│   └── sessionValidator.js
+│   ├── sessionValidator.js
+│   └── studioValidator.js
 ├── utils/
 │   ├── accessHelpers.js         # Shared role + access checks
 │   ├── ApiError.js
@@ -373,6 +384,36 @@ Maps prototype `elaya_admin_config` → `platform_config` and `inkderm_pricing` 
 **Testing:** Login as admin → `GET /config/platform`. Patch → `PATCH /config/platform` with `{ "gruppen_groessen": { "gruppen_rabatt": 0.15 } }`. Customer → `GET /config/public`. Studio admin (`studio@inkfree.ch`) → `GET/PATCH /config/studio`. Admin → `GET/PATCH /config/studios/{studioId}` (studioId from seed output or GET `/cases` → `studio` field).
 
 **Verified locally (2026-06-27):** platform PATCH, customer public config, admin studio-by-id, studio admin own config — all pass in Swagger.
+
+### Studio settings (profile, hours, rooms, staff)
+
+Maps prototype settings tabs → `Studio` document fields (separate from pricing in `/config/studio`).
+
+| Method | Path | Auth | Description |
+|---|---|---|---|
+| `GET` | `/api/v1/studio/settings` | Studio staff/admin | Own studio profile, öffnungszeiten, behandlungsraeume, mitarbeiter, pufferzeit |
+| `PATCH` | `/api/v1/studio/settings` | Studio admin | Partial update — send only sections to change |
+| `GET` | `/api/v1/studio/studios/:studioId/settings` | Admin | Studio settings by ID |
+| `PATCH` | `/api/v1/studio/studios/:studioId/settings` | Admin | Update any studio settings |
+
+**Response shape (`data.settings`):**
+
+- `profile` — `firma`, `email`, `telefon`, address fields, `studio_code`, `status`, `notizen` (email read-only)
+- `oeffnungszeiten` — keys `mo`–`so`, each `{ offen, von, bis }` (defaults merged on read)
+- `behandlungsraeume[]` — `{ id, name, farbe, aktiv, laser_brand, laser_model }`
+- `mitarbeiter[]` — `{ id, vorname, nachname, rolle, raum_id, aktiv, user_id }` (roster only; login invite flow post-M2)
+- `pufferzeit_minuten` — buffer after appointments (0–120)
+
+**PATCH notes:**
+
+- `profile`, `oeffnungszeiten`, and `pufferzeit_minuten` are partial merges.
+- `behandlungsraeume` and `mitarbeiter` **replace the full array** when sent — include existing items you want to keep.
+- `mitarbeiter[].raum_id` must reference a room `id` from the current roster (validated on save).
+- Staff roles: `Studiobetreiber`, `Laser-Therapeutin`, `Empfang`, `Andere`.
+
+**Testing:** Login as studio admin (`studio@inkfree.ch`) → `GET /studio/settings`. Patch profile: `{ "profile": { "telefon": "+41 61 123 45 67" } }`. Patch hours: `{ "oeffnungszeiten": { "so": { "offen": true } } }`. Admin → `GET/PATCH /studio/studios/{studioId}/settings`.
+
+**Dev seed:** `npm run seed:dev` adds a default Laser 1 room + sample staff member when the INKFREE studio has none.
 
 ---
 

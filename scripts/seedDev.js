@@ -55,6 +55,41 @@ const seedDev = async () => {
         console.log('Pilot studio inkFree already exists');
     }
 
+    let seedChanged = false;
+    if (!studio.behandlungsraeume?.length) {
+        studio.behandlungsraeume = [
+            {
+                name: 'Laser 1',
+                farbe: '#3B8BD4',
+                aktiv: true,
+                laser_brand: 'Candela',
+                laser_model: 'GentleMax Pro',
+            },
+        ];
+        seedChanged = true;
+    }
+
+    if (!studio.mitarbeiter?.length) {
+        const raumId = studio.behandlungsraeume[0]?._id
+            ? String(studio.behandlungsraeume[0]._id)
+            : '';
+        studio.mitarbeiter = [
+            {
+                vorname: 'Anna',
+                nachname: 'Muster',
+                rolle: 'Laser-Therapeutin',
+                raum_id: raumId,
+                aktiv: true,
+            },
+        ];
+        seedChanged = true;
+    }
+
+    if (seedChanged) {
+        await studio.save();
+        console.log('Pilot studio settings seeded (room + staff)');
+    }
+
     const studioAdminEmail = process.env.SEED_STUDIO_EMAIL || 'studio@inkfree.ch';
     const studioAdminPassword = process.env.SEED_STUDIO_PASSWORD || 'Studio1234!';
 

@@ -225,7 +225,12 @@ const listCases = asyncHandler(async (req, res) => {
     const { page, limit, skip } = parsePagination(req.query);
 
     const [cases, total] = await Promise.all([
-        Case.find(filter).sort({ createdAt: -1 }).skip(skip).limit(limit).lean(),
+        Case.find(filter)
+            .populate('customer', 'vorname nachname email')
+            .sort({ createdAt: -1 })
+            .skip(skip)
+            .limit(limit)
+            .lean(),
         Case.countDocuments(filter),
     ]);
 
