@@ -5,7 +5,7 @@ Shared REST API for the Elaya platform — Customer Web Portal, Studio Web Dashb
 **Stack:** Node.js · Express 5 · MongoDB · Mongoose · JWT · Zod  
 **API base path:** `/api/v1`  
 **Planned production host:** [Railway](https://railway.app)  
-**Last updated:** 2026-07-03
+**Last updated:** 2026-07-06
 
 ---
 
@@ -25,6 +25,7 @@ Shared REST API for the Elaya platform — Customer Web Portal, Studio Web Dashb
 | Auth — `GET /auth/me` | ✅ Done | Protected route |
 | Zod validation | ✅ Done | `validators/*.js` + Express 5 query fix |
 | Dev seed (super admin + pilot studio) | ✅ Done | `npm run seed:dev` — local only |
+| Pagination test seed | ✅ Done | `npm run seed:pagination` — 30 customers/cases/sessions for INKFREE (local only) |
 | Production admin bootstrap | ✅ Done | `npm run bootstrap:admin` — one-time, guarded |
 | User / Customer / Studio models | ✅ Done | |
 | **Week 2 — Cases, booking, engines** | ✅ **100%** | Complete |
@@ -57,9 +58,17 @@ Shared REST API for the Elaya platform — Customer Web Portal, Studio Web Dashb
 | Session list populate | ✅ Done | `listSessions` populates `case` + `customer` |
 | Studio settings API | ✅ Done | GET/PATCH `/studio/settings` — profile, hours, rooms, staff, buffer time |
 
-**M2 remaining (client doc):** CRM pipeline compute + endpoint; shop orders API; analytics support for coin/shop fees.
+**M2 (Studio dashboard):** ✅ Complete — shop orders API, analytics summary, CRM Phase 2, Elaycoins studio overview.
 
-**Known gaps (non-blocking polish):** Anamnesis CRUD API, zone-level lockout, persist `uvBlockDate`/`medicationBlockDate` on booking, `pruefeSperrfristReaktivierung`, auto `pipeline_stufe` recomputation, admin studio approval endpoint.
+**CRM:** `GET/POST/PATCH/DELETE /studio/crm/tasks`, notes, templates, pipeline.
+
+**Shop:** `GET /studio/shop/orders`, `PATCH /studio/shop/orders/:id` (status only). Dev seed: `npm run seed:shop`.
+
+**Analytics:** `GET /studio/analytics/summary` — revenue by akquise, platform fee, shop provision, coins.
+
+**Elaycoins:** `GET /elaycoins/studio/overview` — paginated customer balances.
+
+**Known gaps (post-M2 polish):** Anamnesis CRUD API, zone-level lockout in customer booking, admin studio approval endpoint, full pricing multipliers UI.
 
 ### Changelog
 
@@ -85,6 +94,9 @@ Shared REST API for the Elaya platform — Customer Web Portal, Studio Web Dashb
 [2026-07-01] — Appointment populate: customer name + case info returned in list/detail responses
 [2026-07-02] — Studio settings API — GET/PATCH /studio/settings (profile, öffnungszeiten, räume, mitarbeiter); admin by studioId
 [2026-07-03] — listCases + listSessions populate for studio list pages; dev seed default room + staff
+[2026-07-06] — M2: CRM API (pipeline, tasks, notes, templates) + pipeline engine
+[2026-07-06] — M2: Shop orders API + seed:shop; analytics summary (aggregations); elaycoins studio overview
+[2026-07-06] — studioScope helper; session index for analytics; Swagger on studio CRM/shop/analytics routes
 ```
 
 ---
@@ -180,6 +192,7 @@ cd backend
 npm install
 cp .env.example .env        # then edit .env
 npm run seed:dev            # first time only — creates admin + pilot studio
+npm run seed:pagination     # optional — 30 pagtest customers for pagination UI (local only)
 npm run dev                 # development with nodemon
 ```
 

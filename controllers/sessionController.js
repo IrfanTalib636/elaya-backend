@@ -11,6 +11,7 @@ const {
     buildScopedFilter,
 } = require('../utils/accessHelpers');
 const { getNextSessionNumber, syncCaseSessionStats } = require('../utils/sessionHelpers');
+const { syncCustomerPipeline } = require('../utils/pipelineEngine');
 const {
     processNewSessionElaycoins,
     processNoShowMalus,
@@ -123,6 +124,7 @@ const createSession = asyncHandler(async (req, res) => {
 
     if (!session.is_draft && !session.is_no_show) {
         await syncCaseSessionStats(caseDoc._id);
+        await syncCustomerPipeline(caseDoc.customer);
     }
 
     if (!session.is_draft) {
@@ -242,6 +244,7 @@ const updateSession = asyncHandler(async (req, res) => {
 
     await session.save();
     await syncCaseSessionStats(session.case);
+    await syncCustomerPipeline(session.customer);
 
     const caseDoc = await Case.findById(session.case);
     if (caseDoc) {

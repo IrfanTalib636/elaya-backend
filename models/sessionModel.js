@@ -90,6 +90,7 @@ const sessionSchema = new mongoose.Schema(
 
 sessionSchema.index({ case: 1, session_number: 1 }, { unique: true });
 sessionSchema.index({ case: 1, treatment_date: -1 });
+sessionSchema.index({ studio: 1, treatment_date: -1, is_draft: 1, is_no_show: 1 });
 
 const Session = mongoose.model('Session', sessionSchema);
 

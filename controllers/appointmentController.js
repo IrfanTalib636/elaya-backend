@@ -6,6 +6,7 @@ const asyncHandler = require('../utils/asyncHandler');
 const { assertBookingDateAllowed } = require('../utils/lockoutEngine');
 const { applyKurzfristigeStornierungMalusIfNeeded } = require('../utils/elaycoinEngine');
 const { parsePagination, buildPaginationMeta } = require('../utils/pagination');
+const { syncCustomerPipeline } = require('../utils/pipelineEngine');
 const {
     USER_ROLES,
     APPOINTMENT_TYPE,
@@ -209,6 +210,7 @@ const createAppointment = asyncHandler(async (req, res) => {
             'booked',
             `${body.time} · ${formatMonthDe(new Date(body.date))}`
         );
+        await syncCustomerPipeline(caseDoc.customer);
     }
 
     res.status(201).json({
@@ -359,6 +361,8 @@ const updateAppointment = asyncHandler(async (req, res) => {
     }
 
     await appointment.save();
+
+    await syncCustomerPipeline(appointment.customer);
 
     const isNowCancelled =
         appointment.status === APPOINTMENT_STATUS.STORNIERT ||

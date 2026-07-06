@@ -87,6 +87,12 @@ const PAYMENT_METHOD = {
     TWINT: 'twint',
 };
 
+const SHOP_ORDER_STATUS = {
+    BESTELLT: 'bestellt',
+    VERSENDET: 'versendet',
+    GELIEFERT: 'geliefert',
+};
+
 module.exports = {
     USER_ROLES,
     USER_STATUS,
@@ -102,4 +108,5 @@ module.exports = {
     APPOINTMENT_TYPE,
     PAYMENT_CURRENCY,
     PAYMENT_METHOD,
+    SHOP_ORDER_STATUS,
 };

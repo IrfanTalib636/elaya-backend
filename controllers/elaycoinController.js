@@ -1,11 +1,12 @@
 const ApiError = require('../utils/ApiError');
 const asyncHandler = require('../utils/asyncHandler');
-const Case = require('../models/caseModel');
 const Customer = require('../models/customerModel');
 const User = require('../models/userModel');
 const { getElaycoinData } = require('../utils/elaycoinEngine');
 const { isCustomer, isStudio, isAdmin } = require('../utils/accessHelpers');
+const { resolveStudioId } = require('../utils/studioScope');
 const { USER_ROLES } = require('../config/constants');
+const { parsePagination, buildPaginationMeta } = require('../utils/pagination');
 
 const resolveCustomerOrThrow = async (customerId) => {
     const customer = await Customer.findById(customerId).select('_id').lean();
@@ -37,11 +38,11 @@ const assertCustomerElaycoinAccess = async (user, customerId) => {
     }
 
     if (isStudio(user.role)) {
-        const linked = await Case.exists({
-            customer: customerId,
-            studio: user.studio_id,
+        const belongs = await Customer.exists({
+            _id: customerId,
+            aktuelle_firma_id: user.studio_id,
         });
-        if (!linked) {
+        if (!belongs) {
             throw new ApiError(403, 'You do not have access to this customer');
         }
         return;
@@ -87,7 +88,62 @@ const getCustomerElaycoins = asyncHandler(async (req, res) => {
     });
 });
 
+/** GET /elaycoins/studio/overview — all studio customers with coin balance */
+const listStudioElaycoinOverview = asyncHandler(async (req, res) => {
+    const studioId = resolveStudioId(req);
+
+    const { page, limit, skip } = parsePagination(req.query);
+    const filter = { aktuelle_firma_id: studioId };
+
+    const [customers, total, agg] = await Promise.all([
+        Customer.find(filter)
+            .sort({ 'elaycoins.balance': -1, nachname: 1, vorname: 1 })
+            .skip(skip)
+            .limit(limit)
+            .select('vorname nachname email elaycoins.balance akquise_quelle')
+            .lean(),
+        Customer.countDocuments(filter),
+        Customer.aggregate([
+            { $match: { aktuelle_firma_id: studioId } },
+            {
+                $group: {
+                    _id: null,
+                    total_balance: { $sum: { $ifNull: ['$elaycoins.balance', 0] } },
+                    with_balance: {
+                        $sum: {
+                            $cond: [{ $gt: [{ $ifNull: ['$elaycoins.balance', 0] }, 0] }, 1, 0],
+                        },
+                    },
+                },
+            },
+        ]),
+    ]);
+
+    const summary = agg[0] ?? { total_balance: 0, with_balance: 0 };
+
+    res.json({
+        success: true,
+        data: {
+            summary: {
+                total_balance: summary.total_balance,
+                customers_with_balance: summary.with_balance,
+                total_customers: total,
+            },
+            customers: customers.map((c) => ({
+                id: c._id,
+                vorname: c.vorname,
+                nachname: c.nachname,
+                email: c.email,
+                akquise_quelle: c.akquise_quelle,
+                balance: c.elaycoins?.balance ?? 0,
+            })),
+            pagination: buildPaginationMeta(page, limit, total),
+        },
+    });
+});
+
 module.exports = {
     getMyElaycoins,
     getCustomerElaycoins,
+    listStudioElaycoinOverview,
 };

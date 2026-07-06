@@ -63,4 +63,34 @@ router.get(
     elaycoinController.getCustomerElaycoins
 );
 
+/**
+ * @swagger
+ * /elaycoins/studio/overview:
+ *   get:
+ *     summary: Studio Elaycoin overview (all customers)
+ *     description: |
+ *       **Auth:** Bearer · **Who can call:** studio_admin, studio_staff, admin, super_admin
+ *
+ *       Read-only list of customer coin balances for the studio, sorted by balance desc.
+ *     tags: [Elaycoins]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: page
+ *         schema: { type: integer, default: 1 }
+ *       - in: query
+ *         name: limit
+ *         schema: { type: integer, default: 20 }
+ *     responses:
+ *       200:
+ *         description: Customer coin balances + summary
+ */
+router.get(
+    '/studio/overview',
+    protect,
+    authorize(...studioAndAdminRoles),
+    elaycoinController.listStudioElaycoinOverview
+);
+
 module.exports = router;
