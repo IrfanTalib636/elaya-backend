@@ -7,6 +7,7 @@ const { generateCaseId } = require('../utils/generateCaseId');
 const { assertCaseAccess } = require('../utils/accessHelpers');
 const {
     computeAvailability,
+    parsePreSessionCheck,
 } = require('../utils/lockoutEngine');
 const {
     calculatePrice,
@@ -24,12 +25,30 @@ const isCustomer = (role) => role === USER_ROLES.CUSTOMER;
 const isStudio = (role) => STUDIO_ROLES.includes(role);
 const isAdmin = (role) => ADMIN_ROLES.includes(role);
 
+const formatCustomerRef = (customer) => {
+    if (!customer) {
+        return null;
+    }
+
+    if (typeof customer === 'object' && (customer.vorname !== undefined || customer.email !== undefined)) {
+        return {
+            id: customer._id?.toString() ?? customer.id,
+            vorname: customer.vorname ?? '',
+            nachname: customer.nachname ?? '',
+            email: customer.email ?? '',
+            telefon: customer.telefon ?? '',
+        };
+    }
+
+    return customer.toString();
+};
+
 const formatCase = (caseDoc, zones, role) => {
     const doc = caseDoc.toObject ? caseDoc.toObject() : { ...caseDoc };
     const payload = {
         id: doc._id,
         caseId: doc.caseId,
-        customer: doc.customer,
+        customer: formatCustomerRef(doc.customer),
         studio: doc.studio,
         type: doc.type,
         tc_title: doc.tc_title,
@@ -244,7 +263,10 @@ const listCases = asyncHandler(async (req, res) => {
 });
 
 const getCase = asyncHandler(async (req, res) => {
-    const caseDoc = await Case.findById(req.params.id);
+    const caseDoc = await Case.findById(req.params.id).populate(
+        'customer',
+        'vorname nachname email telefon'
+    );
 
     if (!caseDoc) {
         throw new ApiError(404, 'Case not found');
@@ -295,6 +317,8 @@ const updateCase = asyncHandler(async (req, res) => {
     Object.assign(caseDoc, req.body);
     await caseDoc.save();
 
+    await caseDoc.populate('customer', 'vorname nachname email telefon');
+
     const zones = caseDoc.zonen_aktiv
         ? await CaseZone.find({ case: caseDoc._id }).sort({ zonen_id: 1 })
         : [];
@@ -317,13 +341,13 @@ const getCaseAvailability = asyncHandler(async (req, res) => {
 
     assertCaseAccess(req.user, caseDoc);
 
-    const { consultationOnly, from, to, uv_level } = req.query;
+    const { consultationOnly, from, to, ...preSessionInput } = req.query;
 
     const result = await computeAvailability({
         activeCaseId: caseDoc._id,
         customerId: caseDoc.customer,
         consultationOnly: consultationOnly ?? false,
-        preSessionCheck: uv_level ? { uv_level } : {},
+        preSessionCheck: parsePreSessionCheck(preSessionInput),
         from,
         to,
     });

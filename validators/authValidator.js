@@ -61,8 +61,20 @@ const loginSchema = z.object({
     password: z.string().min(1, 'password is required'),
 });
 
+const forgotPasswordSchema = z.object({
+    email: emailSchema,
+    portal: z.enum(['studio', 'admin', 'customer']).optional().default('studio'),
+});
+
+const resetPasswordSchema = z.object({
+    token: z.string().trim().min(1, 'token is required'),
+    password: passwordSchema,
+});
+
 module.exports = {
     registerCustomerSchema,
     registerStudioSchema,
     loginSchema,
+    forgotPasswordSchema,
+    resetPasswordSchema,
 };

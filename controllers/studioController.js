@@ -2,9 +2,11 @@ const mongoose = require('mongoose');
 const ApiError = require('../utils/ApiError');
 const asyncHandler = require('../utils/asyncHandler');
 const Studio = require('../models/studioModel');
-const { USER_ROLES } = require('../config/constants');
+const User = require('../models/userModel');
+const { USER_ROLES, USER_STATUS, STUDIO_STATUS } = require('../config/constants');
 const { isAdmin, isStudio } = require('../utils/accessHelpers');
 const { mergeOeffnungszeiten } = require('../config/studioDefaults');
+const { parsePagination, buildPaginationMeta } = require('../utils/pagination');
 
 const PROFILE_FIELDS = ['firma', 'telefon', 'strasse', 'plz', 'ort', 'land', 'notizen'];
 
@@ -189,8 +191,119 @@ const patchStudioSettings = asyncHandler(async (req, res) => {
     });
 });
 
+const formatStudioAdminRow = (studio, ownerUser) => ({
+    id: studio._id,
+    firma: studio.firma,
+    studio_code: studio.studio_code,
+    email: studio.email,
+    telefon: studio.telefon ?? '',
+    ort: studio.ort ?? '',
+    status: studio.status,
+    owner: ownerUser
+        ? {
+              id: ownerUser._id,
+              email: ownerUser.email,
+              status: ownerUser.status,
+          }
+        : null,
+    createdAt: studio.createdAt,
+});
+
+const userStatusForStudioStatus = (studioStatus) => {
+    if (studioStatus === STUDIO_STATUS.AKTIV) {
+        return USER_STATUS.AKTIV;
+    }
+    if (studioStatus === STUDIO_STATUS.GESPERRT) {
+        return USER_STATUS.GESPERRT;
+    }
+    return USER_STATUS.AUSSTEHEND;
+};
+
+const listStudiosAdmin = asyncHandler(async (req, res) => {
+    const { page, limit, skip } = parsePagination(req.query);
+    const { status, search } = req.query;
+
+    const filter = {};
+    if (status) {
+        filter.status = status;
+    }
+    if (search) {
+        const re = new RegExp(search, 'i');
+        filter.$or = [{ firma: re }, { studio_code: re }, { email: re }, { ort: re }];
+    }
+
+    const [studios, total] = await Promise.all([
+        Studio.find(filter).sort({ createdAt: -1 }).skip(skip).limit(limit).lean(),
+        Studio.countDocuments(filter),
+    ]);
+
+    const ownerIds = studios.map((s) => s.owner).filter(Boolean);
+    const owners = await User.find({ _id: { $in: ownerIds } })
+        .select('email status')
+        .lean();
+    const ownerMap = Object.fromEntries(owners.map((u) => [String(u._id), u]));
+
+    res.status(200).json({
+        success: true,
+        data: {
+            studios: studios.map((s) =>
+                formatStudioAdminRow(s, ownerMap[String(s.owner)] ?? null)
+            ),
+            pagination: buildPaginationMeta(page, limit, total),
+        },
+    });
+});
+
+const patchStudioStatus = asyncHandler(async (req, res) => {
+    const { studioId } = req.params;
+    const { status, notizen } = req.body;
+
+    if (
+        !mongoose.Types.ObjectId.isValid(studioId) ||
+        String(new mongoose.Types.ObjectId(studioId)) !== String(studioId)
+    ) {
+        throw new ApiError(400, 'Invalid studioId');
+    }
+
+    const studio = await Studio.findById(studioId);
+    if (!studio) {
+        throw new ApiError(404, 'Studio not found');
+    }
+
+    studio.status = status;
+    if (notizen !== undefined) {
+        studio.notizen = notizen;
+    }
+    await studio.save();
+
+    const ownerStatus = userStatusForStudioStatus(status);
+
+    if (studio.owner) {
+        await User.findByIdAndUpdate(studio.owner, { status: ownerStatus });
+    }
+
+    await User.updateMany(
+        { studio_id: studio._id, role: { $in: [USER_ROLES.STUDIO_ADMIN, USER_ROLES.STUDIO_STAFF] } },
+        { status: ownerStatus }
+    );
+
+    const owner = studio.owner
+        ? await User.findById(studio.owner).select('email status').lean()
+        : null;
+
+    res.status(200).json({
+        success: true,
+        message: 'Studio status updated',
+        data: {
+            studio: formatStudioAdminRow(studio.toObject(), owner),
+        },
+    });
+});
+
 module.exports = {
     formatStudioSettings,
     getStudioSettings,
     patchStudioSettings,
+    listStudiosAdmin,
+    patchStudioStatus,
 };

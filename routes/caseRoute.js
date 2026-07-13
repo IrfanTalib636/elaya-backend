@@ -1,8 +1,10 @@
 const express = require('express');
 const caseController = require('../controllers/caseController');
+const anamnesisController = require('../controllers/anamnesisController');
 const validateMiddleware = require('../middleware/validateMiddleware');
 const { protect, authorize } = require('../middleware/authMiddleware');
 const { createCaseSchema, updateCaseSchema, availabilityQuerySchema, listCasesQuerySchema } = require('../validators/caseValidator');
+const { upsertAnamnesisSchema } = require('../validators/anamnesisValidator');
 const { USER_ROLES } = require('../config/constants');
 
 const router = express.Router();
@@ -171,6 +173,66 @@ router.get(
     protect,
     authorize(...caseAccessRoles),
     caseController.getCasePricing
+);
+
+/**
+ * @swagger
+ * /cases/{id}/anamnesis:
+ *   get:
+ *     summary: Get medical anamnesis for a case
+ *     tags: [Cases]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: string }
+ *     responses:
+ *       200:
+ *         description: Anamnesis record or null if not filled
+ */
+router.get(
+    '/:id/anamnesis',
+    protect,
+    authorize(...caseAccessRoles),
+    anamnesisController.getCaseAnamnesis
+);
+
+/**
+ * @swagger
+ * /cases/{id}/anamnesis:
+ *   put:
+ *     summary: Create or update medical anamnesis
+ *     tags: [Cases]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: string }
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [antworten]
+ *             properties:
+ *               antworten: { type: object }
+ *     responses:
+ *       200:
+ *         description: Anamnesis updated
+ *       201:
+ *         description: Anamnesis created
+ */
+router.put(
+    '/:id/anamnesis',
+    protect,
+    authorize(...caseAccessRoles),
+    validateMiddleware(upsertAnamnesisSchema),
+    anamnesisController.upsertCaseAnamnesis
 );
 
 /**

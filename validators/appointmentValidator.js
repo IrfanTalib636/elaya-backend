@@ -4,6 +4,7 @@ const {
     APPOINTMENT_TYPE,
 } = require('../config/constants');
 const { paginationQueryFields } = require('./paginationValidator');
+const { preSessionCheckSchema } = require('./caseValidator');
 
 const appointmentTypeEnum = z.enum([
     APPOINTMENT_TYPE.BERATUNG,
@@ -28,6 +29,7 @@ const createAppointmentSchema = z.object({
     gruppen_cases: z.array(z.string().trim()).optional().default([]),
     gruppen_rabatt: z.number().min(0).max(100).nullable().optional(),
     gruppen_preis_total: z.number().min(0).nullable().optional(),
+    preSessionCheck: preSessionCheckSchema.optional(),
 });
 
 const updateAppointmentSchema = z
@@ -42,6 +44,7 @@ const updateAppointmentSchema = z
         standort_name: optionalTrimmedString,
         gruppen_rabatt: z.number().min(0).max(100).nullable().optional(),
         gruppen_preis_total: z.number().min(0).nullable().optional(),
+        preSessionCheck: preSessionCheckSchema.optional(),
     })
     .refine((data) => Object.keys(data).length > 0, {
         message: 'At least one field is required to update',

@@ -1,5 +1,9 @@
 const { z } = require('zod');
+const { STUDIO_STATUS } = require('../config/constants');
 const { WEEKDAY_KEYS, MITARBEITER_ROLLEN } = require('../config/studioDefaults');
+const { paginationQueryFields } = require('./paginationValidator');
+
+const studioStatusEnum = z.enum(Object.values(STUDIO_STATUS));
 
 const timeSchema = z
     .string()
@@ -83,7 +87,22 @@ const patchStudioSettingsSchema = z
         { message: 'At least one settings section is required' }
     );
 
+const listAdminStudiosQuerySchema = z.object({
+    ...paginationQueryFields,
+    status: studioStatusEnum.optional(),
+    search: z.string().trim().optional(),
+});
+
+const patchStudioStatusSchema = z
+    .object({
+        status: studioStatusEnum,
+        notizen: z.string().trim().optional(),
+    })
+    .strict();
+
 module.exports = {
     patchStudioSettingsSchema,
     patchStudioProfileSchema,
+    listAdminStudiosQuerySchema,
+    patchStudioStatusSchema,
 };

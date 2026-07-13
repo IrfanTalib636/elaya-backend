@@ -178,13 +178,15 @@ const createAppointment = asyncHandler(async (req, res) => {
         ? await loadCasesForGroup(primaryCase, gruppen_cases, req.user)
         : [primaryCase];
 
-    if (isCustomer(req.user.role)) {
+    if (!body.consultationOnly && body.type !== APPOINTMENT_TYPE.BERATUNG) {
+        const preSessionCheck = body.preSessionCheck ?? {};
         for (const caseDoc of groupCases) {
             await assertBookingDateAllowed({
                 caseId: caseDoc._id,
                 customerId: caseDoc.customer,
                 date: body.date,
-                consultationOnly: body.consultationOnly ?? false,
+                consultationOnly: false,
+                preSessionCheck,
             });
         }
     }
@@ -305,14 +307,18 @@ const updateAppointment = asyncHandler(async (req, res) => {
 
     assertAppointmentAccess(req.user, appointment);
 
-    if (isCustomer(req.user.role) && req.body.date) {
+    const consultationOnly = req.body.consultationOnly ?? appointment.consultationOnly;
+    const isReschedule = req.body.date && !consultationOnly && appointment.type !== APPOINTMENT_TYPE.BERATUNG;
+
+    if (isReschedule) {
         const caseDoc = await Case.findById(appointment.case);
         if (caseDoc) {
             await assertBookingDateAllowed({
                 caseId: caseDoc._id,
                 customerId: caseDoc.customer,
                 date: req.body.date,
-                consultationOnly: req.body.consultationOnly ?? appointment.consultationOnly,
+                consultationOnly: false,
+                preSessionCheck: req.body.preSessionCheck ?? {},
             });
         }
     }

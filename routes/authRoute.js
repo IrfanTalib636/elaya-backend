@@ -6,6 +6,8 @@ const {
     registerCustomerSchema,
     registerStudioSchema,
     loginSchema,
+    forgotPasswordSchema,
+    resetPasswordSchema,
 } = require('../validators/authValidator');
 const { protect } = require('../middleware/authMiddleware');
 
@@ -126,6 +128,69 @@ router.post(
  *         description: Account locked or pending approval
  */
 router.post('/login', authRateLimiter, validateMiddleware(loginSchema), authController.login);
+
+/**
+ * @swagger
+ * /auth/forgot-password:
+ *   post:
+ *     summary: Request password reset email
+ *     description: |
+ *       **Auth:** None · **Who can call:** Anyone
+ *
+ *       Sends a reset link if the email exists and matches the portal (studio or admin).
+ *       Always returns success to avoid email enumeration.
+ *     tags: [Auth]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [email]
+ *             properties:
+ *               email: { type: string, format: email }
+ *               portal: { type: string, enum: [studio, admin], default: studio }
+ *     responses:
+ *       200:
+ *         description: Reset email queued (if account exists)
+ */
+router.post(
+    '/forgot-password',
+    authRateLimiter,
+    validateMiddleware(forgotPasswordSchema),
+    authController.forgotPassword
+);
+
+/**
+ * @swagger
+ * /auth/reset-password:
+ *   post:
+ *     summary: Reset password with token
+ *     description: |
+ *       **Auth:** None · **Who can call:** Anyone with valid reset token from email
+ *     tags: [Auth]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [token, password]
+ *             properties:
+ *               token: { type: string }
+ *               password: { type: string, format: password, minLength: 8 }
+ *     responses:
+ *       200:
+ *         description: Password updated
+ *       400:
+ *         description: Invalid or expired token
+ */
+router.post(
+    '/reset-password',
+    authRateLimiter,
+    validateMiddleware(resetPasswordSchema),
+    authController.resetPassword
+);
 
 /**
  * @swagger

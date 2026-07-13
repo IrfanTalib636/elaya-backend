@@ -87,6 +87,15 @@ const updateCaseSchema = z
         message: 'At least one field is required to update',
     });
 
+const preSessionCheckSchema = z.object({
+    uv_exposition: z.enum(['keine', 'leicht', 'mittel', 'intensiv']).optional(),
+    medikamente: z
+        .array(z.enum(['retinoide', 'antibiotika', 'antidepressiva']))
+        .optional()
+        .default([]),
+    medikament_datum: z.coerce.date().optional(),
+});
+
 const availabilityQuerySchema = z.object({
     consultationOnly: z
         .union([z.enum(['true', 'false']), z.boolean()])
@@ -95,6 +104,16 @@ const availabilityQuerySchema = z.object({
     from: z.coerce.date().optional(),
     to: z.coerce.date().optional(),
     uv_level: z.enum(['none', 'moderate', 'intense']).optional(),
+    uv_exposition: z.enum(['keine', 'leicht', 'mittel', 'intensiv']).optional(),
+    medikamente: z
+        .union([z.string(), z.array(z.string())])
+        .optional()
+        .transform((value) => {
+            if (!value) return [];
+            const list = Array.isArray(value) ? value : value.split(',');
+            return list.map((item) => item.trim()).filter(Boolean);
+        }),
+    medikament_datum: z.coerce.date().optional(),
 });
 
 const listCasesQuerySchema = z.object({
@@ -108,6 +127,7 @@ module.exports = {
     createCaseSchema,
     updateCaseSchema,
     caseZoneInputSchema,
+    preSessionCheckSchema,
     availabilityQuerySchema,
     listCasesQuerySchema,
 };

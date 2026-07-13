@@ -4,6 +4,8 @@ const validateMiddleware = require('../middleware/validateMiddleware');
 const {
     getStudioSettings,
     patchStudioSettings,
+    listStudiosAdmin,
+    patchStudioStatus,
 } = require('../controllers/studioController');
 const {
     getCrmPipeline,
@@ -15,7 +17,7 @@ const {
     createCrmNote,
     getCrmTemplate,
 } = require('../controllers/crmController');
-const { patchStudioSettingsSchema } = require('../validators/studioValidator');
+const { patchStudioSettingsSchema, listAdminStudiosQuerySchema, patchStudioStatusSchema } = require('../validators/studioValidator');
 const {
     createCrmTaskSchema,
     updateCrmTaskSchema,
@@ -34,6 +36,83 @@ const router = express.Router();
 
 const studioRoles = [USER_ROLES.STUDIO_ADMIN, USER_ROLES.STUDIO_STAFF];
 const adminRoles = [USER_ROLES.ADMIN, USER_ROLES.SUPER_ADMIN];
+
+/**
+ * @swagger
+ * /studio/admin/studios:
+ *   get:
+ *     summary: List studios for admin approval (admin)
+ *     description: |
+ *       **Auth:** Bearer · **Who can call:** admin, super_admin
+ *
+ *       Filter by status (e.g. ausstehend) to review pending studio registrations.
+ *     tags: [Studio]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: status
+ *         schema: { type: string, enum: [ausstehend, aktiv, gesperrt] }
+ *       - in: query
+ *         name: search
+ *         schema: { type: string }
+ *       - in: query
+ *         name: page
+ *         schema: { type: integer, default: 1 }
+ *       - in: query
+ *         name: limit
+ *         schema: { type: integer, default: 20 }
+ *     responses:
+ *       200:
+ *         description: Paginated studio list
+ */
+router.get(
+    '/admin/studios',
+    protect,
+    authorize(...adminRoles),
+    validateMiddleware(listAdminStudiosQuerySchema, 'query'),
+    listStudiosAdmin
+);
+
+/**
+ * @swagger
+ * /studio/admin/studios/{studioId}/status:
+ *   patch:
+ *     summary: Approve, reject, or lock a studio (admin)
+ *     description: |
+ *       **Auth:** Bearer · **Who can call:** admin, super_admin
+ *
+ *       Sets studio status and syncs the owner + studio user accounts (aktiv / ausstehend / gesperrt).
+ *       Use status `aktiv` to approve a pending studio registration.
+ *     tags: [Studio]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: studioId
+ *         required: true
+ *         schema: { type: string }
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [status]
+ *             properties:
+ *               status: { type: string, enum: [ausstehend, aktiv, gesperrt] }
+ *               notizen: { type: string }
+ *     responses:
+ *       200:
+ *         description: Studio status updated
+ */
+router.patch(
+    '/admin/studios/:studioId/status',
+    protect,
+    authorize(...adminRoles),
+    validateMiddleware(patchStudioStatusSchema),
+    patchStudioStatus
+);
 
 /**
  * @swagger

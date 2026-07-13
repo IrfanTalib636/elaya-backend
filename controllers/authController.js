@@ -1,6 +1,16 @@
 const User = require('../models/userModel');
 const Customer = require('../models/customerModel');
 const Studio = require('../models/studioModel');
+const RefreshToken = require('../models/refreshTokenModel');
+const {
+    sendPasswordResetEmail,
+    buildResetPasswordUrl,
+} = require('../services/emailService');
+const {
+    roleMatchesPortal,
+    createPasswordResetToken,
+    findValidPasswordResetToken,
+} = require('../utils/passwordReset');
 const ApiError = require('../utils/ApiError');
 const asyncHandler = require('../utils/asyncHandler');
 const {
@@ -301,6 +311,62 @@ const logout = asyncHandler(async (req, res) => {
     });
 });
 
+const FORGOT_PASSWORD_MESSAGE =
+    'If an account exists for this email, reset instructions will be sent shortly.';
+
+const forgotPassword = asyncHandler(async (req, res) => {
+    const { email, portal } = req.body;
+
+    const user = await User.findOne({ email });
+
+    if (user && roleMatchesPortal(user.role, portal)) {
+        const rawToken = await createPasswordResetToken(user._id);
+        const resetUrl = buildResetPasswordUrl(portal, rawToken);
+
+        await sendPasswordResetEmail({
+            to: user.email,
+            resetUrl,
+        });
+    }
+
+    res.status(200).json({
+        success: true,
+        message: FORGOT_PASSWORD_MESSAGE,
+    });
+});
+
+const resetPassword = asyncHandler(async (req, res) => {
+    const { token, password } = req.body;
+
+    const record = await findValidPasswordResetToken(token);
+
+    if (!record) {
+        throw new ApiError(400, 'Invalid or expired reset token');
+    }
+
+    const user = await User.findById(record.user).select('+password');
+
+    if (!user) {
+        throw new ApiError(400, 'Invalid or expired reset token');
+    }
+
+    user.password = password;
+    await user.save();
+
+    record.used_at = new Date();
+    await record.save();
+
+    await RefreshToken.updateMany(
+        { user: user._id, revoked_at: null },
+        { revoked_at: new Date() }
+    );
+
+    res.status(200).json({
+        success: true,
+        message: 'Password reset successfully',
+    });
+});
+
 const getMe = asyncHandler(async (req, res) => {
     const user = req.user;
 
@@ -340,5 +406,7 @@ module.exports = {
     login,
     refresh,
     logout,
+    forgotPassword,
+    resetPassword,
     getMe,
 };

@@ -131,8 +131,13 @@ const getCustomer = asyncHandler(async (req, res) => {
     if (!customer) throw new ApiError(404, 'Customer not found');
     assertCustomerAccess(req.user, customer);
 
-    // attach case summary
-    const cases = await Case.find({ customer: customer._id })
+    // attach case summary (studio users only see cases at their studio)
+    const caseFilter = { customer: customer._id };
+    if (isStudio(req.user.role)) {
+        caseFilter.studio = req.user.studio_id;
+    }
+
+    const cases = await Case.find(caseFilter)
         .select('caseId type tc_title status sessions sessionsDone removal lastSessionDate')
         .sort({ createdAt: -1 })
         .lean();

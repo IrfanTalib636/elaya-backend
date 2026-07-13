@@ -5,7 +5,7 @@ Shared REST API for the Elaya platform — Customer Web Portal, Studio Web Dashb
 **Stack:** Node.js · Express 5 · MongoDB · Mongoose · JWT · Zod  
 **API base path:** `/api/v1`  
 **Planned production host:** [Railway](https://railway.app)  
-**Last updated:** 2026-07-06
+**Last updated:** 2026-07-13
 
 ---
 
@@ -68,7 +68,22 @@ Shared REST API for the Elaya platform — Customer Web Portal, Studio Web Dashb
 
 **Elaycoins:** `GET /elaycoins/studio/overview` — paginated customer balances.
 
-**Known gaps (post-M2 polish):** Anamnesis CRUD API, zone-level lockout in customer booking, admin studio approval endpoint, full pricing multipliers UI.
+### M2 close-out & financier demo (2026-07-11 — 2026-07-13)
+
+| Area | Status | Notes |
+|---|---|---|
+| **Forgot / reset password** | ✅ Done | `POST /auth/forgot-password`, `POST /auth/reset-password` — portals: `studio`, `admin`, `customer` (mobile) |
+| **Email service** | ✅ Done | Nodemailer — console (local) or SMTP (production); `APP_FRONTEND_URL`, `APP_CUSTOMER_RESET_URL` |
+| **Anamnesis API** | ✅ Done | `GET/PUT /cases/:id/anamnesis` — separate `anamnesis` collection, ampel engine |
+| **Admin studio approval** | ✅ Done | `GET/PATCH /studio/admin/studios` — list pending + activate |
+| **Lockout engine (demo-ready)** | ✅ Done | 49-day same-case, 28-day cross-case, pre-session UV/meds; studio booking validation |
+| **Case customer populate** | ✅ Done | `GET /cases/:id` returns customer name fields |
+| **Customer detail case scope** | ✅ Done | Studio users only see cases at their studio |
+| **Financier demo seed** | ✅ Done | `npm run seed:demo` — Maria Tribal, `#TRI-001` + `#HAN-001` on INKFREE |
+
+**Financier demo verified locally:** lockout panel, blocked booking, Beratung bypass, pre-session UV/meds (longest lockout wins), appointment recalculates lockout.
+
+**Known gaps (post-M2):** Admin dashboard UI for studio approval, zone-level lockout in customer mobile booking, full pricing multipliers UI.
 
 ### Changelog
 
@@ -97,6 +112,12 @@ Shared REST API for the Elaya platform — Customer Web Portal, Studio Web Dashb
 [2026-07-06] — M2: CRM API (pipeline, tasks, notes, templates) + pipeline engine
 [2026-07-06] — M2: Shop orders API + seed:shop; analytics summary (aggregations); elaycoins studio overview
 [2026-07-06] — studioScope helper; session index for analytics; Swagger on studio CRM/shop/analytics routes
+[2026-07-11] — Forgot/reset password API + password reset tokens + email service (studio/admin/customer portals)
+[2026-07-11] — Anamnesis API (GET/PUT /cases/:id/anamnesis) + ampel engine
+[2026-07-11] — Admin studio list + activate endpoints
+[2026-07-11] — Lockout: pre-session UV/meds in availability + booking; studio booking validation
+[2026-07-11] — seed:demo financier script (#TRI-001 + #HAN-001); customer detail cases scoped to studio
+[2026-07-13] — Financier demo lockout flow re-verified (49/28-day, Beratung, pre-session, recalc after booking)
 ```
 
 ---
@@ -115,6 +136,7 @@ backend/
 │   ├── studioDefaults.js  # Opening hours defaults + staff roles
 │   └── swagger.js         # OpenAPI / Swagger UI setup
 ├── controllers/
+│   ├── anamnesisController.js
 │   ├── authController.js
 │   ├── appointmentController.js
 │   ├── caseController.js
@@ -134,6 +156,7 @@ backend/
 │   ├── caseZoneModel.js
 │   ├── customerModel.js
 │   ├── platformConfigModel.js
+│   ├── passwordResetTokenModel.js
 │   ├── refreshTokenModel.js
 │   ├── sessionModel.js
 │   ├── studioModel.js
@@ -150,8 +173,10 @@ backend/
 │   └── index.js
 ├── scripts/
 │   ├── bootstrapAdmin.js  # One-time production super admin (guarded)
+│   ├── seedDemo.js        # Financier demo — #TRI-001 + #HAN-001 (local; VPS with SEED_DEMO_ALLOW_PRODUCTION=1)
 │   └── seedDev.js         # Local dev fixtures only — blocked in production
 ├── validators/
+│   ├── anamnesisValidator.js
 │   ├── appointmentValidator.js
 │   ├── authValidator.js
 │   ├── caseValidator.js
@@ -159,13 +184,17 @@ backend/
 │   ├── paginationValidator.js
 │   ├── sessionValidator.js
 │   └── studioValidator.js
+├── services/
+│   └── emailService.js          # Password reset emails (console / SMTP)
 ├── utils/
 │   ├── accessHelpers.js         # Shared role + access checks
+│   ├── anamnesisEngine.js       # Medical anamnesis ampel evaluation
 │   ├── ApiError.js
 │   ├── asyncHandler.js
 │   ├── generateCaseId.js
 │   ├── generateTokenAndSetCookies.js
-│   ├── lockoutEngine.js         # berechneAlleSperren — 49/28-day, UV/meds
+│   ├── lockoutEngine.js         # berechneAlleSperren — 49/28-day, UV/meds, pre-session
+│   ├── passwordReset.js         # Token issue/verify + portal-scoped reset
 │   ├── pagination.js            # page/limit parsing for list endpoints
 │   ├── elaycoinEngine.js        # vergebeElaycoins, zieheElaycoinsAb, expiry
 │   ├── configService.js         # platform_config + studio_pricing helpers

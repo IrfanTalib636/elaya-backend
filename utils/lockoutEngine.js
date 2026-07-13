@@ -81,19 +81,39 @@ const groupByCaseId = (items) => {
 };
 
 const normalizePreSessionCheck = (check = {}) => {
-    if (!check.uv_level) {
-        return check;
+    const normalized = { ...check };
+
+    if (check.uv_level) {
+        const uvMap = {
+            none: 'keine',
+            moderate: 'mittel',
+            intense: 'intensiv',
+        };
+        normalized.uv_exposition = uvMap[check.uv_level] || normalized.uv_exposition;
     }
 
-    const uvMap = {
-        moderate: 'mittel',
-        intense: 'intensiv',
-    };
+    if (Array.isArray(normalized.medikamente)) {
+        normalized.medikamente = normalized.medikamente.filter(Boolean);
+    } else if (typeof normalized.medikamente === 'string' && normalized.medikamente.trim()) {
+        normalized.medikamente = normalized.medikamente.split(',').map((m) => m.trim()).filter(Boolean);
+    } else if (!normalized.medikamente) {
+        normalized.medikamente = [];
+    }
 
-    return {
-        ...check,
-        uv_exposition: uvMap[check.uv_level] || null,
-    };
+    return normalized;
+};
+
+const parsePreSessionCheck = (input = {}) => {
+    if (input.preSessionCheck && typeof input.preSessionCheck === 'object') {
+        return normalizePreSessionCheck(input.preSessionCheck);
+    }
+
+    return normalizePreSessionCheck({
+        uv_level: input.uv_level,
+        uv_exposition: input.uv_exposition,
+        medikamente: input.medikamente,
+        medikament_datum: input.medikament_datum,
+    });
 };
 
 const isLockoutDisabled = (caseDoc) => {
@@ -180,21 +200,48 @@ const berechneAlleSperren = ({
                 (appointment) =>
                     !isAppointmentCancelled(appointment) &&
                     !isAppointmentCompletedBySession(appointment, activeSessions) &&
+                    isCrossCaseAppointment(appointment) &&
                     startOfDay(appointment.date) >= heute
             )
             .map((appointment) => startOfDay(appointment.date));
 
-        const referenceDates = [...sessionDates, ...futureAppointmentDates];
-        if (referenceDates.length > 0) {
-            const latestRef = new Date(Math.max(...referenceDates.map((d) => d.getTime())));
+        const latestSession =
+            sessionDates.length > 0
+                ? new Date(Math.max(...sessionDates.map((d) => d.getTime())))
+                : null;
+
+        const latestFutureAppt =
+            futureAppointmentDates.length > 0
+                ? new Date(Math.max(...futureAppointmentDates.map((d) => d.getTime())))
+                : null;
+
+        let latestRef = null;
+        let referenceType = 'Sitzung';
+
+        if (latestSession && latestFutureAppt) {
+            if (latestFutureAppt.getTime() >= latestSession.getTime()) {
+                latestRef = latestFutureAppt;
+                referenceType = 'Termin';
+            } else {
+                latestRef = latestSession;
+            }
+        } else if (latestFutureAppt) {
+            latestRef = latestFutureAppt;
+            referenceType = 'Termin';
+        } else if (latestSession) {
+            latestRef = latestSession;
+        }
+
+        if (latestRef) {
             const sameCaseUntil = addDays(latestRef, SAME_CASE_DAYS);
             if (sameCaseUntil > heute) {
                 const caseTitle = activeCase.tc_title || activeCase.bodyLabel || 'Dieser Case';
+                const refLabel = referenceType === 'Termin' ? 'Termin vom' : 'Sitzung vom';
                 sperren.push(
                     mkSperre(
                         heute,
                         'same_case',
-                        `⏳ ${SAME_CASE_DAYS} Tage · ${caseTitle} · Sitzung vom ${fmtLang(latestRef)}`,
+                        `⏳ ${SAME_CASE_DAYS} Tage · ${caseTitle} · ${refLabel} ${fmtLang(latestRef)}`,
                         sameCaseUntil
                     )
                 );
@@ -441,7 +488,7 @@ const isBookingDateAllowed = (date, availability) => {
     if (dayKey < availability.fruehestes) {
         return {
             allowed: false,
-            message: 'Date is before the earliest bookable day',
+            message: `Termin zu früh. Frühestens buchbar ab ${availability.fruehestes} (Sperrfrist).`,
             fruehestes: availability.fruehestes,
         };
     }
@@ -449,7 +496,7 @@ const isBookingDateAllowed = (date, availability) => {
     if (availability.blocked_dates.includes(dayKey)) {
         return {
             allowed: false,
-            message: 'Date is blocked by an active lockout period',
+            message: 'Dieser Tag ist durch eine aktive Sperrfrist blockiert.',
             fruehestes: availability.fruehestes,
         };
     }
@@ -489,6 +536,8 @@ module.exports = {
     isBookingDateAllowed,
     assertBookingDateAllowed,
     berechneAlleSperren,
+    parsePreSessionCheck,
+    normalizePreSessionCheck,
     loadLockoutContext,
     tagIstGesperrt,
     startOfDay,
