@@ -80,6 +80,7 @@ Shared REST API for the Elaya platform — Customer Web Portal, Studio Web Dashb
 | **Case customer populate** | ✅ Done | `GET /cases/:id` returns customer name fields |
 | **Customer detail case scope** | ✅ Done | Studio users only see cases at their studio |
 | **Financier demo seed** | ✅ Done | `npm run seed:demo` — Maria Tribal, `#TRI-001` + `#HAN-001` on INKFREE |
+| **Public studio list (registration)** | ✅ Done | `GET /studios/public` — active studios with address + standorte for customer signup dropdown |
 
 **Financier demo verified locally:** lockout panel, blocked booking, Beratung bypass, pre-session UV/meds (longest lockout wins), appointment recalculates lockout.
 
@@ -118,6 +119,7 @@ Shared REST API for the Elaya platform — Customer Web Portal, Studio Web Dashb
 [2026-07-11] — Lockout: pre-session UV/meds in availability + booking; studio booking validation
 [2026-07-11] — seed:demo financier script (#TRI-001 + #HAN-001); customer detail cases scoped to studio
 [2026-07-13] — Financier demo lockout flow re-verified (49/28-day, Beratung, pre-session, recalc after booking)
+[2026-07-13] — GET /studios/public — active studios for customer registration dropdown (name + address + standorte)
 ```
 
 ---
@@ -281,6 +283,36 @@ Production bootstrap (one-time — `npm run bootstrap:admin`):
 | `POST` | `/api/v1/auth/refresh` | Cookie | New access token |
 | `POST` | `/api/v1/auth/logout` | Cookie | Revokes refresh token |
 | `GET` | `/api/v1/auth/me` | Bearer | Current user + linked profile |
+
+### Studios (public)
+
+| Method | Path | Auth | Description |
+|---|---|---|---|
+| `GET` | `/api/v1/studios/public` | No | Active studios for customer registration — returns `studio_code`, `firma`, address, `standorte` |
+
+#### Customer registration flow (mobile / web)
+
+1. **`GET /api/v1/studios/public`** — load dropdown; display `firma` plus primary address (`strasse`, `plz`, `ort`) and any `standorte` rows.
+2. User selects a studio — keep its **`studio_code`** (e.g. `INKFREE`).
+3. **`POST /api/v1/auth/register/customer`** — send profile fields plus `studio_code`:
+
+```json
+{
+  "vorname": "Maria",
+  "nachname": "Muster",
+  "email": "maria@example.com",
+  "telefon": "+41 79 123 45 67",
+  "password": "SecurePass123!",
+  "studio_code": "INKFREE",
+  "geburtsdatum": "1990-05-15",
+  "strasse": "Musterstrasse 1",
+  "plz": "4000",
+  "ort": "Basel",
+  "land": "Schweiz"
+}
+```
+
+Only studios with status **`aktiv`** appear in the public list. Pending (`ausstehend`) or locked (`gesperrt`) studios are excluded. Studio switching to another location later is a separate M3+ flow (admin approval).
 
 ### Cases
 

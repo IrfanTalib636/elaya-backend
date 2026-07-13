@@ -8,6 +8,7 @@ const sessionRoute = require('./sessionRoute');
 const elaycoinRoute = require('./elaycoinRoute');
 const configRoute = require('./configRoute');
 const studioRoute = require('./studioRoute');
+const studiosRoute = require('./studiosRoute');
 
 const router = express.Router();
 
@@ -20,5 +21,6 @@ router.use('/sessions', sessionRoute);
 router.use('/elaycoins', elaycoinRoute);
 router.use('/config', configRoute);
 router.use('/studio', studioRoute);
+router.use('/studios', studiosRoute);
 
 module.exports = router;

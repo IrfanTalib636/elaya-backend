@@ -254,6 +254,45 @@ const listStudiosAdmin = asyncHandler(async (req, res) => {
     });
 });
 
+const formatPublicStandort = (standort) => {
+    const doc = standort.toObject ? standort.toObject() : standort;
+    return {
+        name: doc.name,
+        strasse: doc.strasse ?? '',
+        plz: doc.plz ?? '',
+        ort: doc.ort ?? '',
+        land: doc.land ?? 'Schweiz',
+    };
+};
+
+const formatPublicStudio = (studio) => {
+    const doc = studio.toObject ? studio.toObject() : studio;
+    return {
+        studio_code: doc.studio_code,
+        firma: doc.firma,
+        strasse: doc.strasse ?? '',
+        plz: doc.plz ?? '',
+        ort: doc.ort ?? '',
+        land: doc.land ?? 'Schweiz',
+        standorte: (doc.standorte ?? []).map(formatPublicStandort),
+    };
+};
+
+/** Active studios for customer registration dropdown — no auth, no internal fields. */
+const listPublicStudios = asyncHandler(async (req, res) => {
+    const studios = await Studio.find({ status: STUDIO_STATUS.AKTIV })
+        .select('studio_code firma strasse plz ort land standorte')
+        .sort({ firma: 1 })
+        .lean();
+
+    res.status(200).json({
+        success: true,
+        data: {
+            studios: studios.map(formatPublicStudio),
+        },
+    });
+});
+
 const patchStudioStatus = asyncHandler(async (req, res) => {
     const { studioId } = req.params;
     const { status, notizen } = req.body;
@@ -302,8 +341,10 @@ const patchStudioStatus = asyncHandler(async (req, res) => {
 
 module.exports = {
     formatStudioSettings,
+    formatPublicStudio,
     getStudioSettings,
     patchStudioSettings,
     listStudiosAdmin,
+    listPublicStudios,
     patchStudioStatus,
 };
