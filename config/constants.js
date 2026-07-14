@@ -49,16 +49,20 @@ const TC_TYPE = {
     COSMETIC: 'cosmetic',
     PROFESSIONAL: 'professional',
     COVERUP: 'coverup',
+    MIXED: 'mixed',
 };
 
 const TC_COVERUP = {
     NONE: 'none',
     ONCE: 'once',
     MULTIPLE: 'multiple',
+    UNKNOWN: 'unknown',
 };
 
 const GOAL_TARGET = {
+    /** @deprecated use FULL_REMOVAL — kept for existing records */
     FULL: 'full',
+    FULL_REMOVAL: 'full_removal',
     PARTIAL_FADE: 'partial_fade',
     LIGHTENING_FOR_COVERUP: 'lightening_for_coverup',
 };

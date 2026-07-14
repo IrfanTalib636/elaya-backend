@@ -7,6 +7,25 @@ const {
     TC_COVERUP,
     GOAL_TARGET,
 } = require('../config/constants');
+const {
+    BODY_LOCATIONS,
+    TC_SIDE,
+    TC_AGE_BUCKET,
+    QUALITY_LEVEL,
+    SHADING_LEVEL,
+    LINEWORK_LEVEL,
+    RISK_LEVEL,
+    SUN_EXPOSURE,
+    SKIN_FITZPATRICK_TYPE,
+    LIFE_SMOKER,
+    LIFE_ALCOHOL,
+    LIFE_ACTIVITY,
+    LIFE_SLEEP_HOURS,
+    LIFE_SLEEP_QUALITY,
+    LIFE_STRESS,
+    LIFE_HYDRATION,
+    LIFE_NUTRITION,
+} = require('../config/caseIntakeEnums');
 
 const sperrfristDeaktiviertSchema = new mongoose.Schema(
     {
@@ -51,6 +70,17 @@ const chatNachrichtSchema = new mongoose.Schema(
     { _id: true }
 );
 
+const photoStdIntakeSchema = new mongoose.Schema(
+    {
+        photo_full_visible: { type: Boolean, default: false },
+        photo_good_light: { type: Boolean, default: false },
+        photo_focus: { type: Boolean, default: false },
+        photo_distance: { type: Boolean, default: false },
+        photo_no_filter: { type: Boolean, default: false },
+    },
+    { _id: false }
+);
+
 const caseSchema = new mongoose.Schema(
     {
         customer: {
@@ -79,7 +109,47 @@ const caseSchema = new mongoose.Schema(
         },
         tc_title: { type: String, trim: true, default: '' },
         bodyLabel: { type: String, trim: true, default: '' },
+        // TC_01 — basics
+        tc_body_location_main: {
+            type: String,
+            enum: [...BODY_LOCATIONS, null],
+            default: null,
+        },
+        tc_body_location_detail: { type: String, trim: true, default: '' },
+        tc_side: {
+            type: String,
+            enum: [...TC_SIDE, null],
+            default: null,
+        },
+        tc_age_bucket: {
+            type: String,
+            enum: [...TC_AGE_BUCKET, null],
+            default: null,
+        },
+        tc_prior_treatment: { type: Boolean, default: null },
+        tc_prior_treatment_count: { type: Number, min: 0, max: 99, default: null },
+        // TC_02 — properties
         tc_colors_present: { type: [String], default: [] },
+        tc_density: {
+            type: String,
+            enum: [...QUALITY_LEVEL, null],
+            default: null,
+        },
+        tc_saturation: {
+            type: String,
+            enum: [...QUALITY_LEVEL, null],
+            default: null,
+        },
+        tc_shading: {
+            type: String,
+            enum: [...SHADING_LEVEL, null],
+            default: null,
+        },
+        tc_linework: {
+            type: String,
+            enum: [...LINEWORK_LEVEL, null],
+            default: null,
+        },
         tc_size_length: { type: Number, default: null },
         tc_size_width: { type: Number, default: null },
         tc_type: {
@@ -87,8 +157,75 @@ const caseSchema = new mongoose.Schema(
             enum: [...Object.values(TC_TYPE), null],
             default: null,
         },
+        /** Legacy numeric age — optional; prefer tc_age_bucket from prototype wizard */
         tc_age_years: { type: Number, default: null },
+        // TC_03 — skin & risk
+        skin_fitzpatrick_type: {
+            type: String,
+            enum: [...SKIN_FITZPATRICK_TYPE, null],
+            default: null,
+        },
         skin_fitzpatrick: { type: Number, min: 1, max: 6, default: null },
+        skin_hyperpig_risk: {
+            type: String,
+            enum: [...RISK_LEVEL, null],
+            default: null,
+        },
+        skin_keloid_risk: {
+            type: String,
+            enum: [...RISK_LEVEL, null],
+            default: null,
+        },
+        skin_sun_zone: {
+            type: String,
+            enum: [...SUN_EXPOSURE, null],
+            default: null,
+        },
+        // TC_04 — lifestyle
+        life_smoker: {
+            type: String,
+            enum: [...LIFE_SMOKER, null],
+            default: null,
+        },
+        life_cig_per_day: { type: Number, min: 0, max: 60, default: null },
+        life_alcohol: {
+            type: String,
+            enum: [...LIFE_ALCOHOL, null],
+            default: null,
+        },
+        life_activity: {
+            type: String,
+            enum: [...LIFE_ACTIVITY, null],
+            default: null,
+        },
+        life_sleep_hours: {
+            type: String,
+            enum: [...LIFE_SLEEP_HOURS, null],
+            default: null,
+        },
+        life_sleep_quality: {
+            type: String,
+            enum: [...LIFE_SLEEP_QUALITY, null],
+            default: null,
+        },
+        life_stress: {
+            type: String,
+            enum: [...LIFE_STRESS, null],
+            default: null,
+        },
+        life_height_cm: { type: Number, min: 0, default: null },
+        life_weight_kg: { type: Number, min: 0, default: null },
+        life_hydration: {
+            type: String,
+            enum: [...LIFE_HYDRATION, null],
+            default: null,
+        },
+        life_nutrition: {
+            type: String,
+            enum: [...LIFE_NUTRITION, null],
+            default: null,
+        },
+        // TC_05 — goal
         tc_coverup: {
             type: String,
             enum: Object.values(TC_COVERUP),
@@ -99,6 +236,17 @@ const caseSchema = new mongoose.Schema(
             enum: [...Object.values(GOAL_TARGET), null],
             default: null,
         },
+        goal_notes: { type: String, trim: true, default: '' },
+        // TC_06 — photos (optional until upload service; store URL or ref string)
+        photo_intake_main: { type: String, default: '' },
+        photo_intake_detail: { type: String, default: '' },
+        photo_marker: { type: String, default: '' },
+        photo_std_intake: {
+            type: photoStdIntakeSchema,
+            default: () => ({}),
+        },
+        // Merkblatt PDF ref — optional until PDF service
+        merkblatt_pdf: { type: String, default: '' },
         sessions: { type: Number, default: 0, min: 0 },
         sessionsMin: { type: Number, default: 0, min: 0 },
         sessionsMax: { type: Number, default: 0, min: 0 },

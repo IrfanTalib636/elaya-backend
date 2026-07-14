@@ -3,7 +3,7 @@ const caseController = require('../controllers/caseController');
 const anamnesisController = require('../controllers/anamnesisController');
 const validateMiddleware = require('../middleware/validateMiddleware');
 const { protect, authorize } = require('../middleware/authMiddleware');
-const { createCaseSchema, updateCaseSchema, availabilityQuerySchema, listCasesQuerySchema } = require('../validators/caseValidator');
+const { createCaseSchema, updateCaseSchema, previewCasePricingSchema, availabilityQuerySchema, listCasesQuerySchema } = require('../validators/caseValidator');
 const { upsertAnamnesisSchema } = require('../validators/anamnesisValidator');
 const { USER_ROLES } = require('../config/constants');
 
@@ -25,7 +25,12 @@ const caseAccessRoles = [
  *     description: |
  *       **Auth:** Bearer · **Who can call:** customer, studio_admin, studio_staff, admin, super_admin
  *
- *       Customer creates for self; studio/admin must pass customer_id. Assigns caseId (#XXX-001) automatically.
+ *       Customer creates for self; studio/admin must pass `customer_id`. Assigns `caseId` (#XXX-001) automatically.
+ *
+ *       Accepts full prototype intake **TC_01–TC_06** (and optional TC_08–09 signature fields). Studio dashboard uses an
+ *       **8-step wizard** (TC_01–TC_06 → KI pricing preview → review) before calling this endpoint.
+ *
+ *       **Photo fields** (`photo_intake_*`, zone `foto_url`) accept URL strings — upload service not built yet.
  *     tags: [Cases]
  *     security:
  *       - bearerAuth: []
@@ -34,22 +39,38 @@ const caseAccessRoles = [
  *       content:
  *         application/json:
  *           schema:
- *             type: object
- *             properties:
- *               customer_id: { type: string, description: Required for studio/admin roles }
- *               type: { type: string, enum: [tattoo, pmu] }
- *               tc_title: { type: string }
- *               bodyLabel: { type: string }
- *               tc_colors_present: { type: array, items: { type: string } }
- *               tc_size_length: { type: number }
- *               tc_size_width: { type: number }
- *               tc_type: { type: string, enum: [amateur, cosmetic, professional, coverup] }
- *               tc_age_years: { type: number }
- *               skin_fitzpatrick: { type: integer, minimum: 1, maximum: 6 }
- *               tc_coverup: { type: string, enum: [none, once, multiple] }
- *               goal_target: { type: string, enum: [full, partial_fade, lightening_for_coverup] }
- *               zonen_aktiv: { type: boolean }
- *               zonen: { type: array, items: { type: object } }
+ *             $ref: '#/components/schemas/CaseCreateBody'
+ *           example:
+ *             customer_id: "507f1f77bcf86cd799439011"
+ *             type: tattoo
+ *             tc_title: Unterarm links Schriftzug
+ *             tc_body_location_main: arm
+ *             tc_age_bucket: age_4_7
+ *             tc_type: professional
+ *             tc_coverup: none
+ *             tc_prior_treatment: false
+ *             tc_colors_present: [black]
+ *             tc_density: medium
+ *             tc_saturation: medium
+ *             tc_shading: low
+ *             tc_linework: medium
+ *             tc_size_length: 8
+ *             tc_size_width: 5
+ *             skin_fitzpatrick_type: III
+ *             skin_sun_zone: medium
+ *             life_smoker: never
+ *             life_alcohol: occasional
+ *             life_activity: moderate
+ *             life_sleep_hours: "7_8"
+ *             life_sleep_quality: good
+ *             life_stress: moderate
+ *             life_height_cm: 172
+ *             life_weight_kg: 70
+ *             life_hydration: good
+ *             life_nutrition: good
+ *             goal_target: full_removal
+ *             zonen_aktiv: false
+ *             status: pending
  *     responses:
  *       201:
  *         description: Case created
@@ -64,6 +85,72 @@ router.post(
     authorize(...caseAccessRoles),
     validateMiddleware(createCaseSchema),
     caseController.createCase
+);
+
+/**
+ * @swagger
+ * /cases/pricing/preview:
+ *   post:
+ *     summary: Preview price + session estimate from intake payload (no saved case)
+ *     description: |
+ *       **Auth:** Bearer · **Who can call:** customer, studio_admin, studio_staff, admin, super_admin
+ *
+ *       Rule-based **7-factor pricing** + session estimate (prototype `calculatePrice` / `calcSessions`).
+ *       Does **not** use photo AI — confidence reflects missing intake fields, not image analysis.
+ *
+ *       Used by:
+ *       - **Studio dashboard** — case wizard step 7 (KI · Analyse) before review/save
+ *       - **Mobile app** — KI result screen after TC_06 (before anamnese)
+ *
+ *       Uses the caller's studio pricing overrides from `/config/studio` when available.
+ *     tags: [Cases]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             $ref: '#/components/schemas/CasePricingPreviewBody'
+ *           example:
+ *             type: tattoo
+ *             tc_title: Unterarm links Schriftzug
+ *             tc_body_location_main: arm
+ *             tc_age_bucket: age_4_7
+ *             tc_type: professional
+ *             tc_coverup: none
+ *             tc_prior_treatment: false
+ *             tc_colors_present: [black]
+ *             tc_density: medium
+ *             tc_saturation: medium
+ *             tc_shading: low
+ *             tc_linework: medium
+ *             tc_size_length: 8
+ *             tc_size_width: 5
+ *             skin_fitzpatrick_type: III
+ *             skin_sun_zone: medium
+ *             life_smoker: never
+ *             life_activity: moderate
+ *             goal_target: full_removal
+ *             zonen_aktiv: false
+ *     responses:
+ *       200:
+ *         description: Pricing + session preview (studio sees full breakdown)
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/CasePricingPreviewResponse'
+ *       400:
+ *         description: Validation error
+ *       401:
+ *         description: Unauthorized
+ */
+router.post(
+    '/pricing/preview',
+    protect,
+    authorize(...caseAccessRoles),
+    validateMiddleware(previewCasePricingSchema),
+    caseController.previewCasePricing
 );
 
 /**
@@ -151,11 +238,15 @@ router.get(
  * @swagger
  * /cases/{id}/pricing:
  *   get:
- *     summary: Get session price estimate for a case
+ *     summary: Get session price estimate for a saved case
  *     description: |
  *       **Auth:** Bearer · **Who can call:** customer, studio_admin, studio_staff, admin, super_admin
  *
- *       7-factor formula (client §5d). Customer sees AB estimate only; studio/admin see full breakdown.
+ *       Same **7-factor formula** as `POST /cases/pricing/preview`. For zone cases (`zonen_aktiv: true`),
+ *       loads zones from DB and returns per-zone rows + aggregated price/session range.
+ *
+ *       - **Customer:** AB estimate only (`priceFrom`, `totalMin`/`totalMax`, no multiplier breakdown)
+ *       - **Studio/admin:** full breakdown including `multipliers` when applicable
  *     tags: [Cases]
  *     security:
  *       - bearerAuth: []
@@ -167,6 +258,12 @@ router.get(
  *     responses:
  *       200:
  *         description: Price estimate (role-scoped)
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/CasePricingResponse'
+ *       404:
+ *         description: Case not found
  */
 router.get(
     '/:id/pricing',
@@ -273,7 +370,10 @@ router.get(
  *     description: |
  *       **Auth:** Bearer · **Who can call:** customer, studio_admin, studio_staff, admin, super_admin
  *
- *       Customers can update intake fields only; studio/admin can update status, pricing, and clinical fields.
+ *       **Customers** may PATCH intake fields only (TC_01–TC_06, photos, goal, lifestyle — see `CaseIntakeFields`).
+ *       **Studio/admin** may additionally update `status`, `pricePerSession`, `sessionsDone`, `removal`, `healing`, etc.
+ *
+ *       Passing `zonen` replaces zone rows when `zonen_aktiv` is true (2–8 zones).
  *     tags: [Cases]
  *     security:
  *       - bearerAuth: []
@@ -287,15 +387,15 @@ router.get(
  *       content:
  *         application/json:
  *           schema:
- *             type: object
- *             properties:
- *               tc_title: { type: string }
- *               bodyLabel: { type: string }
- *               status: { type: string }
- *               pricePerSession: { type: number, description: Studio/admin only — hidden from customer responses }
- *               sessionsDone: { type: number }
- *               removal: { type: number }
- *               healing: { type: number }
+ *             allOf:
+ *               - $ref: '#/components/schemas/CaseIntakeFields'
+ *               - type: object
+ *                 properties:
+ *                   status: { type: string, enum: [pending, active, completed, loeschantrag_ausstehend] }
+ *                   pricePerSession: { type: number, description: Studio/admin only — hidden from customer responses }
+ *                   sessionsDone: { type: number }
+ *                   removal: { type: number }
+ *                   healing: { type: number }
  *     responses:
  *       200:
  *         description: Case updated

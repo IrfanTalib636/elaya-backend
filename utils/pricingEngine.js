@@ -1,4 +1,5 @@
 const { CASE_TYPE, TC_TYPE, TC_COVERUP, GOAL_TARGET } = require('../config/constants');
+const { TC_AGE_BUCKET_TO_MULT_KEY, FITZ_TYPE_TO_INT } = require('../config/caseIntakeEnums');
 const {
     DEFAULT_PRICING_CONFIG,
     SIZE_MIDPOINTS,
@@ -15,7 +16,19 @@ const mergePricingConfig = (overrides = {}) => ({
     ...overrides,
 });
 
+const ZONE_DICHTE_MULT = {
+    leicht: 0.85,
+    mittel: 1.0,
+    dicht: 1.15,
+    sehr_dicht: 1.3,
+};
+
 const resolveArea = (caseInput) => {
+    const explicitArea = parseFloat(caseInput.flaeche_cm2);
+    if (explicitArea > 0) {
+        return explicitArea;
+    }
+
     const length = parseFloat(caseInput.tc_size_length);
     const width = parseFloat(caseInput.tc_size_width);
 
@@ -30,7 +43,12 @@ const resolveArea = (caseInput) => {
     return 10;
 };
 
-const resolveAgeMultKey = (tcAgeYears) => {
+const resolveAgeMultKey = (caseInput) => {
+    if (caseInput.tc_age_bucket && TC_AGE_BUCKET_TO_MULT_KEY[caseInput.tc_age_bucket]) {
+        return TC_AGE_BUCKET_TO_MULT_KEY[caseInput.tc_age_bucket];
+    }
+
+    const tcAgeYears = caseInput.tc_age_years;
     if (tcAgeYears == null || Number.isNaN(Number(tcAgeYears))) {
         return 'age_5to10';
     }
@@ -49,6 +67,13 @@ const resolveAgeMultKey = (tcAgeYears) => {
         return 'age_5to10';
     }
     return 'age_over10';
+};
+
+const resolveFitzInt = (caseInput) => {
+    if (caseInput.skin_fitzpatrick_type && FITZ_TYPE_TO_INT[caseInput.skin_fitzpatrick_type]) {
+        return FITZ_TYPE_TO_INT[caseInput.skin_fitzpatrick_type];
+    }
+    return Math.min(6, Math.max(1, Number(caseInput.skin_fitzpatrick) || 3));
 };
 
 const resolveBodyLocation = (caseInput) => {
@@ -89,9 +114,9 @@ const resolveMultipliers = (caseInput, config) => {
         depthM = config.depth_very_deep;
     }
 
-    const ageM = config[resolveAgeMultKey(caseInput.tc_age_years)] ?? 1.0;
+    const ageM = config[resolveAgeMultKey(caseInput)] ?? 1.0;
 
-    const fitzInt = Math.min(6, Math.max(1, Number(caseInput.skin_fitzpatrick) || 3));
+    const fitzInt = resolveFitzInt(caseInput);
     const skinM = config[`skin_${fitzInt}`] ?? 1.0;
 
     const location = resolveBodyLocation(caseInput);
@@ -118,7 +143,9 @@ const resolveMultipliers = (caseInput, config) => {
     }
 
     let goalM = config.goal_full;
-    if (caseInput.goal_target === GOAL_TARGET.PARTIAL_FADE) {
+    if (
+        caseInput.goal_target === GOAL_TARGET.PARTIAL_FADE
+    ) {
         goalM = config.goal_partial;
     } else if (caseInput.goal_target === GOAL_TARGET.LIGHTENING_FOR_COVERUP) {
         goalM = config.goal_lighten;
@@ -141,7 +168,7 @@ const computeConfidence = (caseInput) => {
     const missing = [
         !caseInput.tc_size_length,
         !caseInput.tc_size_width,
-        !caseInput.skin_fitzpatrick,
+        !(caseInput.skin_fitzpatrick_type || caseInput.skin_fitzpatrick),
         !colors.length,
         !(caseInput.tc_body_location_main ||
             caseInput.tc_body_location ||
@@ -152,10 +179,64 @@ const computeConfidence = (caseInput) => {
 };
 
 /**
- * 7-factor session price (client §5d). Internal studio formula — customer sees estimate only.
+ * Session estimate (prototype calcSessions) — used in intake KI preview.
  */
-const calculatePrice = (caseInput, pricingOverrides = {}) => {
+const estimateSessions = (caseInput) => {
+    let base = 8;
+    const fitz = resolveFitzInt(caseInput);
+
+    if (fitz >= 4) {
+        base += 1;
+    }
+    if (fitz >= 5) {
+        base += 1;
+    }
+    if (caseInput.tc_type === TC_TYPE.AMATEUR) {
+        base -= 2;
+    } else if (caseInput.tc_type === TC_TYPE.COVERUP) {
+        base += 2;
+    }
+    if (caseInput.tc_coverup === TC_COVERUP.ONCE) {
+        base += 1;
+    } else if (caseInput.tc_coverup === TC_COVERUP.MULTIPLE) {
+        base += 3;
+    }
+    if (caseInput.tc_prior_treatment === true) {
+        base -= 1;
+    }
+
+    const colors = caseInput.tc_colors_present || [];
+    if (colors.some((color) => DIFFICULT_COLORS.includes(color))) {
+        base += 2;
+    } else if (colors.length > 3) {
+        base += 1;
+    }
+
+    if (caseInput.skin_sun_zone === 'high') {
+        base += 1;
+    }
+    if (caseInput.life_smoker === 'daily_heavy') {
+        base += 2;
+    } else if (caseInput.life_smoker === 'daily_light') {
+        base += 1;
+    }
+    if (caseInput.life_activity === 'high') {
+        base -= 1;
+    }
+
+    base = Math.max(3, Math.min(20, base));
+
+    return {
+        base,
+        min: Math.max(3, base - 2),
+        max: base + 2,
+        confidence_pct: computeConfidence(caseInput),
+    };
+};
+
+const calculatePriceForInput = (caseInput, pricingOverrides = {}, options = {}) => {
     const config = mergePricingConfig(pricingOverrides);
+    const dichteMult = options.dichteMult ?? 1;
 
     if (caseInput.type === CASE_TYPE.PMU) {
         return {
@@ -178,7 +259,8 @@ const calculatePrice = (caseInput, pricingOverrides = {}) => {
         multipliers.skinM *
         multipliers.locM *
         multipliers.layM *
-        multipliers.goalM;
+        multipliers.goalM *
+        dichteMult;
 
     const pricePerSession = Math.max(config.minPrice ?? 90, roundSessionPrice(product));
 
@@ -201,6 +283,88 @@ const calculatePrice = (caseInput, pricingOverrides = {}) => {
         minPrice: config.minPrice,
     };
 };
+
+/**
+ * Full intake preview — price + sessions for single tattoo or zone mode.
+ */
+const calculateCasePreview = (caseInput, pricingOverrides = {}) => {
+    if (caseInput.type === CASE_TYPE.PMU) {
+        const price = calculatePriceForInput(caseInput, pricingOverrides);
+        const sessions = { min: 4, max: 8, base: 6, confidence_pct: 100 };
+
+        return {
+            ...formatStudioPricing(price),
+            sessions,
+            totalMin: price.pricePerSession * sessions.min,
+            totalMax: price.pricePerSession * sessions.max,
+            zonen: null,
+        };
+    }
+
+    if (caseInput.zonen_aktiv && Array.isArray(caseInput.zonen) && caseInput.zonen.length > 0) {
+        const zoneRows = caseInput.zonen.map((zone) => {
+            const zoneInput = {
+                ...caseInput,
+                tc_colors_present: zone.farben || [],
+                tc_body_location_main: zone.koerperstelle || caseInput.tc_body_location_main,
+                flaeche_cm2: zone.flaeche_cm2,
+                tc_size_length: null,
+                tc_size_width: null,
+            };
+            const dichteMult = ZONE_DICHTE_MULT[zone.dichte] ?? 1;
+            const price = calculatePriceForInput(zoneInput, pricingOverrides, { dichteMult });
+            const sessions = estimateSessions(zoneInput);
+
+            return {
+                label: zone.bezeichnung || 'Zone',
+                preis: price.pricePerSession,
+                area: price.area,
+                sessions,
+            };
+        });
+
+        const pricePerSession = zoneRows.reduce((sum, row) => sum + row.preis, 0);
+        const sessionsMin = Math.max(0, ...zoneRows.map((row) => row.sessions.min));
+        const sessionsMax = Math.max(0, ...zoneRows.map((row) => row.sessions.max));
+        const totalArea = zoneRows.reduce((sum, row) => sum + (row.area || 0), 0);
+        const confidence_pct = Math.min(...zoneRows.map((row) => row.sessions.confidence_pct));
+
+        return {
+            type: CASE_TYPE.TATTOO,
+            area: Math.round(totalArea * 10) / 10,
+            pricePerSession,
+            confidence_pct,
+            sessions: {
+                min: sessionsMin,
+                max: sessionsMax,
+                base: sessionsMax,
+                confidence_pct,
+            },
+            zonen: zoneRows,
+            totalMin: pricePerSession * sessionsMin,
+            totalMax: pricePerSession * sessionsMax,
+            currency: 'CHF',
+            multipliers: null,
+        };
+    }
+
+    const price = calculatePriceForInput(caseInput, pricingOverrides);
+    const sessions = estimateSessions(caseInput);
+
+    return {
+        ...formatStudioPricing(price),
+        sessions,
+        totalMin: price.pricePerSession * sessions.min,
+        totalMax: price.pricePerSession * sessions.max,
+        zonen: null,
+    };
+};
+
+/**
+ * 7-factor session price (client §5d). Internal studio formula — customer sees estimate only.
+ */
+const calculatePrice = (caseInput, pricingOverrides = {}) =>
+    calculatePriceForInput(caseInput, pricingOverrides);
 
 const calculateGroupPricing = (cases, pricingOverrides = {}) => {
     const config = mergePricingConfig(pricingOverrides);
@@ -232,7 +396,13 @@ const formatCustomerEstimate = (result) => ({
     area: result.area,
     confidence_pct: result.confidence_pct,
     type: result.type,
+    sessionsMin: result.sessions?.min,
+    sessionsMax: result.sessions?.max,
+    totalMin: result.totalMin,
+    totalMax: result.totalMax,
 });
+
+const formatCustomerPreview = (result) => formatCustomerEstimate(result);
 
 const formatStudioPricing = (result) => ({
     ...result,
@@ -241,8 +411,11 @@ const formatStudioPricing = (result) => ({
 
 module.exports = {
     calculatePrice,
+    calculateCasePreview,
     calculateGroupPricing,
+    estimateSessions,
     formatCustomerEstimate,
+    formatCustomerPreview,
     formatStudioPricing,
     mergePricingConfig,
     resolveArea,

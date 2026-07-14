@@ -11,12 +11,18 @@ const {
 } = require('../utils/lockoutEngine');
 const {
     calculatePrice,
+    calculateCasePreview,
     formatCustomerEstimate,
+    formatCustomerPreview,
     formatStudioPricing,
 } = require('../utils/pricingEngine');
 const { getEffectivePricingOverrides } = require('../utils/configService');
 const { USER_ROLES } = require('../config/constants');
 const { parsePagination, buildPaginationMeta } = require('../utils/pagination');
+const {
+    CUSTOMER_INTAKE_FIELDS,
+    syncDerivedIntakeFields,
+} = require('../utils/caseIntakeHelpers');
 
 const STUDIO_ROLES = [USER_ROLES.STUDIO_ADMIN, USER_ROLES.STUDIO_STAFF];
 const ADMIN_ROLES = [USER_ROLES.ADMIN, USER_ROLES.SUPER_ADMIN];
@@ -24,6 +30,40 @@ const ADMIN_ROLES = [USER_ROLES.ADMIN, USER_ROLES.SUPER_ADMIN];
 const isCustomer = (role) => role === USER_ROLES.CUSTOMER;
 const isStudio = (role) => STUDIO_ROLES.includes(role);
 const isAdmin = (role) => ADMIN_ROLES.includes(role);
+
+const INTAKE_RESPONSE_FIELDS = [
+    'tc_body_location_main',
+    'tc_body_location_detail',
+    'tc_side',
+    'tc_age_bucket',
+    'tc_prior_treatment',
+    'tc_prior_treatment_count',
+    'tc_density',
+    'tc_saturation',
+    'tc_shading',
+    'tc_linework',
+    'skin_fitzpatrick_type',
+    'skin_hyperpig_risk',
+    'skin_keloid_risk',
+    'skin_sun_zone',
+    'life_smoker',
+    'life_cig_per_day',
+    'life_alcohol',
+    'life_activity',
+    'life_sleep_hours',
+    'life_sleep_quality',
+    'life_stress',
+    'life_height_cm',
+    'life_weight_kg',
+    'life_hydration',
+    'life_nutrition',
+    'goal_notes',
+    'photo_intake_main',
+    'photo_intake_detail',
+    'photo_marker',
+    'photo_std_intake',
+    'unterschrift',
+];
 
 const formatCustomerRef = (customer) => {
     if (!customer) {
@@ -75,15 +115,19 @@ const formatCase = (caseDoc, zones, role) => {
         updatedAt: doc.updatedAt,
     };
 
+    INTAKE_RESPONSE_FIELDS.forEach((field) => {
+        payload[field] = doc[field];
+    });
+
     if (!isCustomer(role)) {
         payload.pricePerSession = doc.pricePerSession;
         payload.uvBlockDate = doc.uvBlockDate;
         payload.medicationBlockDate = doc.medicationBlockDate;
         payload.sperrfrist_deaktiviert = doc.sperrfrist_deaktiviert;
+        payload.merkblatt_pdf = doc.merkblatt_pdf;
     }
 
     if (isAdmin(role)) {
-        payload.unterschrift = doc.unterschrift;
         payload.activityLog = doc.activityLog;
     }
 
@@ -98,6 +142,10 @@ const formatCase = (caseDoc, zones, role) => {
                 farben: zone.farben,
                 dichte: zone.dichte,
                 flaeche_cm2: zone.flaeche_cm2,
+                flaeche_template: zone.flaeche_template,
+                flaeche_modus: zone.flaeche_modus,
+                flaeche_manuell: zone.flaeche_manuell,
+                foto_url: zone.foto_url,
                 fortschritt_prozent: zone.fortschritt_prozent,
             };
             if (!isCustomer(role)) {
@@ -163,6 +211,9 @@ const buildZoneDocs = (caseId, zonenInput) => {
         farben: zone.farben,
         dichte: zone.dichte ?? null,
         flaeche_cm2: zone.flaeche_cm2 ?? null,
+        flaeche_template: zone.flaeche_template ?? null,
+        flaeche_modus: zone.flaeche_modus ?? null,
+        flaeche_manuell: zone.flaeche_manuell ?? null,
         foto_url: zone.foto_url,
         preis: zone.preis,
         sitzungen_geschaetzt_min: zone.sitzungen_geschaetzt_min,
@@ -170,8 +221,50 @@ const buildZoneDocs = (caseId, zonenInput) => {
     }));
 };
 
+const syncCaseZones = async (caseDoc, zonenInput) => {
+    if (zonenInput === undefined) {
+        return [];
+    }
+
+    await CaseZone.deleteMany({ case: caseDoc._id });
+
+    if (!zonenInput.length) {
+        return [];
+    }
+
+    return CaseZone.insertMany(buildZoneDocs(caseDoc._id, zonenInput));
+};
+
+const applyCaseUpdate = async (caseDoc, body) => {
+    const { zonen, ...fields } = body;
+    const normalized = syncDerivedIntakeFields(fields);
+
+    Object.assign(caseDoc, normalized);
+
+    if (normalized.unterschrift) {
+        caseDoc.unterschrift = {
+            ...(caseDoc.unterschrift?.toObject?.() ?? caseDoc.unterschrift ?? {}),
+            ...normalized.unterschrift,
+        };
+        caseDoc.markModified('unterschrift');
+    }
+
+    if (normalized.photo_std_intake) {
+        caseDoc.photo_std_intake = {
+            ...(caseDoc.photo_std_intake?.toObject?.() ?? caseDoc.photo_std_intake ?? {}),
+            ...normalized.photo_std_intake,
+        };
+        caseDoc.markModified('photo_std_intake');
+    }
+
+    await caseDoc.save();
+
+    return syncCaseZones(caseDoc, zonen);
+};
+
 const createCase = asyncHandler(async (req, res) => {
-    const { customer_id, zonen, ...caseFields } = req.body;
+    const { customer_id, zonen = [], ...rawFields } = req.body;
+    const caseFields = syncDerivedIntakeFields(rawFields);
 
     const customer = await resolveCustomerForCreate(req.user, customer_id);
     const studioId = customer.aktuelle_firma_id;
@@ -296,32 +389,31 @@ const updateCase = asyncHandler(async (req, res) => {
     await assertCaseAccess(req.user, caseDoc);
 
     if (isCustomer(req.user.role)) {
-        const allowed = new Set([
-            'tc_title',
-            'bodyLabel',
-            'tc_colors_present',
-            'tc_size_length',
-            'tc_size_width',
-            'tc_type',
-            'tc_age_years',
-            'skin_fitzpatrick',
-            'tc_coverup',
-            'goal_target',
-        ]);
+        const allowed = new Set(CUSTOMER_INTAKE_FIELDS);
         const blocked = Object.keys(req.body).filter((key) => !allowed.has(key));
         if (blocked.length > 0) {
             throw new ApiError(403, `Customers cannot update: ${blocked.join(', ')}`);
         }
     }
 
-    Object.assign(caseDoc, req.body);
-    await caseDoc.save();
+    if (
+        req.body.zonen_aktiv &&
+        req.body.zonen?.length > 0 &&
+        (req.body.zonen.length < 2 || req.body.zonen.length > 8)
+    ) {
+        throw new ApiError(400, 'Zone mode requires between 2 and 8 zones');
+    }
+
+    const zoneDocs = await applyCaseUpdate(caseDoc, req.body);
 
     await caseDoc.populate('customer', 'vorname nachname email telefon');
 
-    const zones = caseDoc.zonen_aktiv
-        ? await CaseZone.find({ case: caseDoc._id }).sort({ zonen_id: 1 })
-        : [];
+    const zones =
+        zoneDocs.length > 0 || req.body.zonen !== undefined
+            ? zoneDocs
+            : caseDoc.zonen_aktiv
+              ? await CaseZone.find({ case: caseDoc._id }).sort({ zonen_id: 1 })
+              : [];
 
     res.status(200).json({
         success: true,
@@ -370,17 +462,65 @@ const getCasePricing = asyncHandler(async (req, res) => {
     const pricingInput = caseDoc.toObject ? caseDoc.toObject() : { ...caseDoc };
 
     if (caseDoc.zonen_aktiv) {
-        const firstZone = await CaseZone.findOne({ case: caseDoc._id }).sort({ zonen_id: 1 });
-        if (firstZone?.koerperstelle && !pricingInput.koerperstelle) {
-            pricingInput.koerperstelle = firstZone.koerperstelle;
-        }
+        const zones = await CaseZone.find({ case: caseDoc._id }).sort({ zonen_id: 1 }).lean();
+        pricingInput.zonen = zones;
     }
 
     const pricingOverrides = await getEffectivePricingOverrides(caseDoc.studio);
-    const result = calculatePrice(pricingInput, pricingOverrides);
+    const result = caseDoc.zonen_aktiv && pricingInput.zonen?.length
+        ? calculateCasePreview(pricingInput, pricingOverrides)
+        : calculatePrice(pricingInput, pricingOverrides);
     const payload = isCustomer(req.user.role)
-        ? formatCustomerEstimate(result)
-        : formatStudioPricing(result);
+        ? formatCustomerEstimate(
+              result.sessions
+                  ? result
+                  : {
+                        ...result,
+                        sessions: {
+                            min: caseDoc.sessionsMin,
+                            max: caseDoc.sessionsMax,
+                        },
+                        totalMin: result.pricePerSession * (caseDoc.sessionsMin || 0),
+                        totalMax: result.pricePerSession * (caseDoc.sessionsMax || 0),
+                    }
+          )
+        : result.sessions
+          ? result
+          : formatStudioPricing(result);
+
+    res.status(200).json({
+        success: true,
+        data: payload,
+    });
+});
+
+const resolveStudioForPreview = async (user) => {
+    if (isStudio(user.role)) {
+        return user.studio_id;
+    }
+
+    if (isCustomer(user.role) && user.customer_id) {
+        const customer = await Customer.findById(user.customer_id).select('aktuelle_firma_id').lean();
+        return customer?.aktuelle_firma_id ?? null;
+    }
+
+    return user.studio_id ?? null;
+};
+
+const previewCasePricing = asyncHandler(async (req, res) => {
+    const { zonen = [], ...rawFields } = req.body;
+    const caseFields = syncDerivedIntakeFields(rawFields);
+    const pricingInput = { ...caseFields, zonen };
+
+    const studioId = await resolveStudioForPreview(req.user);
+    const pricingOverrides = studioId
+        ? await getEffectivePricingOverrides(studioId)
+        : {};
+
+    const result = calculateCasePreview(pricingInput, pricingOverrides);
+    const payload = isCustomer(req.user.role)
+        ? formatCustomerPreview(result)
+        : result;
 
     res.status(200).json({
         success: true,
@@ -395,4 +535,5 @@ module.exports = {
     updateCase,
     getCaseAvailability,
     getCasePricing,
+    previewCasePricing,
 };

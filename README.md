@@ -31,7 +31,7 @@ Shared REST API for the Elaya platform — Customer Web Portal, Studio Web Dashb
 | **Week 2 — Cases, booking, engines** | ✅ **100%** | Complete |
 | Case / CaseZone / Anamnesis models | ✅ Done | Normalized per client §2 mapping |
 | Appointment / Session models | ✅ Done | Normalized per client §2 mapping |
-| Case CRUD API | ✅ Done | POST/GET/PATCH `/cases` — tested in Swagger |
+| **Case intake (8-step fields)** | ✅ Done | Full prototype intake on POST/PATCH `/cases` — see `docs/CUSTOMER-CASE-INTAKE-SPEC.md` |
 | Case availability API | ✅ Done | GET `/cases/:id/availability` — calendar + lockout preview |
 | Appointment API | ✅ Done | POST/GET/PATCH `/appointments` — group booking supported |
 | Session API | ✅ Done | POST/GET/PATCH `/sessions` — studio/admin write, customer read |
@@ -81,6 +81,8 @@ Shared REST API for the Elaya platform — Customer Web Portal, Studio Web Dashb
 | **Customer detail case scope** | ✅ Done | Studio users only see cases at their studio |
 | **Financier demo seed** | ✅ Done | `npm run seed:demo` — Maria Tribal, `#TRI-001` + `#HAN-001` on INKFREE |
 | **Public studio list (registration)** | ✅ Done | `GET /studios/public` — active studios with address + standorte for customer signup dropdown |
+
+**Mobile app developer guide:** [`../docs/MOBILE-APP-DEVELOPER.md`](../docs/MOBILE-APP-DEVELOPER.md) · [PDF](../docs/MOBILE-APP-DEVELOPER.pdf) — screen flows, 6 tabs, tattoo wizard, API mapping for iOS/native app. See [`docs/README.md`](../docs/README.md).
 
 **Financier demo verified locally:** lockout panel, blocked booking, Beratung bypass, pre-session UV/meds (longest lockout wins), appointment recalculates lockout.
 
