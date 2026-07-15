@@ -203,6 +203,195 @@ const computeAmpel = (answers = {}) => {
     };
 };
 
+const HINT_TEXT = {
+    orange: {
+        de: '⚠️ Das Studio sieht diese Angabe und wird sich bei Bedarf vor deinem Termin bei dir melden.',
+        en: '⚠️ The studio will see this answer and may contact you before your appointment if needed.',
+    },
+    red: {
+        de: '🔴 Das Studio sieht diese Angabe und wird sich vor deinem Termin bei dir melden um alles abzuklären.',
+        en: '🔴 The studio will see this answer and contact you before your appointment to clarify.',
+    },
+    red_ko: {
+        akute_erkrankung: {
+            de: '🔴 Bei akuter Erkrankung können wir aktuell nicht lasern. Schliesse deinen Case trotzdem ab — beim Terminbuchen wirst du nochmals gefragt ob du genesen bist.',
+            en: '🔴 We cannot laser while you have an acute illness. You can still complete your case — you will be asked again when booking.',
+        },
+        schwanger_ja: {
+            de: '🔴 Während Schwangerschaft und Stillzeit können wir nicht lasern. Schliesse deinen Case trotzdem ab — beim Terminbuchen wirst du nochmals gefragt.',
+            en: '🔴 We cannot laser during pregnancy or breastfeeding. You can still complete your case — you will be asked again when booking.',
+        },
+        schwanger_unsicher: {
+            de: '🔴 Das Studio wird sich bei dir melden um dies vor dem Termin abzuklären.',
+            en: '🔴 The studio will contact you to clarify this before your appointment.',
+        },
+        alkohol_drogen: {
+            de: '🔴 Unter diesem Einfluss ist eine Behandlung nicht möglich. Schliesse deinen Case trotzdem ab — beim Terminbuchen wirst du nochmals gefragt.',
+            en: '🔴 Treatment is not possible under this influence. You can still complete your case — you will be asked again when booking.',
+        },
+        urteilsfaehig: {
+            de: '🔴 Schliesse deinen Case trotzdem ab — das Studio wird sich bei dir melden.',
+            en: '🔴 You can still complete your case — the studio will contact you.',
+        },
+        mindestalter_18: {
+            de: '🔴 Die Behandlung ist erst ab 18 Jahren möglich. Das Studio wird sich bei dir melden.',
+            en: '🔴 Treatment is only possible from age 18. The studio will contact you.',
+        },
+    },
+};
+
+const computeInlineHints = (answers = {}) => {
+    const hints = [];
+    const ampel = computeAmpel(answers);
+
+    for (const flag of ampel.orange_fragen) {
+        hints.push({
+            frage_key: flag.frage_key,
+            frage_nr: flag.frage_nr,
+            level: 'orange',
+            text_de: HINT_TEXT.orange.de,
+            text_en: HINT_TEXT.orange.en,
+        });
+    }
+
+    for (const flag of ampel.rote_fragen) {
+        let level = 'red';
+        let text_de = HINT_TEXT.red.de;
+        let text_en = HINT_TEXT.red.en;
+
+        if (flag.frage_key === 'akute_erkrankung') {
+            level = 'red_ko';
+            text_de = HINT_TEXT.red_ko.akute_erkrankung.de;
+            text_en = HINT_TEXT.red_ko.akute_erkrankung.en;
+        } else if (flag.frage_key === 'schwanger' && flag.antwort === 'Ja') {
+            level = 'red_ko';
+            text_de = HINT_TEXT.red_ko.schwanger_ja.de;
+            text_en = HINT_TEXT.red_ko.schwanger_ja.en;
+        } else if (flag.frage_key === 'schwanger' && flag.antwort === 'Unsicher') {
+            level = 'red_ko';
+            text_de = HINT_TEXT.red_ko.schwanger_unsicher.de;
+            text_en = HINT_TEXT.red_ko.schwanger_unsicher.en;
+        } else if (flag.frage_key === 'alkohol_drogen') {
+            level = 'red_ko';
+            text_de = HINT_TEXT.red_ko.alkohol_drogen.de;
+            text_en = HINT_TEXT.red_ko.alkohol_drogen.en;
+        } else if (flag.frage_key === 'urteilsfaehig') {
+            level = 'red_ko';
+            text_de = HINT_TEXT.red_ko.urteilsfaehig.de;
+            text_en = HINT_TEXT.red_ko.urteilsfaehig.en;
+        }
+
+        hints.push({
+            frage_key: flag.frage_key,
+            frage_nr: flag.frage_nr,
+            level,
+            text_de,
+            text_en,
+        });
+    }
+
+    if (answers.mindestalter_18 === 'nein') {
+        hints.push({
+            frage_key: 'mindestalter_18',
+            frage_nr: 19,
+            level: 'red_ko',
+            text_de: HINT_TEXT.red_ko.mindestalter_18.de,
+            text_en: HINT_TEXT.red_ko.mindestalter_18.en,
+        });
+    }
+
+    const hasKo =
+        answers.akute_erkrankung === 'ja' ||
+        answers.schwanger === 'ja' ||
+        answers.alkohol_drogen === 'ja' ||
+        answers.urteilsfaehig === 'nein' ||
+        answers.mindestalter_18 === 'nein';
+
+    return { hints, has_ko_flags: hasKo };
+};
+
+const computeStudioFreigabe = (answers = {}) => {
+    const ausloeser = [];
+
+    if (['typ1', 'typ2', 'unbekannt'].includes(answers.diabetes)) {
+        const label =
+            answers.diabetes === 'typ1'
+                ? 'Diabetes (Typ 1)'
+                : answers.diabetes === 'typ2'
+                  ? 'Diabetes (Typ 2)'
+                  : 'Diabetes (unbekannt)';
+        ausloeser.push(label);
+    }
+    if (answers.autoimmun === 'ja') ausloeser.push('Autoimmunerkrankung');
+    if (answers.immunschwaeche === 'ja') ausloeser.push('Immunschwäche');
+    if (answers.herz_kreislauf === 'ja') ausloeser.push('Herz-/Kreislauferkrankung');
+    if (answers.epilepsie === 'ja') ausloeser.push('Epilepsie');
+    if (answers.blutgerinnung === 'ja') ausloeser.push('Blutgerinnungsstörung');
+    if (answers.blutverduenner === 'ja') ausloeser.push('Blutverdünnende Medikamente');
+    if ((answers.infektionskrankheiten || []).some((x) => ['hepatitis', 'hiv'].includes(x))) {
+        ausloeser.push('Infektionskrankheit');
+    }
+    if (answers.wundheilung === 'ja') ausloeser.push('Schlechte Wundheilung');
+
+    const erforderlich = ausloeser.length > 0;
+
+    return {
+        erforderlich,
+        status: erforderlich ? 'ausstehend' : 'nicht_erforderlich',
+        ausloeser,
+        stufe: erforderlich ? '2' : 'keine',
+    };
+};
+
+const buildAnamnesisSummary = (ampel) => {
+    const { ampel_status, orange_fragen, rote_fragen } = ampel;
+
+    return {
+        ampel_status,
+        gruen: ampel_status === 'gruen',
+        orange_block:
+            orange_fragen.length > 0
+                ? {
+                      title_de: '⚠️ Hinweise für das Studio',
+                      title_en: '⚠️ Notes for the studio',
+                      items: orange_fragen,
+                      footer_de:
+                          'Die Behandlung ist in der Regel trotzdem möglich. Das Studio ist über deine Angaben informiert.',
+                      footer_en:
+                          'Treatment is usually still possible. The studio is informed about your answers.',
+                  }
+                : null,
+        rot_block:
+            rote_fragen.length > 0
+                ? {
+                      title_de: '🔴 Das Studio wird sich bei dir melden',
+                      title_en: '🔴 The studio will contact you',
+                      items: rote_fragen,
+                      footer_de:
+                          'Das Studio meldet sich so schnell wie möglich per Chat oder Telefon bei dir. Du kannst deinen Termin trotzdem buchen. Bei der Terminbuchung werden diese Punkte nochmals kurz abgefragt.',
+                      footer_en:
+                          'The studio will contact you as soon as possible. You can still book. These points will be asked again when booking.',
+                  }
+                : null,
+    };
+};
+
+const buildAnamnesisEvaluation = (answers = {}) => {
+    const ampel = computeAmpel(answers);
+    const { hints, has_ko_flags } = computeInlineHints(answers);
+    const studio_freigabe = computeStudioFreigabe(answers);
+
+    return {
+        ...ampel,
+        inline_hints: hints,
+        has_ko_flags,
+        studio_freigabe,
+        summary: buildAnamnesisSummary(ampel),
+        filled: isAnamnesisComplete(answers),
+        open_medical_flags_count: ampel.orange_fragen.length + ampel.rote_fragen.length,
+    };
+};
+
 const emptyAnamnesisAnswers = () => ({
     hauterkrankungen: [],
     hauterkrankungen_andere: '',
@@ -256,6 +445,10 @@ const isAnamnesisComplete = (answers = {}) =>
 
 module.exports = {
     computeAmpel,
+    computeInlineHints,
+    computeStudioFreigabe,
+    buildAnamnesisSummary,
+    buildAnamnesisEvaluation,
     emptyAnamnesisAnswers,
     isAnamnesisComplete,
 };

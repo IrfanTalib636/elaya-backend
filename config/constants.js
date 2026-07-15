@@ -38,10 +38,25 @@ const CASE_TYPE = {
 };
 
 const CASE_STATUS = {
+    /** Customer onboarding in progress — hidden from studio CRM until finalized */
+    DRAFT: 'draft',
     PENDING: 'pending',
     ACTIVE: 'active',
     COMPLETED: 'completed',
     LOESCHANTRAG_AUSSTEHEND: 'loeschantrag_ausstehend',
+};
+
+const STUDIO_FREIGABE_STATUS = {
+    NICHT_ERFORDERLICH: 'nicht_erforderlich',
+    AUSSTEHEND: 'ausstehend',
+    FREIGEGEBEN: 'freigegeben',
+    ABGLEHNT: 'abgelehnt',
+};
+
+const MEDICAL_FLAG_LEVEL = {
+    GRUEN: 'gruen',
+    ORANGE: 'orange',
+    ROT: 'rot',
 };
 
 const TC_TYPE = {
@@ -105,6 +120,8 @@ module.exports = {
     PIPELINE_STUFE,
     CASE_TYPE,
     CASE_STATUS,
+    STUDIO_FREIGABE_STATUS,
+    MEDICAL_FLAG_LEVEL,
     TC_TYPE,
     TC_COVERUP,
     GOAL_TARGET,

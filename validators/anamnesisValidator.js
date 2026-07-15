@@ -38,7 +38,12 @@ const upsertAnamnesisSchema = z.object({
     antworten: anamnesisAnswersSchema,
 });
 
+const previewAnamnesisSchema = z.object({
+    antworten: anamnesisAnswersSchema.partial().optional().default({}),
+});
+
 module.exports = {
     upsertAnamnesisSchema,
+    previewAnamnesisSchema,
     anamnesisAnswersSchema,
 };

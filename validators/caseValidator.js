@@ -136,6 +136,7 @@ const caseIntakeFieldsSchema = {
 const createCaseSchema = z.object({
     customer_id: z.string().trim().optional(),
     type: caseTypeEnum.default(CASE_TYPE.TATTOO),
+    status: caseStatusEnum.optional(),
     ...caseIntakeFieldsSchema,
     sessions: z.number().min(0).optional().default(0),
     sessionsMin: z.number().min(0).optional().default(0),
@@ -214,6 +215,11 @@ const listCasesQuerySchema = z.object({
     customer_id: z.string().trim().optional(),
     studio_id: z.string().trim().optional(),
     status: caseStatusEnum.optional(),
+    medical_flag: z.enum(['gruen', 'orange', 'rot']).optional(),
+    include_draft: z
+        .union([z.boolean(), z.enum(['true', 'false', '1', '0'])])
+        .optional()
+        .transform((v) => v === true || v === 'true' || v === '1'),
 });
 
 const previewCasePricingSchema = createCaseSchema.omit({ customer_id: true });

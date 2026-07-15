@@ -3,6 +3,8 @@ const {
     AKQUISE_QUELLE,
     CASE_TYPE,
     CASE_STATUS,
+    STUDIO_FREIGABE_STATUS,
+    MEDICAL_FLAG_LEVEL,
     TC_TYPE,
     TC_COVERUP,
     GOAL_TARGET,
@@ -68,6 +70,22 @@ const chatNachrichtSchema = new mongoose.Schema(
         gelesen: { type: Boolean, default: false },
     },
     { _id: true }
+);
+
+const studioFreigabeSchema = new mongoose.Schema(
+    {
+        erforderlich: { type: Boolean, default: false },
+        status: {
+            type: String,
+            enum: Object.values(STUDIO_FREIGABE_STATUS),
+            default: STUDIO_FREIGABE_STATUS.NICHT_ERFORDERLICH,
+        },
+        ausloeser: { type: [String], default: [] },
+        datum: { type: Date, default: null },
+        notiz: { type: String, default: '' },
+        grund: { type: String, default: '' },
+    },
+    { _id: false }
 );
 
 const photoStdIntakeSchema = new mongoose.Schema(
@@ -259,6 +277,21 @@ const caseSchema = new mongoose.Schema(
             default: CASE_STATUS.PENDING,
             index: true,
         },
+        /** Synced from anamnesis ampel — gruen | orange | rot | null */
+        medical_flag_level: {
+            type: String,
+            enum: [...Object.values(MEDICAL_FLAG_LEVEL), null],
+            default: null,
+            index: true,
+        },
+        /** Count of flagged anamnesis questions (orange + red) at last save */
+        open_medical_flags_count: { type: Number, default: 0, min: 0 },
+        /** True after complete anamnesis PUT */
+        anamnesis_complete: { type: Boolean, default: false, index: true },
+        studio_freigabe: {
+            type: studioFreigabeSchema,
+            default: () => ({}),
+        },
         lastSessionDate: { type: Date, default: null },
         pricePerSession: { type: Number, default: 0, min: 0 },
         akquise_quelle: {
@@ -286,6 +319,7 @@ const caseSchema = new mongoose.Schema(
 );
 
 caseSchema.index({ studio: 1, caseId: 1 }, { unique: true });
+caseSchema.index({ studio: 1, medical_flag_level: 1 });
 caseSchema.index({ customer: 1, status: 1 });
 
 const Case = mongoose.model('Case', caseSchema);

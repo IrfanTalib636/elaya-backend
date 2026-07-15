@@ -4,7 +4,7 @@ const anamnesisController = require('../controllers/anamnesisController');
 const validateMiddleware = require('../middleware/validateMiddleware');
 const { protect, authorize } = require('../middleware/authMiddleware');
 const { createCaseSchema, updateCaseSchema, previewCasePricingSchema, availabilityQuerySchema, listCasesQuerySchema } = require('../validators/caseValidator');
-const { upsertAnamnesisSchema } = require('../validators/anamnesisValidator');
+const { upsertAnamnesisSchema, previewAnamnesisSchema } = require('../validators/anamnesisValidator');
 const { USER_ROLES } = require('../config/constants');
 
 const router = express.Router();
@@ -294,6 +294,38 @@ router.get(
     protect,
     authorize(...caseAccessRoles),
     anamnesisController.getCaseAnamnesis
+);
+
+/**
+ * @swagger
+ * /cases/{id}/anamnesis/preview:
+ *   post:
+ *     summary: Preview ampel + inline hints for partial anamnesis answers (no save)
+ *     tags: [Cases]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: string }
+ *     requestBody:
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               antworten: { type: object }
+ *     responses:
+ *       200:
+ *         description: Live ampel evaluation with inline_hints and summary blocks
+ */
+router.post(
+    '/:id/anamnesis/preview',
+    protect,
+    authorize(...caseAccessRoles),
+    validateMiddleware(previewAnamnesisSchema),
+    anamnesisController.previewCaseAnamnesis
 );
 
 /**

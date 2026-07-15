@@ -108,6 +108,9 @@ const formatCase = (caseDoc, zones, role) => {
         removal: doc.removal,
         healing: doc.healing,
         status: doc.status,
+        medical_flag_level: doc.medical_flag_level,
+        open_medical_flags_count: doc.open_medical_flags_count ?? 0,
+        anamnesis_complete: doc.anamnesis_complete ?? false,
         lastSessionDate: doc.lastSessionDate,
         akquise_quelle: doc.akquise_quelle,
         zonen_aktiv: doc.zonen_aktiv,
@@ -125,6 +128,12 @@ const formatCase = (caseDoc, zones, role) => {
         payload.medicationBlockDate = doc.medicationBlockDate;
         payload.sperrfrist_deaktiviert = doc.sperrfrist_deaktiviert;
         payload.merkblatt_pdf = doc.merkblatt_pdf;
+        payload.studio_freigabe = doc.studio_freigabe;
+    } else if (doc.studio_freigabe) {
+        payload.studio_freigabe = {
+            erforderlich: doc.studio_freigabe.erforderlich,
+            status: doc.studio_freigabe.status,
+        };
     }
 
     if (isAdmin(role)) {
@@ -332,6 +341,12 @@ const listCases = asyncHandler(async (req, res) => {
 
     if (req.query.status) {
         filter.status = req.query.status;
+    } else if (isStudio(req.user.role) && !req.query.include_draft) {
+        filter.status = { $ne: 'draft' };
+    }
+
+    if (req.query.medical_flag) {
+        filter.medical_flag_level = req.query.medical_flag;
     }
 
     const { page, limit, skip } = parsePagination(req.query);
