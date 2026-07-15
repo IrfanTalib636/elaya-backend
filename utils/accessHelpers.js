@@ -2,7 +2,15 @@ const { USER_ROLES } = require('../config/constants');
 const ApiError = require('./ApiError');
 
 const STUDIO_ROLES = [USER_ROLES.STUDIO_ADMIN, USER_ROLES.STUDIO_STAFF];
-const ADMIN_ROLES = [USER_ROLES.ADMIN, USER_ROLES.SUPER_ADMIN];
+const ADMIN_ROLES = [USER_ROLES.ADMIN, USER_ROLES.SUPER_ADMIN, USER_ROLES.DEVELOPER];
+
+/** ObjectId or populated doc → hex string */
+const refId = (ref) => {
+    if (!ref) return null;
+    if (typeof ref === 'string') return ref;
+    if (ref._id) return ref._id.toString();
+    return ref.toString();
+};
 
 const isCustomer = (role) => role === USER_ROLES.CUSTOMER;
 const isStudio = (role) => STUDIO_ROLES.includes(role);
@@ -15,14 +23,14 @@ const assertCaseAccess = (user, caseDoc) => {
     }
 
     if (isCustomer(user.role)) {
-        if (caseDoc.customer.toString() !== user.customer_id.toString()) {
+        if (refId(caseDoc.customer) !== refId(user.customer_id)) {
             throw new ApiError(403, 'You do not have access to this case');
         }
         return;
     }
 
     if (isStudio(user.role)) {
-        if (caseDoc.studio.toString() !== user.studio_id.toString()) {
+        if (refId(caseDoc.studio) !== refId(user.studio_id)) {
             throw new ApiError(403, 'You do not have access to this case');
         }
         return;
@@ -37,14 +45,14 @@ const assertSessionAccess = (user, session) => {
     }
 
     if (isCustomer(user.role)) {
-        if (session.customer.toString() !== user.customer_id.toString()) {
+        if (refId(session.customer) !== refId(user.customer_id)) {
             throw new ApiError(403, 'You do not have access to this session');
         }
         return;
     }
 
     if (isStudio(user.role)) {
-        if (session.studio.toString() !== user.studio_id.toString()) {
+        if (refId(session.studio) !== refId(user.studio_id)) {
             throw new ApiError(403, 'You do not have access to this session');
         }
         return;
