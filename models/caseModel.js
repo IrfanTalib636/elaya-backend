@@ -52,7 +52,6 @@ const activityLogSchema = new mongoose.Schema(
     {
         type: {
             type: String,
-            enum: ['booked', 'cancelled', 'rescheduled'],
             required: true,
         },
         ts: { type: Date, default: Date.now },
@@ -84,6 +83,12 @@ const studioFreigabeSchema = new mongoose.Schema(
         datum: { type: Date, default: null },
         notiz: { type: String, default: '' },
         grund: { type: String, default: '' },
+        bearbeitet_von: { type: String, default: '' },
+        bearbeitet_von_id: {
+            type: mongoose.Schema.Types.ObjectId,
+            ref: 'User',
+            default: null,
+        },
     },
     { _id: false }
 );

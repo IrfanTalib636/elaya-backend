@@ -86,7 +86,19 @@ Shared REST API for the Elaya platform — Customer Web Portal, Studio Web Dashb
 
 **Financier demo verified locally:** lockout panel, blocked booking, Beratung bypass, pre-session UV/meds (longest lockout wins), appointment recalculates lockout.
 
-**Known gaps (post-M2):** Admin dashboard UI for studio approval, zone-level lockout in customer mobile booking, full pricing multipliers UI, **customer profile self-service** (edit profile, studio switch, DSG export) — see [`docs/M3-CUSTOMER-PROFILE-BACKLOG.md`](../docs/M3-CUSTOMER-PROFILE-BACKLOG.md).
+### Medical / booking parity with prototype (Phases A–E · 2026-07-16)
+
+| Phase | Status | Notes |
+|---|---|---|
+| **A — Ampel + inline hints** | ✅ Done | `POST /cases/:id/anamnesis/preview`, `PUT` anamnesis, `medical_flag_level` on case |
+| **B — Merkblatt + signature** | ✅ Done | `GET …/merkblatt`, `POST …/signature`, `GET …/signature/image` |
+| **C — Ampel on CRM / lists** | ✅ Done | Worst flag on customer detail + CRM pipeline/tasks; `GET /cases?medical_flag=` |
+| **D — PS_01 booking pre-check** | ✅ Done | `GET/POST …/booking-precheck`, customer `POST /appointments` requires `booking_precheck` |
+| **E — Klaerung + freigabe + audit** | ✅ Done | `PATCH …/anamnesis/klaerung`, `PATCH …/studio-freigabe`; original answers immutable; `audit_log` |
+
+**Swagger:** all of the above are documented under `/api/v1/docs` (Cases + Appointments tags).
+
+**Known gaps (post-M2):** Admin dashboard UI for studio approval, zone-level lockout in customer mobile booking, full pricing multipliers UI, **customer profile self-service** (edit profile, studio switch, DSG export) — see [`docs/M3-CUSTOMER-PROFILE-BACKLOG.md`](../docs/M3-CUSTOMER-PROFILE-BACKLOG.md). Case chat CRUD still stub-only.
 
 ### Changelog
 
@@ -122,6 +134,7 @@ Shared REST API for the Elaya platform — Customer Web Portal, Studio Web Dashb
 [2026-07-11] — seed:demo financier script (#TRI-001 + #HAN-001); customer detail cases scoped to studio
 [2026-07-13] — Financier demo lockout flow re-verified (49/28-day, Beratung, pre-session, recalc after booking)
 [2026-07-13] — GET /studios/public — active studios for customer registration dropdown (name + address + standorte)
+[2026-07-16] — Phase A–E medical: anamnesis preview, signature, CRM ampel, PS_01 booking-precheck, klaerung + freigabe + audit
 ```
 
 ---
@@ -141,12 +154,14 @@ backend/
 │   └── swagger.js         # OpenAPI / Swagger UI setup
 ├── controllers/
 │   ├── anamnesisController.js
-│   ├── authController.js
 │   ├── appointmentController.js
+│   ├── bookingPrecheckController.js
+│   ├── authController.js
 │   ├── caseController.js
 │   ├── configController.js
 │   ├── elaycoinController.js
 │   ├── sessionController.js
+│   ├── signatureController.js
 │   └── studioController.js
 ├── middleware/
 │   ├── authMiddleware.js      # protect, authorize
@@ -192,12 +207,15 @@ backend/
 │   └── emailService.js          # Password reset emails (console / SMTP)
 ├── utils/
 │   ├── accessHelpers.js         # Shared role + access checks
-│   ├── anamnesisEngine.js       # Medical anamnesis ampel evaluation
+│   ├── anamnesisEngine.js       # Medical anamnesis ampel + klaerung-aware effective status
 │   ├── ApiError.js
 │   ├── asyncHandler.js
+│   ├── bookingPrecheckEngine.js # PS_01 validation (UV/meds/KO/wiederholungen)
+│   ├── bookingPrecheckApply.js  # Persist PS_01 side effects on appointment book
 │   ├── generateCaseId.js
 │   ├── generateTokenAndSetCookies.js
 │   ├── lockoutEngine.js         # berechneAlleSperren — 49/28-day, UV/meds, pre-session
+│   ├── medicalFlagHelpers.js    # Worst medical flag aggregation for CRM/customers
 │   ├── passwordReset.js         # Token issue/verify + portal-scoped reset
 │   ├── pagination.js            # page/limit parsing for list endpoints
 │   ├── elaycoinEngine.js        # vergebeElaycoins, zieheElaycoinsAb, expiry

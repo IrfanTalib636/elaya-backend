@@ -8,6 +8,7 @@ const { protect, authorize } = require('../middleware/authMiddleware');
 const { createCaseSchema, updateCaseSchema, previewCasePricingSchema, availabilityQuerySchema, listCasesQuerySchema } = require('../validators/caseValidator');
 const { upsertAnamnesisSchema, previewAnamnesisSchema } = require('../validators/anamnesisValidator');
 const { bookingPrecheckBodySchema } = require('../validators/bookingPrecheckValidator');
+const { updateKlaerungSchema, updateStudioFreigabeSchema } = require('../validators/klaerungValidator');
 const { submitSignatureSchema, merkblattQuerySchema } = require('../validators/signatureValidator');
 const { USER_ROLES } = require('../config/constants');
 
@@ -371,6 +372,104 @@ router.put(
 
 /**
  * @swagger
+ * /cases/{id}/anamnesis/klaerung:
+ *   patch:
+ *     summary: Studio review of a medical flag (klaerung)
+ *     description: |
+ *       Updates klaerung status for one flagged question (F{nr}).
+ *       Does **not** alter original anamnesis antworten — review is stored separately with timestamp and staff name.
+ *       Recalculates effective ampel (offen→rot, in_klaerung→orange, all geklaert→gruen).
+ *       Studio/admin only.
+ *     tags: [Cases]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: string }
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [frage_key, status]
+ *             properties:
+ *               frage_key:
+ *                 type: string
+ *                 example: F5
+ *                 description: Flag key F{frage_nr}
+ *               status:
+ *                 type: string
+ *                 enum: [offen, in_klaerung, geklaert]
+ *               notiz:
+ *                 type: string
+ *                 description: Optional studio note
+ *     responses:
+ *       200:
+ *         description: Klaerung updated; returns anamnesis + case_flags (ampel)
+ *       400:
+ *         description: Unknown frage_key or validation error
+ *       403:
+ *         description: Customer cannot update klaerung
+ */
+router.patch(
+    '/:id/anamnesis/klaerung',
+    protect,
+    authorize(USER_ROLES.STUDIO_ADMIN, USER_ROLES.STUDIO_STAFF, USER_ROLES.ADMIN, USER_ROLES.SUPER_ADMIN),
+    validateMiddleware(updateKlaerungSchema),
+    anamnesisController.updateKlaerung
+);
+
+/**
+ * @swagger
+ * /cases/{id}/studio-freigabe:
+ *   patch:
+ *     summary: Approve or reject Stufe-2 studio freigabe
+ *     description: |
+ *       For cases where anamnesis triggered studio_freigabe.erforderlich (e.g. diabetes).
+ *       Sets status freigegeben | abgelehnt | ausstehend with staff + timestamp.
+ *       Appends system chat stub and immutable audit entry. Studio/admin only.
+ *     tags: [Cases]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: string }
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [status]
+ *             properties:
+ *               status:
+ *                 type: string
+ *                 enum: [freigegeben, abgelehnt, ausstehend]
+ *               notiz: { type: string }
+ *               grund: { type: string, description: Used when abgelehnt }
+ *     responses:
+ *       200:
+ *         description: Freigabe updated
+ *       400:
+ *         description: Freigabe not required for this case
+ *       403:
+ *         description: Customer cannot update freigabe
+ */
+router.patch(
+    '/:id/studio-freigabe',
+    protect,
+    authorize(USER_ROLES.STUDIO_ADMIN, USER_ROLES.STUDIO_STAFF, USER_ROLES.ADMIN, USER_ROLES.SUPER_ADMIN),
+    validateMiddleware(updateStudioFreigabeSchema),
+    anamnesisController.updateStudioFreigabe
+);
+
+/**
+ * @swagger
  * /cases/{id}/booking-precheck:
  *   get:
  *     summary: PS_01 booking pre-check form (customer treatment booking)
@@ -384,7 +483,9 @@ router.put(
  *         schema: { type: string }
  *     responses:
  *       200:
- *         description: PS_01 form schema with KO re-checks and prerequisites
+ *         description: |
+ *           PS_01 form schema — uv_options, medication_groups, ko_rechecks,
+ *           rote_fragen_rechecks, prerequisites (anamnesis_complete, can_book_treatment)
  */
 router.get(
     '/:id/booking-precheck',

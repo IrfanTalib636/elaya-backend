@@ -376,19 +376,101 @@ const buildAnamnesisSummary = (ampel) => {
     };
 };
 
-const buildAnamnesisEvaluation = (answers = {}) => {
+const KLAERUNG_STATUS = {
+    OFFEN: 'offen',
+    IN_KLAERUNG: 'in_klaerung',
+    GEKLAERT: 'geklaert',
+};
+
+/**
+ * Effective ampel after studio klaerung (prototype berechneAmpelStatus).
+ * Original rote/orange fragen lists stay immutable — only klaerung changes effective status.
+ */
+const computeEffectiveAmpel = (roteFragen = [], orangeFragen = [], klaerung = {}) => {
+    if (roteFragen.length === 0 && orangeFragen.length === 0) {
+        return {
+            ampel_status: 'gruen',
+            open_medical_flags_count: 0,
+        };
+    }
+
+    const statusOf = (f) => {
+        const entry = klaerung[`F${f.frage_nr}`] || klaerung[f.frage_key];
+        return entry?.status || KLAERUNG_STATUS.OFFEN;
+    };
+
+    const roteOffen = roteFragen.some((f) => statusOf(f) === KLAERUNG_STATUS.OFFEN);
+    if (roteOffen) {
+        return {
+            ampel_status: 'rot',
+            open_medical_flags_count: countOpenFlags(roteFragen, orangeFragen, klaerung),
+        };
+    }
+
+    const roteInKlaerung = roteFragen.some((f) => statusOf(f) === KLAERUNG_STATUS.IN_KLAERUNG);
+    if (roteInKlaerung) {
+        return {
+            ampel_status: 'orange',
+            open_medical_flags_count: countOpenFlags(roteFragen, orangeFragen, klaerung),
+        };
+    }
+
+    const orangeOffen = orangeFragen.some((f) => statusOf(f) === KLAERUNG_STATUS.OFFEN);
+    if (orangeOffen) {
+        return {
+            ampel_status: 'orange',
+            open_medical_flags_count: countOpenFlags(roteFragen, orangeFragen, klaerung),
+        };
+    }
+
+    const orangeInKlaerung = orangeFragen.some(
+        (f) => statusOf(f) === KLAERUNG_STATUS.IN_KLAERUNG
+    );
+    if (orangeInKlaerung) {
+        return {
+            ampel_status: 'orange',
+            open_medical_flags_count: countOpenFlags(roteFragen, orangeFragen, klaerung),
+        };
+    }
+
+    return {
+        ampel_status: 'gruen',
+        open_medical_flags_count: 0,
+    };
+};
+
+const countOpenFlags = (roteFragen, orangeFragen, klaerung) => {
+    const statusOf = (f) => {
+        const entry = klaerung[`F${f.frage_nr}`] || klaerung[f.frage_key];
+        return entry?.status || KLAERUNG_STATUS.OFFEN;
+    };
+    return [...roteFragen, ...orangeFragen].filter(
+        (f) => statusOf(f) !== KLAERUNG_STATUS.GEKLAERT
+    ).length;
+};
+
+const klaerungKeyForFlag = (flag) => `F${flag.frage_nr}`;
+
+const buildAnamnesisEvaluation = (answers = {}, klaerung = {}) => {
     const ampel = computeAmpel(answers);
     const { hints, has_ko_flags } = computeInlineHints(answers);
     const studio_freigabe = computeStudioFreigabe(answers);
+    const effective = computeEffectiveAmpel(ampel.rote_fragen, ampel.orange_fragen, klaerung);
 
     return {
         ...ampel,
+        ampel_status: effective.ampel_status,
+        raw_ampel_status: ampel.ampel_status,
         inline_hints: hints,
         has_ko_flags,
         studio_freigabe,
-        summary: buildAnamnesisSummary(ampel),
+        summary: buildAnamnesisSummary({
+            ...ampel,
+            ampel_status: effective.ampel_status,
+        }),
         filled: isAnamnesisComplete(answers),
-        open_medical_flags_count: ampel.orange_fragen.length + ampel.rote_fragen.length,
+        open_medical_flags_count: effective.open_medical_flags_count,
+        klaerung,
     };
 };
 
@@ -447,8 +529,11 @@ module.exports = {
     computeAmpel,
     computeInlineHints,
     computeStudioFreigabe,
+    computeEffectiveAmpel,
     buildAnamnesisSummary,
     buildAnamnesisEvaluation,
     emptyAnamnesisAnswers,
     isAnamnesisComplete,
+    KLAERUNG_STATUS,
+    klaerungKeyForFlag,
 };

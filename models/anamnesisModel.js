@@ -22,6 +22,16 @@ const anamnesisSchema = new mongoose.Schema(
         },
         wiederholungen: { type: [mongoose.Schema.Types.Mixed], default: [] },
         statuswechsel: { type: [mongoose.Schema.Types.Mixed], default: [] },
+        /**
+         * Studio review of medical flags — never mutates antworten.
+         * Keys: F{frage_nr} → { status, notiz, datum, geklaert_von, bearbeitet_von_id }
+         */
+        klaerung: {
+            type: mongoose.Schema.Types.Mixed,
+            default: {},
+        },
+        /** Append-only audit trail for klaerung / freigabe / status changes */
+        audit_log: { type: [mongoose.Schema.Types.Mixed], default: [] },
     },
     {
         timestamps: true,
