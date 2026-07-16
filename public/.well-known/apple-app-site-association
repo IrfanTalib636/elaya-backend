@@ -1,0 +1,11 @@
+{
+  "applinks": {
+    "apps": [],
+    "details": [
+      {
+        "appID": "73T76Z5DL7.com.elayaMobile.app",
+        "paths": ["/reset-password", "/reset-password/*"]
+      }
+    ]
+  }
+}
