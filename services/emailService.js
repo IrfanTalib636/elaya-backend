@@ -90,9 +90,8 @@ const buildResetPasswordUrl = (portal, rawToken) => {
     }
 
     if (portal === 'customer') {
-        const base =
-            process.env.APP_CUSTOMER_RESET_URL ||
-            `${config.frontendUrl}/customer/reset-password`;
+        const { getCustomerResetUrlBase } = require('../config/appLinks');
+        const base = getCustomerResetUrlBase();
         const sep = base.includes('?') ? '&' : '?';
         return `${base}${sep}token=${token}`;
     }
