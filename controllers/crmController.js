@@ -15,6 +15,7 @@ const {
     getStageAktion,
     getLeadTemplate,
 } = require('../config/crmDefaults');
+const { aggregateMedicalFlagsByCustomer } = require('../utils/medicalFlagHelpers');
 
 const assertCustomerInStudio = async (customerId, studioId) => {
     if (!customerId) return null;
@@ -25,21 +26,29 @@ const assertCustomerInStudio = async (customerId, studioId) => {
     return customer;
 };
 
-const formatCrmTask = (task) => ({
-    id: task._id,
-    customer_id: task.customer?._id ?? task.customer ?? null,
-    kunden_name: task.customer
-        ? `${task.customer.vorname ?? ''} ${task.customer.nachname ?? ''}`.trim()
-        : null,
-    titel: task.titel,
-    typ: task.typ,
-    prioritaet: task.prioritaet,
-    faellig_am: task.faellig_am,
-    zugewiesen_an: task.zugewiesen_an ?? '',
-    erledigt: task.erledigt,
-    erledigt_am: task.erledigt_am,
-    erstellt_am: task.createdAt,
-});
+const formatCrmTask = (task, medicalMap = {}) => {
+    const customerId = task.customer?._id?.toString() ?? task.customer?.toString() ?? null;
+    const medical = customerId ? medicalMap[customerId] : null;
+
+    return {
+        id: task._id,
+        customer_id: task.customer?._id ?? task.customer ?? null,
+        kunden_name: task.customer
+            ? `${task.customer.vorname ?? ''} ${task.customer.nachname ?? ''}`.trim()
+            : null,
+        titel: task.titel,
+        typ: task.typ,
+        prioritaet: task.prioritaet,
+        faellig_am: task.faellig_am,
+        zugewiesen_an: task.zugewiesen_an ?? '',
+        erledigt: task.erledigt,
+        erledigt_am: task.erledigt_am,
+        erstellt_am: task.createdAt,
+        worst_medical_flag_level: medical?.worst_medical_flag_level ?? null,
+        open_medical_flags_count: medical?.open_medical_flags_count ?? 0,
+        pending_anamnesis_count: medical?.pending_anamnesis_count ?? 0,
+    };
+};
 
 const formatCrmNote = (note) => ({
     id: note._id,
@@ -82,7 +91,7 @@ const getCrmPipeline = asyncHandler(async (req, res) => {
 
     const ids = customers.map((c) => c._id);
     const studioOid = new mongoose.Types.ObjectId(studioId);
-    const [caseCounts, totalCaseCounts, nextTasks, lastNotes] = await Promise.all([
+    const [caseCounts, totalCaseCounts, nextTasks, lastNotes, medicalMap] = await Promise.all([
         Case.aggregate([
             { $match: { customer: { $in: ids }, status: { $in: ['pending', 'active'] } } },
             { $group: { _id: '$customer', count: { $sum: 1 } } },
@@ -101,6 +110,7 @@ const getCrmPipeline = asyncHandler(async (req, res) => {
             { $sort: { createdAt: -1 } },
             { $group: { _id: '$customer', erstellt_am: { $first: '$createdAt' } } },
         ]),
+        aggregateMedicalFlagsByCustomer(ids),
     ]);
     const countMap = Object.fromEntries(caseCounts.map((x) => [x._id.toString(), x.count]));
     const totalMap = Object.fromEntries(totalCaseCounts.map((x) => [x._id.toString(), x.count]));
@@ -111,12 +121,16 @@ const getCrmPipeline = asyncHandler(async (req, res) => {
         const id = c._id.toString();
         const next = taskMap[id];
         const faelleGesamt = totalMap[id] ?? 0;
+        const medical = medicalMap[id] ?? {};
         return {
             ...formatCrmCustomer(c, countMap[id] ?? 0),
             faelle_gesamt: faelleGesamt,
             aktion: getStageAktion(c.pipeline_stufe, faelleGesamt),
             naechste_aufgabe: next ? { titel: next.titel, faellig_am: next.faellig_am } : null,
             letzter_kontakt: noteMap[id] ?? null,
+            worst_medical_flag_level: medical.worst_medical_flag_level ?? null,
+            open_medical_flags_count: medical.open_medical_flags_count ?? 0,
+            pending_anamnesis_count: medical.pending_anamnesis_count ?? 0,
         };
     });
 
@@ -157,9 +171,18 @@ const listCrmTasks = asyncHandler(async (req, res) => {
         .sort({ faellig_am: 1, createdAt: -1 })
         .lean();
 
+    const customerIds = [
+        ...new Set(
+            tasks
+                .map((t) => t.customer?._id ?? t.customer)
+                .filter(Boolean)
+        ),
+    ];
+    const medicalMap = await aggregateMedicalFlagsByCustomer(customerIds);
+
     res.json({
         success: true,
-        data: { tasks: tasks.map(formatCrmTask) },
+        data: { tasks: tasks.map((t) => formatCrmTask(t, medicalMap)) },
     });
 });
 

@@ -7,6 +7,7 @@ const asyncHandler = require('../utils/asyncHandler');
 const { parsePagination, buildPaginationMeta } = require('../utils/pagination');
 const { isAdmin, isStudio } = require('../utils/accessHelpers');
 const { USER_ROLES, AKQUISE_QUELLE, PIPELINE_STUFE } = require('../config/constants');
+const { worstMedicalFlagLevel } = require('../utils/medicalFlagHelpers');
 
 // ── helpers ──────────────────────────────────────────────────────────────
 const assertCustomerAccess = (user, customer) => {
@@ -138,13 +139,32 @@ const getCustomer = asyncHandler(async (req, res) => {
     }
 
     const cases = await Case.find(caseFilter)
-        .select('caseId type tc_title status sessions sessionsDone removal lastSessionDate')
+        .select(
+            'caseId type tc_title status sessions sessionsDone removal lastSessionDate medical_flag_level open_medical_flags_count anamnesis_complete'
+        )
         .sort({ createdAt: -1 })
         .lean();
 
+    const worst_medical_flag_level = worstMedicalFlagLevel(
+        cases.map((c) => c.medical_flag_level).filter(Boolean)
+    );
+    const open_medical_flags_count = cases.reduce(
+        (sum, c) => sum + (c.open_medical_flags_count ?? 0),
+        0
+    );
+    const pending_anamnesis_count = cases.filter((c) => !c.anamnesis_complete).length;
+
     res.json({
         success: true,
-        data: { customer: { ...customer, cases } },
+        data: {
+            customer: {
+                ...customer,
+                cases,
+                worst_medical_flag_level,
+                open_medical_flags_count,
+                pending_anamnesis_count,
+            },
+        },
     });
 });
 
