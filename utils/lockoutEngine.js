@@ -100,6 +100,16 @@ const normalizePreSessionCheck = (check = {}) => {
         normalized.medikamente = [];
     }
 
+    // Empty meds → no intake date. Also drop invalid/epoch dates from null coercion.
+    if (!normalized.medikamente.length) {
+        normalized.medikament_datum = undefined;
+    } else if (normalized.medikament_datum) {
+        const ts = new Date(normalized.medikament_datum).getTime();
+        if (Number.isNaN(ts) || ts === 0) {
+            normalized.medikament_datum = undefined;
+        }
+    }
+
     return normalized;
 };
 

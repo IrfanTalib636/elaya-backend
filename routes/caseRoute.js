@@ -1,11 +1,13 @@
 const express = require('express');
 const caseController = require('../controllers/caseController');
 const anamnesisController = require('../controllers/anamnesisController');
+const bookingPrecheckController = require('../controllers/bookingPrecheckController');
 const signatureController = require('../controllers/signatureController');
 const validateMiddleware = require('../middleware/validateMiddleware');
 const { protect, authorize } = require('../middleware/authMiddleware');
 const { createCaseSchema, updateCaseSchema, previewCasePricingSchema, availabilityQuerySchema, listCasesQuerySchema } = require('../validators/caseValidator');
 const { upsertAnamnesisSchema, previewAnamnesisSchema } = require('../validators/anamnesisValidator');
+const { bookingPrecheckBodySchema } = require('../validators/bookingPrecheckValidator');
 const { submitSignatureSchema, merkblattQuerySchema } = require('../validators/signatureValidator');
 const { USER_ROLES } = require('../config/constants');
 
@@ -365,6 +367,73 @@ router.put(
     authorize(...caseAccessRoles),
     validateMiddleware(upsertAnamnesisSchema),
     anamnesisController.upsertCaseAnamnesis
+);
+
+/**
+ * @swagger
+ * /cases/{id}/booking-precheck:
+ *   get:
+ *     summary: PS_01 booking pre-check form (customer treatment booking)
+ *     tags: [Cases]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: string }
+ *     responses:
+ *       200:
+ *         description: PS_01 form schema with KO re-checks and prerequisites
+ */
+router.get(
+    '/:id/booking-precheck',
+    protect,
+    authorize(...caseAccessRoles),
+    bookingPrecheckController.getBookingPrecheck
+);
+
+/**
+ * @swagger
+ * /cases/{id}/booking-precheck/preview:
+ *   post:
+ *     summary: Validate PS_01 answers before opening booking calendar
+ *     tags: [Cases]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: string }
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               consultation_only: { type: boolean }
+ *               pre_session:
+ *                 type: object
+ *                 properties:
+ *                   uv_exposition: { type: string }
+ *                   medikamente: { type: array, items: { type: string } }
+ *                   medikament_datum: { type: string, format: date-time }
+ *               ko_answers: { type: object }
+ *               wiederholungen: { type: object }
+ *               wiederholungen_confirmed: { type: boolean }
+ *               ko_signature: { type: object }
+ *     responses:
+ *       200:
+ *         description: Validation result with can_proceed, blocks, and availability hint
+ */
+router.post(
+    '/:id/booking-precheck/preview',
+    protect,
+    authorize(...caseAccessRoles),
+    validateMiddleware(bookingPrecheckBodySchema),
+    bookingPrecheckController.previewBookingPrecheck
 );
 
 /**

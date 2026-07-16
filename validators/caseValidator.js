@@ -181,13 +181,19 @@ const updateCaseSchema = z
         message: 'At least one field is required to update',
     });
 
+/** null / '' must not become Date(0) via z.coerce.date() */
+const optionalNullableDate = z.preprocess(
+    (value) => (value === null || value === '' || value === undefined ? undefined : value),
+    z.coerce.date().optional()
+);
+
 const preSessionCheckSchema = z.object({
     uv_exposition: z.enum(['keine', 'leicht', 'mittel', 'intensiv']).optional(),
     medikamente: z
         .array(z.enum(['retinoide', 'antibiotika', 'antidepressiva']))
         .optional()
         .default([]),
-    medikament_datum: z.coerce.date().optional(),
+    medikament_datum: optionalNullableDate,
 });
 
 const availabilityQuerySchema = z.object({
@@ -207,7 +213,7 @@ const availabilityQuerySchema = z.object({
             const list = Array.isArray(value) ? value : value.split(',');
             return list.map((item) => item.trim()).filter(Boolean);
         }),
-    medikament_datum: z.coerce.date().optional(),
+    medikament_datum: optionalNullableDate,
 });
 
 const listCasesQuerySchema = z.object({

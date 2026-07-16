@@ -16,6 +16,26 @@ const appointmentStatusEnum = z.enum(Object.values(APPOINTMENT_STATUS));
 
 const optionalTrimmedString = z.string().trim().optional();
 
+const bookingPrecheckPayloadSchema = z.object({
+    pre_session: preSessionCheckSchema.optional().default({}),
+    ko_answers: z.record(z.enum(['changed', 'still'])).optional().default({}),
+    wiederholungen: z
+        .record(
+            z.object({
+                aktuell_gleich: z.boolean(),
+                aenderung: z.string().optional().default(''),
+            })
+        )
+        .optional()
+        .default({}),
+    wiederholungen_confirmed: z.boolean().optional().default(false),
+    ko_signature: z
+        .object({
+            unterschrift_data: z.string().min(1),
+        })
+        .optional(),
+});
+
 const createAppointmentSchema = z.object({
     case_id: z.string({ required_error: 'case_id is required' }).trim().min(1),
     date: z.coerce.date({ required_error: 'date is required' }),
@@ -30,6 +50,7 @@ const createAppointmentSchema = z.object({
     gruppen_rabatt: z.number().min(0).max(100).nullable().optional(),
     gruppen_preis_total: z.number().min(0).nullable().optional(),
     preSessionCheck: preSessionCheckSchema.optional(),
+    booking_precheck: bookingPrecheckPayloadSchema.optional(),
 });
 
 const updateAppointmentSchema = z
@@ -45,6 +66,7 @@ const updateAppointmentSchema = z
         gruppen_rabatt: z.number().min(0).max(100).nullable().optional(),
         gruppen_preis_total: z.number().min(0).nullable().optional(),
         preSessionCheck: preSessionCheckSchema.optional(),
+        booking_precheck: bookingPrecheckPayloadSchema.optional(),
     })
     .refine((data) => Object.keys(data).length > 0, {
         message: 'At least one field is required to update',
