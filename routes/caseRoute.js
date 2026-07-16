@@ -1,10 +1,12 @@
 const express = require('express');
 const caseController = require('../controllers/caseController');
 const anamnesisController = require('../controllers/anamnesisController');
+const signatureController = require('../controllers/signatureController');
 const validateMiddleware = require('../middleware/validateMiddleware');
 const { protect, authorize } = require('../middleware/authMiddleware');
 const { createCaseSchema, updateCaseSchema, previewCasePricingSchema, availabilityQuerySchema, listCasesQuerySchema } = require('../validators/caseValidator');
 const { upsertAnamnesisSchema, previewAnamnesisSchema } = require('../validators/anamnesisValidator');
+const { submitSignatureSchema, merkblattQuerySchema } = require('../validators/signatureValidator');
 const { USER_ROLES } = require('../config/constants');
 
 const router = express.Router();
@@ -30,7 +32,8 @@ const caseAccessRoles = [
  *       Accepts full prototype intake **TC_01–TC_06** (and optional TC_08–09 signature fields). Studio dashboard uses an
  *       **8-step wizard** (TC_01–TC_06 → KI pricing preview → review) before calling this endpoint.
  *
- *       **Photo fields** (`photo_intake_*`, zone `foto_url`) accept URL strings — upload service not built yet.
+ *       Photo fields (photo_intake_*, zone foto_url) store private file asset IDs from POST /files/staging.
+ *       Images are served only via authenticated GET /files/{id}/content — no public URLs.
  *     tags: [Cases]
  *     security:
  *       - bearerAuth: []
@@ -362,6 +365,77 @@ router.put(
     authorize(...caseAccessRoles),
     validateMiddleware(upsertAnamnesisSchema),
     anamnesisController.upsertCaseAnamnesis
+);
+
+/**
+ * @swagger
+ * /cases/{id}/merkblatt:
+ *   get:
+ *     summary: Get TC_08 aftercare merkblatt content for a case
+ *     tags: [Cases]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: string }
+ *       - in: query
+ *         name: locale
+ *         schema: { type: string, enum: [de, en], default: de }
+ *     responses:
+ *       200:
+ *         description: Merkblatt sections, labels, and case summary for signature flow
+ */
+router.get(
+    '/:id/merkblatt',
+    protect,
+    authorize(...caseAccessRoles),
+    validateMiddleware(merkblattQuerySchema, 'query'),
+    signatureController.getCaseMerkblatt
+);
+
+/**
+ * @swagger
+ * /cases/{id}/signature:
+ *   post:
+ *     summary: Submit TC_09 digital signature and finalize draft case
+ *     tags: [Cases]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: string }
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [merkblatt_gelesen, bestaetigung_text, unterschrift_data]
+ *     responses:
+ *       200:
+ *         description: Signature saved; draft cases move to pending
+ *       400:
+ *         description: Anamnesis not complete
+ *       409:
+ *         description: Already signed (customer)
+ */
+router.get(
+    '/:id/signature/image',
+    protect,
+    authorize(...caseAccessRoles),
+    signatureController.getCaseSignatureImage
+);
+
+router.post(
+    '/:id/signature',
+    protect,
+    authorize(...caseAccessRoles),
+    validateMiddleware(submitSignatureSchema),
+    signatureController.submitCaseSignature
 );
 
 /**

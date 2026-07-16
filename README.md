@@ -86,7 +86,7 @@ Shared REST API for the Elaya platform — Customer Web Portal, Studio Web Dashb
 
 **Financier demo verified locally:** lockout panel, blocked booking, Beratung bypass, pre-session UV/meds (longest lockout wins), appointment recalculates lockout.
 
-**Known gaps (post-M2):** Admin dashboard UI for studio approval, zone-level lockout in customer mobile booking, full pricing multipliers UI.
+**Known gaps (post-M2):** Admin dashboard UI for studio approval, zone-level lockout in customer mobile booking, full pricing multipliers UI, **customer profile self-service** (edit profile, studio switch, DSG export) — see [`docs/M3-CUSTOMER-PROFILE-BACKLOG.md`](../docs/M3-CUSTOMER-PROFILE-BACKLOG.md).
 
 ### Changelog
 

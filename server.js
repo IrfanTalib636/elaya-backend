@@ -11,6 +11,7 @@ const dotenv = require('dotenv');
 dotenv.config();
 
 const connectDB = require('./config/db');
+const { ensureUploadRoot } = require('./services/fileStorageService');
 const { setupSwagger, isSwaggerEnabled } = require('./config/swagger');
 const apiRoutes = require('./routes');
 const errorMiddleware = require('./middleware/errorMiddleware');
@@ -42,7 +43,8 @@ app.use(
     })
 );
 app.use(compression());
-app.use(express.json({ limit: '10kb' }));
+// Signatures as JPEG base64 (~3–15 KB); optional merkblatt PDF may be larger
+app.use(express.json({ limit: process.env.JSON_BODY_LIMIT || '512kb' }));
 app.use(cookieParser());
 app.use((req, _res, next) => {
     if (req.body) {
@@ -78,6 +80,7 @@ app.use(errorMiddleware);
 const startServer = async () => {
     try {
         await connectDB();
+        await ensureUploadRoot();
 
         const port = process.env.PORT || 4000;
 

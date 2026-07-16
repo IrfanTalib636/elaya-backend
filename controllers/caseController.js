@@ -23,6 +23,10 @@ const {
     CUSTOMER_INTAKE_FIELDS,
     syncDerivedIntakeFields,
 } = require('../utils/caseIntakeHelpers');
+const {
+    linkCaseIntakeFiles,
+    linkZonePhotoFiles,
+} = require('../services/fileAccessService');
 
 const STUDIO_ROLES = [USER_ROLES.STUDIO_ADMIN, USER_ROLES.STUDIO_STAFF];
 const ADMIN_ROLES = [USER_ROLES.ADMIN, USER_ROLES.SUPER_ADMIN];
@@ -111,6 +115,7 @@ const formatCase = (caseDoc, zones, role) => {
         medical_flag_level: doc.medical_flag_level,
         open_medical_flags_count: doc.open_medical_flags_count ?? 0,
         anamnesis_complete: doc.anamnesis_complete ?? false,
+        signature_complete: !!doc.unterschrift?.zeitstempel,
         lastSessionDate: doc.lastSessionDate,
         akquise_quelle: doc.akquise_quelle,
         zonen_aktiv: doc.zonen_aktiv,
@@ -121,6 +126,12 @@ const formatCase = (caseDoc, zones, role) => {
     INTAKE_RESPONSE_FIELDS.forEach((field) => {
         payload[field] = doc[field];
     });
+
+    if (payload.unterschrift?.unterschrift_data) {
+        const { zeitstempel, merkblatt_gelesen, bestaetigung_text } = payload.unterschrift;
+        payload.unterschrift = { zeitstempel, merkblatt_gelesen, bestaetigung_text };
+        payload.signature_image_url = `/cases/${doc._id}/signature/image`;
+    }
 
     if (!isCustomer(role)) {
         payload.pricePerSession = doc.pricePerSession;
@@ -298,8 +309,25 @@ const createCase = asyncHandler(async (req, res) => {
             akquise_quelle: caseFields.akquise_quelle ?? customer.akquise_quelle,
         });
 
+        const linkedPhotos = await linkCaseIntakeFiles(
+            caseDoc,
+            {
+                photo_intake_main: caseFields.photo_intake_main,
+                photo_intake_detail: caseFields.photo_intake_detail,
+                photo_marker: caseFields.photo_marker,
+            },
+            req.user,
+            req
+        );
+
+        if (Object.keys(linkedPhotos).length > 0) {
+            Object.assign(caseDoc, linkedPhotos);
+            await caseDoc.save();
+        }
+
         if (zonen.length > 0) {
-            zoneDocs = await CaseZone.insertMany(buildZoneDocs(caseDoc._id, zonen));
+            const linkedZones = await linkZonePhotoFiles(caseDoc, zonen, req.user, req);
+            zoneDocs = await CaseZone.insertMany(buildZoneDocs(caseDoc._id, linkedZones));
         }
     } catch (error) {
         if (caseDoc?._id) {
@@ -551,4 +579,5 @@ module.exports = {
     getCaseAvailability,
     getCasePricing,
     previewCasePricing,
+    formatCase,
 };

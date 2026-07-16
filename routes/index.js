@@ -9,6 +9,7 @@ const elaycoinRoute = require('./elaycoinRoute');
 const configRoute = require('./configRoute');
 const studioRoute = require('./studioRoute');
 const studiosRoute = require('./studiosRoute');
+const fileRoute = require('./fileRoute');
 
 const router = express.Router();
 
@@ -22,5 +23,6 @@ router.use('/elaycoins', elaycoinRoute);
 router.use('/config', configRoute);
 router.use('/studio', studioRoute);
 router.use('/studios', studiosRoute);
+router.use('/files', fileRoute);
 
 module.exports = router;
