@@ -31,7 +31,7 @@ Shared REST API for the Elaya platform — Customer Web Portal, Studio Web Dashb
 | **Week 2 — Cases, booking, engines** | ✅ **100%** | Complete |
 | Case / CaseZone / Anamnesis models | ✅ Done | Normalized per client §2 mapping |
 | Appointment / Session models | ✅ Done | Normalized per client §2 mapping |
-| **Case intake (8-step fields)** | ✅ Done | Full prototype intake on POST/PATCH `/cases` — see `docs/CUSTOMER-CASE-INTAKE-SPEC.md` |
+| **Case intake (8-step fields)** | ✅ Done | Full prototype intake on POST/PATCH `/cases` — see `../docs/CUSTOMER-CASE-INTAKE-SPEC.md` (local docs) |
 | Case availability API | ✅ Done | GET `/cases/:id/availability` — calendar + lockout preview |
 | Appointment API | ✅ Done | POST/GET/PATCH `/appointments` — group booking supported |
 | Session API | ✅ Done | POST/GET/PATCH `/sessions` — studio/admin write, customer read |
@@ -82,7 +82,7 @@ Shared REST API for the Elaya platform — Customer Web Portal, Studio Web Dashb
 | **Financier demo seed** | ✅ Done | `npm run seed:demo` — Maria Tribal, `#TRI-001` + `#HAN-001` on INKFREE |
 | **Public studio list (registration)** | ✅ Done | `GET /studios/public` — active studios with address + standorte for customer signup dropdown |
 
-**Mobile app developer guide:** [`docs/MOBILE-APP-DEVELOPER.md`](./docs/MOBILE-APP-DEVELOPER.md) · [PDF](../docs/MOBILE-APP-DEVELOPER.pdf) — screen flows, 6 tabs, tattoo + PMU wizard, API mapping for iOS/native app. See [`docs/MOBILE-APP-LINKS.md`](./docs/MOBILE-APP-LINKS.md).
+**Mobile app developer guide:** [`../docs/MOBILE-APP-DEVELOPER.md`](../docs/MOBILE-APP-DEVELOPER.md) — screen flows, 6 tabs, tattoo + PMU wizard, API mapping for iOS/native app. See [`../docs/MOBILE-APP-LINKS.md`](../docs/MOBILE-APP-LINKS.md). *(Local monorepo docs — not in this GitHub repo.)*
 
 **Financier demo verified locally:** lockout panel, blocked booking, Beratung bypass, pre-session UV/meds (longest lockout wins), appointment recalculates lockout.
 
