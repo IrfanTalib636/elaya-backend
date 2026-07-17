@@ -1,10 +1,11 @@
-const { GOAL_TARGET } = require('../config/constants');
+const { GOAL_TARGET, CASE_TYPE } = require('../config/constants');
 const {
     BODY_LOCATION_LABELS,
     FITZ_TYPE_TO_INT,
+    PMU_TYPE_LABELS,
 } = require('../config/caseIntakeEnums');
 
-/** Fields customers may set during the intake wizard (steps 1–6, 8–9). */
+/** Fields customers may set during the intake wizard (tattoo + PMU + sign-off). */
 const CUSTOMER_INTAKE_FIELDS = [
     // TC_01
     'tc_title',
@@ -46,9 +47,25 @@ const CUSTOMER_INTAKE_FIELDS = [
     'life_weight_kg',
     'life_hydration',
     'life_nutrition',
+    'life_aftercare_commitment',
     // TC_05
     'goal_target',
     'goal_notes',
+    // PMU_01–PMU_05
+    'pmu_type',
+    'pmu_side',
+    'pmu_age_range',
+    'pmu_technique',
+    'pigment_type',
+    'stitch_depth',
+    'previously_lasered',
+    'lasered_notes',
+    'colors',
+    'color_density',
+    'color_saturation',
+    'has_shading',
+    'has_linework',
+    'paradox_darkening_acknowledged',
     // TC_06 — optional until upload API
     'photo_intake_main',
     'photo_intake_detail',
@@ -62,6 +79,7 @@ const CUSTOMER_INTAKE_FIELDS = [
     'sessions',
     'sessionsMin',
     'sessionsMax',
+    'pricePerSession',
 ];
 
 const normalizeGoalTarget = (value) => {
@@ -82,7 +100,12 @@ const syncDerivedIntakeFields = (fields) => {
         next.skin_fitzpatrick = FITZ_TYPE_TO_INT[next.skin_fitzpatrick_type];
     }
 
-    if (next.tc_body_location_main && !next.bodyLabel?.trim()) {
+    if (next.type === CASE_TYPE.PMU && next.pmu_type && !next.bodyLabel?.trim()) {
+        const pmuLabel = PMU_TYPE_LABELS[next.pmu_type] || 'PMU';
+        next.bodyLabel = next.tc_title?.trim()
+            ? `${pmuLabel} — ${next.tc_title.trim()}`
+            : pmuLabel;
+    } else if (next.tc_body_location_main && !next.bodyLabel?.trim()) {
         const label = BODY_LOCATION_LABELS[next.tc_body_location_main];
         if (label) {
             next.bodyLabel = label;
@@ -91,6 +114,10 @@ const syncDerivedIntakeFields = (fields) => {
 
     if (next.tc_prior_treatment === false) {
         next.tc_prior_treatment_count = null;
+    }
+
+    if (next.previously_lasered === false) {
+        next.lasered_notes = '';
     }
 
     if (!['daily_light', 'daily_heavy'].includes(next.life_smoker)) {

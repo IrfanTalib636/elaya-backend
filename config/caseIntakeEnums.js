@@ -81,16 +81,54 @@ const FITZ_TYPE_TO_INT = {
     unsicher: 3,
 };
 
-const LIFE_SMOKER = ['no', 'occasionally', 'daily_light', 'daily_heavy'];
-const LIFE_ALCOHOL = ['never', 'rarely', '1-2x_week', '3-4x_week', '5+x_week'];
-const LIFE_ACTIVITY = ['low', 'light', 'regular', 'high'];
+/** Tattoo + PMU smoker values (prototype PMU uses never/occasional). */
+const LIFE_SMOKER = [
+    'no',
+    'never',
+    'occasionally',
+    'occasional',
+    'daily_light',
+    'daily_heavy',
+];
+/** Tattoo + PMU alcohol values (prototype PMU uses moderate/frequent). */
+const LIFE_ALCOHOL = [
+    'never',
+    'rarely',
+    'moderate',
+    'frequent',
+    '1-2x_week',
+    '3-4x_week',
+    '5+x_week',
+];
+/** Tattoo + PMU activity (prototype PMU uses medium). */
+const LIFE_ACTIVITY = ['low', 'light', 'medium', 'regular', 'high'];
 const LIFE_SLEEP_HOURS = ['under_5', '5-6', '6-7', '7-8', '8+'];
 const LIFE_SLEEP_QUALITY = ['poor', 'fair', 'good', 'excellent'];
 const LIFE_STRESS = ['low', 'medium', 'high', 'very_high'];
-const LIFE_HYDRATION = ['low', 'normal', 'good'];
+/** Tattoo + PMU hydration (prototype PMU uses medium/high). */
+const LIFE_HYDRATION = ['low', 'normal', 'medium', 'good', 'high'];
 const LIFE_NUTRITION = ['poor', 'fair', 'good'];
+const LIFE_AFTERCARE = ['low', 'medium', 'high'];
 
 const ZONE_FLAECHE_TEMPLATE = ['xs', 'sm', 'md', 'lg', 'xl', 'xxl'];
+
+/** Prototype PMU_01–PMU_05 enums (exact values from customer/studio prototype). */
+const PMU_TYPE = ['eyebrows', 'eyeliner', 'lips', 'microblading', 'other'];
+const PMU_TYPE_LABELS = {
+    eyebrows: 'Augenbrauen',
+    eyeliner: 'Eyeliner',
+    lips: 'Lippen',
+    microblading: 'Microblading',
+    other: 'PMU',
+};
+const PMU_SIDE = ['left', 'right', 'both'];
+const PMU_AGE_RANGE = ['<1', '1-3', '4-7', '8-15', '>15', 'unknown'];
+const PMU_TECHNIQUE = ['professional', 'amateur', 'cosmetic'];
+const PMU_PIGMENT_TYPE = ['organic', 'inorganic', 'unknown'];
+const PMU_STITCH_DEPTH = ['surface', 'medium', 'deep'];
+const PMU_COLOR_LABELS = ['Schwarz', 'Braun', 'Grau', 'Beige', 'Rotbraun', 'Andere'];
+const PMU_COLOR_DENSITY = ['light', 'medium', 'intense'];
+const PMU_COLOR_SATURATION = ['faded', 'normal', 'saturated'];
 
 module.exports = {
     BODY_LOCATIONS,
@@ -114,5 +152,16 @@ module.exports = {
     LIFE_STRESS,
     LIFE_HYDRATION,
     LIFE_NUTRITION,
+    LIFE_AFTERCARE,
     ZONE_FLAECHE_TEMPLATE,
+    PMU_TYPE,
+    PMU_TYPE_LABELS,
+    PMU_SIDE,
+    PMU_AGE_RANGE,
+    PMU_TECHNIQUE,
+    PMU_PIGMENT_TYPE,
+    PMU_STITCH_DEPTH,
+    PMU_COLOR_LABELS,
+    PMU_COLOR_DENSITY,
+    PMU_COLOR_SATURATION,
 };

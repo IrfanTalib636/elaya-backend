@@ -285,12 +285,33 @@ const calculatePriceForInput = (caseInput, pricingOverrides = {}, options = {}) 
 };
 
 /**
- * Full intake preview — price + sessions for single tattoo or zone mode.
+ * Prototype calcPmuSessions — session estimate for PMU intake.
+ */
+const calcPmuSessions = (caseInput = {}) => {
+    let base = 2;
+    if (caseInput.pigment_type === 'inorganic') base += 1;
+    if (caseInput.stitch_depth === 'deep') base += 1;
+    if (caseInput.previously_lasered === true) base -= 1;
+    if (caseInput.life_smoker === 'daily_heavy') base += 1;
+    else if (caseInput.life_smoker === 'daily_light') base = Math.min(4, base + 0.5);
+    if (caseInput.life_activity === 'high') base -= 1;
+    if (caseInput.life_aftercare_commitment === 'low') base += 1;
+    base = Math.max(1, Math.min(4, Math.round(base)));
+    return {
+        min: Math.max(1, base - 1),
+        max: Math.min(4, base + 1),
+        base,
+        confidence_pct: 100,
+    };
+};
+
+/**
+ * Full intake preview — price + sessions for single tattoo, zone mode, or PMU.
  */
 const calculateCasePreview = (caseInput, pricingOverrides = {}) => {
     if (caseInput.type === CASE_TYPE.PMU) {
         const price = calculatePriceForInput(caseInput, pricingOverrides);
-        const sessions = { min: 4, max: 8, base: 6, confidence_pct: 100 };
+        const sessions = calcPmuSessions(caseInput);
 
         return {
             ...formatStudioPricing(price),
@@ -414,6 +435,7 @@ module.exports = {
     calculateCasePreview,
     calculateGroupPricing,
     estimateSessions,
+    calcPmuSessions,
     formatCustomerEstimate,
     formatCustomerPreview,
     formatStudioPricing,

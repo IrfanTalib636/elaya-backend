@@ -25,6 +25,15 @@ const {
     LIFE_STRESS,
     LIFE_HYDRATION,
     LIFE_NUTRITION,
+    LIFE_AFTERCARE,
+    PMU_TYPE,
+    PMU_SIDE,
+    PMU_AGE_RANGE,
+    PMU_TECHNIQUE,
+    PMU_PIGMENT_TYPE,
+    PMU_STITCH_DEPTH,
+    PMU_COLOR_DENSITY,
+    PMU_COLOR_SATURATION,
     ZONE_FLAECHE_TEMPLATE,
 } = require('../config/caseIntakeEnums');
 const { paginationQueryFields } = require('./paginationValidator');
@@ -87,7 +96,7 @@ const caseZoneInputSchema = z.object({
     sitzungen_geschaetzt_max: z.number().min(0).optional().default(0),
 });
 
-/** Shared intake fields — prototype steps TC_01–TC_06 + TC_08–09 (all optional on create). */
+/** Shared intake fields — prototype TC_01–TC_06 + PMU_01–05 + TC_08–09 (all optional on create). */
 const caseIntakeFieldsSchema = {
     tc_title: optionalTrimmedString.default(''),
     bodyLabel: optionalTrimmedString.default(''),
@@ -122,9 +131,24 @@ const caseIntakeFieldsSchema = {
     life_weight_kg: z.number().min(0).nullable().optional(),
     life_hydration: z.enum(LIFE_HYDRATION).nullable().optional(),
     life_nutrition: z.enum(LIFE_NUTRITION).nullable().optional(),
+    life_aftercare_commitment: z.enum(LIFE_AFTERCARE).nullable().optional(),
     tc_coverup: tcCoverupEnum.optional().default(TC_COVERUP.NONE),
     goal_target: goalTargetInput.nullable().optional(),
     goal_notes: optionalTrimmedString.default(''),
+    pmu_type: z.enum(PMU_TYPE).nullable().optional(),
+    pmu_side: z.enum(PMU_SIDE).nullable().optional(),
+    pmu_age_range: z.enum(PMU_AGE_RANGE).nullable().optional(),
+    pmu_technique: z.enum(PMU_TECHNIQUE).nullable().optional(),
+    pigment_type: z.enum(PMU_PIGMENT_TYPE).nullable().optional(),
+    stitch_depth: z.enum(PMU_STITCH_DEPTH).nullable().optional(),
+    previously_lasered: z.boolean().nullable().optional(),
+    lasered_notes: optionalTrimmedString.default(''),
+    colors: z.array(z.string().trim()).optional().default([]),
+    color_density: z.enum(PMU_COLOR_DENSITY).nullable().optional(),
+    color_saturation: z.enum(PMU_COLOR_SATURATION).nullable().optional(),
+    has_shading: z.boolean().nullable().optional(),
+    has_linework: z.boolean().nullable().optional(),
+    paradox_darkening_acknowledged: z.boolean().optional().default(false),
     photo_intake_main: optionalTrimmedString.default(''),
     photo_intake_detail: optionalTrimmedString.default(''),
     photo_marker: optionalTrimmedString.default(''),

@@ -17,7 +17,7 @@ const {
     formatStudioPricing,
 } = require('../utils/pricingEngine');
 const { getEffectivePricingOverrides } = require('../utils/configService');
-const { USER_ROLES } = require('../config/constants');
+const { USER_ROLES, CASE_TYPE } = require('../config/constants');
 const { parsePagination, buildPaginationMeta } = require('../utils/pagination');
 const {
     CUSTOMER_INTAKE_FIELDS,
@@ -61,7 +61,22 @@ const INTAKE_RESPONSE_FIELDS = [
     'life_weight_kg',
     'life_hydration',
     'life_nutrition',
+    'life_aftercare_commitment',
     'goal_notes',
+    'pmu_type',
+    'pmu_side',
+    'pmu_age_range',
+    'pmu_technique',
+    'pigment_type',
+    'stitch_depth',
+    'previously_lasered',
+    'lasered_notes',
+    'colors',
+    'color_density',
+    'color_saturation',
+    'has_shading',
+    'has_linework',
+    'paradox_darkening_acknowledged',
     'photo_intake_main',
     'photo_intake_detail',
     'photo_marker',
@@ -295,6 +310,16 @@ const createCase = asyncHandler(async (req, res) => {
 
     if (caseFields.zonen_aktiv && zonen.length > 0 && (zonen.length < 2 || zonen.length > 8)) {
         throw new ApiError(400, 'Zone mode requires between 2 and 8 zones');
+    }
+
+    // Apply prototype PMU session + price estimate when creating a PMU case
+    if (caseFields.type === CASE_TYPE.PMU) {
+        const pricingOverrides = await getEffectivePricingOverrides(studioId);
+        const preview = calculateCasePreview(caseFields, pricingOverrides);
+        caseFields.pricePerSession = preview.pricePerSession;
+        caseFields.sessions = preview.sessions?.base ?? preview.sessions?.max ?? 0;
+        caseFields.sessionsMin = preview.sessions?.min ?? 0;
+        caseFields.sessionsMax = preview.sessions?.max ?? 0;
     }
 
     let caseDoc = null;

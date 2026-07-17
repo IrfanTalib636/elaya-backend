@@ -27,6 +27,15 @@ const {
     LIFE_STRESS,
     LIFE_HYDRATION,
     LIFE_NUTRITION,
+    LIFE_AFTERCARE,
+    PMU_TYPE,
+    PMU_SIDE,
+    PMU_AGE_RANGE,
+    PMU_TECHNIQUE,
+    PMU_PIGMENT_TYPE,
+    PMU_STITCH_DEPTH,
+    PMU_COLOR_DENSITY,
+    PMU_COLOR_SATURATION,
 } = require('../config/caseIntakeEnums');
 
 const sperrfristDeaktiviertSchema = new mongoose.Schema(
@@ -260,6 +269,58 @@ const caseSchema = new mongoose.Schema(
             default: null,
         },
         goal_notes: { type: String, trim: true, default: '' },
+        // PMU_01–PMU_05 — prototype permanent-makeup intake
+        pmu_type: {
+            type: String,
+            enum: [...PMU_TYPE, null],
+            default: null,
+        },
+        pmu_side: {
+            type: String,
+            enum: [...PMU_SIDE, null],
+            default: null,
+        },
+        pmu_age_range: {
+            type: String,
+            enum: [...PMU_AGE_RANGE, null],
+            default: null,
+        },
+        pmu_technique: {
+            type: String,
+            enum: [...PMU_TECHNIQUE, null],
+            default: null,
+        },
+        pigment_type: {
+            type: String,
+            enum: [...PMU_PIGMENT_TYPE, null],
+            default: null,
+        },
+        stitch_depth: {
+            type: String,
+            enum: [...PMU_STITCH_DEPTH, null],
+            default: null,
+        },
+        previously_lasered: { type: Boolean, default: null },
+        lasered_notes: { type: String, trim: true, default: '' },
+        colors: { type: [String], default: [] },
+        color_density: {
+            type: String,
+            enum: [...PMU_COLOR_DENSITY, null],
+            default: null,
+        },
+        color_saturation: {
+            type: String,
+            enum: [...PMU_COLOR_SATURATION, null],
+            default: null,
+        },
+        has_shading: { type: Boolean, default: null },
+        has_linework: { type: Boolean, default: null },
+        paradox_darkening_acknowledged: { type: Boolean, default: false },
+        life_aftercare_commitment: {
+            type: String,
+            enum: [...LIFE_AFTERCARE, null],
+            default: null,
+        },
         // TC_06 — photos (optional until upload service; store URL or ref string)
         photo_intake_main: { type: String, default: '' },
         photo_intake_detail: { type: String, default: '' },

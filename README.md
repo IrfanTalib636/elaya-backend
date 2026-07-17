@@ -5,7 +5,7 @@ Shared REST API for the Elaya platform — Customer Web Portal, Studio Web Dashb
 **Stack:** Node.js · Express 5 · MongoDB · Mongoose · JWT · Zod  
 **API base path:** `/api/v1`  
 **Planned production host:** [Railway](https://railway.app)  
-**Last updated:** 2026-07-13
+**Last updated:** 2026-07-17
 
 ---
 
@@ -82,7 +82,7 @@ Shared REST API for the Elaya platform — Customer Web Portal, Studio Web Dashb
 | **Financier demo seed** | ✅ Done | `npm run seed:demo` — Maria Tribal, `#TRI-001` + `#HAN-001` on INKFREE |
 | **Public studio list (registration)** | ✅ Done | `GET /studios/public` — active studios with address + standorte for customer signup dropdown |
 
-**Mobile app developer guide:** [`../docs/MOBILE-APP-DEVELOPER.md`](../docs/MOBILE-APP-DEVELOPER.md) · [PDF](../docs/MOBILE-APP-DEVELOPER.pdf) — screen flows, 6 tabs, tattoo wizard, API mapping for iOS/native app. See [`docs/README.md`](../docs/README.md).
+**Mobile app developer guide:** [`docs/MOBILE-APP-DEVELOPER.md`](./docs/MOBILE-APP-DEVELOPER.md) · [PDF](../docs/MOBILE-APP-DEVELOPER.pdf) — screen flows, 6 tabs, tattoo + PMU wizard, API mapping for iOS/native app. See [`docs/MOBILE-APP-LINKS.md`](./docs/MOBILE-APP-LINKS.md).
 
 **Financier demo verified locally:** lockout panel, blocked booking, Beratung bypass, pre-session UV/meds (longest lockout wins), appointment recalculates lockout.
 
@@ -98,7 +98,20 @@ Shared REST API for the Elaya platform — Customer Web Portal, Studio Web Dashb
 
 **Swagger:** all of the above are documented under `/api/v1/docs` (Cases + Appointments tags).
 
-**Known gaps (post-M2):** Admin dashboard UI for studio approval, zone-level lockout in customer mobile booking, full pricing multipliers UI, **customer profile self-service** (edit profile, studio switch, DSG export) — see [`docs/M3-CUSTOMER-PROFILE-BACKLOG.md`](../docs/M3-CUSTOMER-PROFILE-BACKLOG.md). Case chat CRUD still stub-only.
+### PMU intake + private photo storage (2026-07-17)
+
+| Area | Status | Notes |
+|---|---|---|
+| **PMU intake fields** | ✅ Done | `pmu_type`, `pmu_age_range`, `colors`, `paradox_darkening_acknowledged`, … on POST/PATCH `/cases` |
+| **PMU pricing engine** | ✅ Done | `calcPmuSessions()` — session min/max + CHF on create |
+| **Private file storage** | ✅ Done | VPS disk + MongoDB metadata — no public URLs |
+| **Staging upload** | ✅ Done | `POST /files/staging` — intake photos before case save |
+| **Case intake link** | ✅ Done | `photo_intake_*` + zone `foto_url` linked on `POST /cases` |
+| **Authenticated serve** | ✅ Done | `GET /files/:id/content` — Bearer only, audit log |
+
+**Env:** `UPLOAD_ROOT`, `UPLOAD_MAX_BYTES`, `UPLOAD_STAGING_TTL_HOURS` (see `.env.example`).
+
+**Known gaps (post-M2):** Admin dashboard UI for studio approval, zone-level lockout in customer mobile booking, full pricing multipliers UI, **customer profile self-service** (edit profile, studio switch, DSG export) — see [`docs/M3-CUSTOMER-PROFILE-BACKLOG.md`](../docs/M3-CUSTOMER-PROFILE-BACKLOG.md). Case chat CRUD still stub-only. Nachsorge check endpoint still planned.
 
 ### Changelog
 
@@ -135,6 +148,7 @@ Shared REST API for the Elaya platform — Customer Web Portal, Studio Web Dashb
 [2026-07-13] — Financier demo lockout flow re-verified (49/28-day, Beratung, pre-session, recalc after booking)
 [2026-07-13] — GET /studios/public — active studios for customer registration dropdown (name + address + standorte)
 [2026-07-16] — Phase A–E medical: anamnesis preview, signature, CRM ampel, PS_01 booking-precheck, klaerung + freigabe + audit
+[2026-07-17] — PMU intake fields + pricing engine; private photo storage API (staging, case link, authenticated content)
 ```
 
 ---
@@ -362,6 +376,19 @@ Only studios with status **`aktiv`** appear in the public list. Pending (`ausste
 | `GET` | `/api/v1/sessions` | Bearer | List sessions (customer = read-only view) — **paginated** |
 | `GET` | `/api/v1/sessions/:id` | Bearer | Get session details |
 | `PATCH` | `/api/v1/sessions/:id` | Bearer (studio/admin) | Update protocol / complete draft |
+
+### Files (private photos)
+
+| Method | Path | Auth | Description |
+|---|---|---|---|
+| `POST` | `/api/v1/files/staging` | Bearer | Upload intake photo before case save — multipart `file`, `slot`, optional `customer_id` |
+| `POST` | `/api/v1/files/cases/:caseId/intake` | Bearer (studio) | Upload intake photo to existing case |
+| `POST` | `/api/v1/files/sessions/:sessionId/progress` | Bearer (studio) | Session progress photo |
+| `GET` | `/api/v1/files/:fileId` | Bearer | File metadata |
+| `GET` | `/api/v1/files/:fileId/content` | Bearer | Image bytes (no public URL) |
+| `DELETE` | `/api/v1/files/:fileId` | Bearer | Delete unlinked staging file |
+
+Case fields `photo_intake_main`, `photo_intake_detail`, `photo_marker`, and zone `foto_url` store **file asset IDs** returned from staging upload. Linked automatically on `POST /cases` via `linkCaseIntakeFiles`.
 
 ### Cases — testing notes
 
