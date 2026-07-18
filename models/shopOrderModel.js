@@ -11,6 +11,18 @@ const shopOrderItemSchema = new mongoose.Schema(
     { _id: false }
 );
 
+const lieferadresseSchema = new mongoose.Schema(
+    {
+        vorname: { type: String, trim: true, default: '' },
+        nachname: { type: String, trim: true, default: '' },
+        strasse: { type: String, trim: true, default: '' },
+        plz: { type: String, trim: true, default: '' },
+        ort: { type: String, trim: true, default: '' },
+        land: { type: String, trim: true, default: 'Schweiz' },
+    },
+    { _id: false }
+);
+
 const shopOrderSchema = new mongoose.Schema(
     {
         studio: {
@@ -34,6 +46,7 @@ const shopOrderSchema = new mongoose.Schema(
             type: [shopOrderItemSchema],
             default: [],
         },
+        /** Merchandise total (warenwert) — shipping is separate in versandkosten */
         total_chf: {
             type: Number,
             required: true,
@@ -48,6 +61,10 @@ const shopOrderSchema = new mongoose.Schema(
             type: String,
             trim: true,
             default: 'Schweiz',
+        },
+        lieferadresse: {
+            type: lieferadresseSchema,
+            default: () => ({}),
         },
         provision_prozent: {
             type: Number,
@@ -64,6 +81,11 @@ const shopOrderSchema = new mongoose.Schema(
             trim: true,
             default: 'karte',
         },
+        /** MVP: payment is simulated (prototype parity) */
+        zahlung_simuliert: {
+            type: Boolean,
+            default: true,
+        },
         status: {
             type: String,
             enum: Object.values(SHOP_ORDER_STATUS),
@@ -75,6 +97,7 @@ const shopOrderSchema = new mongoose.Schema(
 );
 
 shopOrderSchema.index({ studio: 1, createdAt: -1 });
+shopOrderSchema.index({ customer: 1, createdAt: -1 });
 
 const ShopOrder = mongoose.model('ShopOrder', shopOrderSchema);
 

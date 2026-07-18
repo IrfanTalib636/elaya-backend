@@ -10,6 +10,7 @@ const configRoute = require('./configRoute');
 const studioRoute = require('./studioRoute');
 const studiosRoute = require('./studiosRoute');
 const fileRoute = require('./fileRoute');
+const shopRoute = require('./shopRoute');
 
 const router = express.Router();
 
@@ -24,5 +25,6 @@ router.use('/config', configRoute);
 router.use('/studio', studioRoute);
 router.use('/studios', studiosRoute);
 router.use('/files', fileRoute);
+router.use('/shop', shopRoute);
 
 module.exports = router;

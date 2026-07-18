@@ -62,7 +62,7 @@ Shared REST API for the Elaya platform — Customer Web Portal, Studio Web Dashb
 
 **CRM:** `GET/POST/PATCH/DELETE /studio/crm/tasks`, notes, templates, pipeline.
 
-**Shop:** `GET /studio/shop/orders`, `PATCH /studio/shop/orders/:id` (status only). Dev seed: `npm run seed:shop`.
+**Shop:** `GET /studio/shop/orders`, `PATCH /studio/shop/orders/:id` (status only). Customer catalog/checkout: `GET/POST /shop/*`. Seeds: `npm run seed:shop` (orders), `npm run seed:shop-products` (catalog).
 
 **Analytics:** `GET /studio/analytics/summary` — revenue by akquise, platform fee, shop provision, coins.
 
@@ -111,7 +111,21 @@ Shared REST API for the Elaya platform — Customer Web Portal, Studio Web Dashb
 
 **Env:** `UPLOAD_ROOT`, `UPLOAD_MAX_BYTES`, `UPLOAD_STAGING_TTL_HOURS` (see `.env.example`).
 
-**Known gaps (post-M2):** Admin dashboard UI for studio approval, zone-level lockout in customer mobile booking, full pricing multipliers UI, **customer profile self-service** (edit profile, studio switch, DSG export) — see [`docs/M3-CUSTOMER-PROFILE-BACKLOG.md`](../docs/M3-CUSTOMER-PROFILE-BACKLOG.md). Case chat CRUD still stub-only. Nachsorge check endpoint still planned.
+### ElayShop catalog + customer checkout (2026-07-18)
+
+| Area | Status | Notes |
+|---|---|---|
+| **Product catalog** | ✅ Done | `ShopProduct` model — ELY-001…005 via `npm run seed:shop-products` |
+| **GET catalog** | ✅ Done | `GET /shop/products`, `GET /shop/products/:id` |
+| **Shipping** | ✅ Done | `GET /shop/shipping` — CH/EU rates + free thresholds (prototype) |
+| **Customer checkout** | ✅ Done | `POST /shop/orders` — client cart; server prices + shipping; payment simulated |
+| **Customer order history** | ✅ Done | `GET /shop/orders`, `GET /shop/orders/:id` |
+| **Studio order list** | ✅ Done | Existing `GET/PATCH /studio/shop/orders` (shows new customer orders) |
+| **Elaycoin on purchase** | ✅ Done | `erster_einkauf` + `nachsorge_produkt_gekauft` on create |
+
+Cart stays **client-side** (mobile). Admin product CRUD UI → M4.
+
+**Known gaps (post-M2):** Admin dashboard UI for studio approval, zone-level lockout in customer mobile booking, full pricing multipliers UI, **customer profile self-service** (edit profile, studio switch, DSG export) — see [`docs/M3-CUSTOMER-PROFILE-BACKLOG.md`](../docs/M3-CUSTOMER-PROFILE-BACKLOG.md). Case chat CRUD still stub-only. Nachsorge check endpoint still planned. Real Stripe/Twint payment later.
 
 ### Changelog
 
@@ -149,6 +163,7 @@ Shared REST API for the Elaya platform — Customer Web Portal, Studio Web Dashb
 [2026-07-13] — GET /studios/public — active studios for customer registration dropdown (name + address + standorte)
 [2026-07-16] — Phase A–E medical: anamnesis preview, signature, CRM ampel, PS_01 booking-precheck, klaerung + freigabe + audit
 [2026-07-17] — PMU intake fields + pricing engine; private photo storage API (staging, case link, authenticated content)
+[2026-07-18] — ElayShop: product catalog, shipping quote, customer POST/GET orders; seed:shop-products
 ```
 
 ---

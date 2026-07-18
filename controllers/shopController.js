@@ -16,9 +16,11 @@ const formatShopOrder = (order) => ({
     total_chf: order.total_chf,
     versandkosten: order.versandkosten ?? 0,
     lieferland: order.lieferland ?? '',
+    lieferadresse: order.lieferadresse ?? null,
     provision_prozent: order.provision_prozent ?? DEFAULT_SHOP_PROVISION_PROZENT,
     provision_betrag: order.provision_betrag ?? 0,
     zahlungsart: order.zahlungsart ?? '',
+    zahlung_simuliert: order.zahlung_simuliert !== false,
     status: order.status,
     erstellt_am: order.createdAt,
 });

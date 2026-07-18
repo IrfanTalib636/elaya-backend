@@ -9,6 +9,7 @@
     "seed:dev": "node scripts/seedDev.js",
     "seed:pagination": "node scripts/seedPaginationTest.js",
     "seed:shop": "node scripts/seedShopOrders.js",
+    "seed:shop-products": "node scripts/seedShopProducts.js",
     "seed:demo": "node scripts/seedDemo.js",
     "bootstrap:admin": "node scripts/bootstrapAdmin.js"
   },
