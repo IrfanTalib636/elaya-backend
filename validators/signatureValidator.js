@@ -18,7 +18,7 @@ const base64DataUri = z
 
 const pdfDataUri = z
     .string()
-    .optional()
+    .nullish()
     .refine((v) => !v || v.length <= MAX_PDF_BYTES, {
         message: `merkblatt_pdf exceeds ${MAX_PDF_BYTES} bytes`,
     });
@@ -29,6 +29,7 @@ const submitSignatureSchema = z.object({
     }),
     bestaetigung_text: z.union([z.literal(true), z.string().min(1)]),
     unterschrift_data: base64DataUri,
+    /** Optional; omit or null when the client has no PDF yet. */
     merkblatt_pdf: pdfDataUri,
 });
 

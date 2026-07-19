@@ -373,7 +373,32 @@ const getMe = asyncHandler(async (req, res) => {
     let profile = null;
 
     if (user.role === USER_ROLES.CUSTOMER && user.customer_id) {
-        profile = await Customer.findById(user.customer_id).select('-__v');
+        const customer = await Customer.findById(user.customer_id)
+            .select('-__v')
+            .populate({ path: 'aktuelle_firma_id', select: 'firma studio_code ort' })
+            .lean();
+
+        if (customer) {
+            const firma = customer.aktuelle_firma_id;
+            const studioEmbed =
+                firma && typeof firma === 'object' && !Array.isArray(firma)
+                    ? {
+                          firma: firma.firma,
+                          studio_code: firma.studio_code,
+                          ort: firma.ort,
+                      }
+                    : null;
+
+            profile = {
+                ...customer,
+                aktuelle_firma_id:
+                    firma && typeof firma === 'object' && firma._id
+                        ? firma._id
+                        : customer.aktuelle_firma_id,
+                studio: studioEmbed,
+                aktuelle_firma: studioEmbed,
+            };
+        }
     }
 
     if (
