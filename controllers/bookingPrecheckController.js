@@ -14,7 +14,7 @@ const loadCaseAndAnamnesis = async (caseId, user) => {
     if (!caseDoc) {
         throw new ApiError(404, 'Case not found');
     }
-    assertCaseAccess(user, caseDoc);
+    await assertCaseAccess(user, caseDoc);
 
     const anamnesis = await Anamnesis.findOne({ case: caseDoc._id });
     return { caseDoc, anamnesis };

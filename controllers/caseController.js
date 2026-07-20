@@ -4,7 +4,7 @@ const Customer = require('../models/customerModel');
 const ApiError = require('../utils/ApiError');
 const asyncHandler = require('../utils/asyncHandler');
 const { generateCaseId } = require('../utils/generateCaseId');
-const { assertCaseAccess } = require('../utils/accessHelpers');
+const { assertCaseAccess, assertCaseWriteAccess, buildStudioSharedFilter, refId } = require('../utils/accessHelpers');
 const {
     computeAvailability,
     parsePreSessionCheck,
@@ -102,7 +102,7 @@ const formatCustomerRef = (customer) => {
     return customer.toString();
 };
 
-const formatCase = (caseDoc, zones, role) => {
+const formatCase = (caseDoc, zones, role, options = {}) => {
     const doc = caseDoc.toObject ? caseDoc.toObject() : { ...caseDoc };
     const payload = {
         id: doc._id,
@@ -137,6 +137,14 @@ const formatCase = (caseDoc, zones, role) => {
         createdAt: doc.createdAt,
         updatedAt: doc.updatedAt,
     };
+
+    // Shared Case Layer: case originated at another studio, now visible here
+    if (options.viewerStudioId && refId(doc.studio) !== refId(options.viewerStudioId)) {
+        payload.transferiert = true;
+        payload.herkunft_studio_id = refId(doc.studio);
+    } else {
+        payload.transferiert = false;
+    }
 
     INTAKE_RESPONSE_FIELDS.forEach((field) => {
         payload[field] = doc[field];
@@ -372,14 +380,24 @@ const createCase = asyncHandler(async (req, res) => {
 });
 
 const listCases = asyncHandler(async (req, res) => {
-    const filter = {};
+    let filter = {};
+    const viewerStudioId = isStudio(req.user.role) ? req.user.studio_id : null;
 
     if (isCustomer(req.user.role)) {
         filter.customer = req.user.customer_id;
     } else if (isStudio(req.user.role)) {
-        filter.studio = req.user.studio_id;
         if (req.query.customer_id) {
-            filter.customer = req.query.customer_id;
+            const assigned = await Customer.findOne({
+                _id: req.query.customer_id,
+                aktuelle_firma_id: req.user.studio_id,
+            })
+                .select('_id')
+                .lean();
+            filter = assigned
+                ? { customer: req.query.customer_id }
+                : { customer: req.query.customer_id, studio: req.user.studio_id };
+        } else {
+            filter = await buildStudioSharedFilter(req.user.studio_id);
         }
     } else if (isAdmin(req.user.role)) {
         if (req.query.customer_id) {
@@ -417,7 +435,9 @@ const listCases = asyncHandler(async (req, res) => {
     res.status(200).json({
         success: true,
         data: {
-            cases: cases.map((c) => formatCase(c, null, req.user.role)),
+            cases: cases.map((c) =>
+                formatCase(c, null, req.user.role, { viewerStudioId })
+            ),
             pagination: buildPaginationMeta(page, limit, total),
         },
     });
@@ -433,16 +453,21 @@ const getCase = asyncHandler(async (req, res) => {
         throw new ApiError(404, 'Case not found');
     }
 
-    await assertCaseAccess(req.user, caseDoc);
+    const access = await assertCaseAccess(req.user, caseDoc);
 
     const zones = caseDoc.zonen_aktiv
         ? await CaseZone.find({ case: caseDoc._id }).sort({ zonen_id: 1 })
         : [];
 
+    const viewerStudioId = isStudio(req.user.role) ? req.user.studio_id : null;
+    const formatted = formatCase(caseDoc, zones, req.user.role, { viewerStudioId });
+    if (access.transferiert) formatted.transferiert = true;
+    if (access.read_only) formatted.read_only = true;
+
     res.status(200).json({
         success: true,
         data: {
-            case: formatCase(caseDoc, zones, req.user.role),
+            case: formatted,
         },
     });
 });
@@ -454,7 +479,7 @@ const updateCase = asyncHandler(async (req, res) => {
         throw new ApiError(404, 'Case not found');
     }
 
-    await assertCaseAccess(req.user, caseDoc);
+    await assertCaseWriteAccess(req.user, caseDoc);
 
     if (isCustomer(req.user.role)) {
         const allowed = new Set(CUSTOMER_INTAKE_FIELDS);
@@ -503,7 +528,7 @@ const deleteIncompleteCase = asyncHandler(async (req, res) => {
         throw new ApiError(404, 'Case not found');
     }
 
-    assertCaseAccess(req.user, caseDoc);
+    await assertCaseWriteAccess(req.user, caseDoc);
 
     if (caseDoc.unterschrift?.zeitstempel) {
         throw new ApiError(400, 'Signed cases cannot be deleted from the app');
@@ -534,7 +559,7 @@ const getCaseAvailability = asyncHandler(async (req, res) => {
         throw new ApiError(404, 'Case not found');
     }
 
-    assertCaseAccess(req.user, caseDoc);
+    await assertCaseAccess(req.user, caseDoc);
 
     const { consultationOnly, from, to, ...preSessionInput } = req.query;
 
@@ -560,7 +585,7 @@ const getCasePricing = asyncHandler(async (req, res) => {
         throw new ApiError(404, 'Case not found');
     }
 
-    assertCaseAccess(req.user, caseDoc);
+    await assertCaseAccess(req.user, caseDoc);
 
     const pricingInput = caseDoc.toObject ? caseDoc.toObject() : { ...caseDoc };
 

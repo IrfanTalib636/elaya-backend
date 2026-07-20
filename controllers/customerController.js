@@ -2,21 +2,79 @@ const crypto = require('crypto');
 const Customer = require('../models/customerModel');
 const User = require('../models/userModel');
 const Case = require('../models/caseModel');
+const Studio = require('../models/studioModel');
 const ApiError = require('../utils/ApiError');
 const asyncHandler = require('../utils/asyncHandler');
 const { parsePagination, buildPaginationMeta } = require('../utils/pagination');
-const { isAdmin, isStudio } = require('../utils/accessHelpers');
+const {
+    isAdmin,
+    isStudio,
+    resolveStudioCustomerRelation,
+    refId,
+} = require('../utils/accessHelpers');
 const { USER_ROLES, AKQUISE_QUELLE, PIPELINE_STUFE } = require('../config/constants');
 const { worstMedicalFlagLevel } = require('../utils/medicalFlagHelpers');
 
 // ── helpers ──────────────────────────────────────────────────────────────
-const assertCustomerAccess = (user, customer) => {
-    if (isAdmin(user.role)) return;
-    if (
-        isStudio(user.role) &&
-        customer.aktuelle_firma_id.toString() === user.studio_id.toString()
-    ) return;
+const assertCustomerAccess = (user, customer, { allowFormer = true } = {}) => {
+    if (isAdmin(user.role)) {
+        return {
+            wechsel_status: 'aktuell',
+            is_current: true,
+            read_only: false,
+            vorheriges_studio_id: null,
+            transferiert_am: null,
+        };
+    }
+
+    if (isStudio(user.role)) {
+        const relation = resolveStudioCustomerRelation(user.studio_id, customer);
+        if (relation.wechsel_status === 'none') {
+            throw new ApiError(403, 'You do not have access to this customer');
+        }
+        if (!allowFormer && relation.wechsel_status === 'transferiert_aus') {
+            throw new ApiError(403, 'You do not have access to this customer');
+        }
+        return relation;
+    }
+
     throw new ApiError(403, 'You do not have access to this customer');
+};
+
+const enrichWechselMeta = async (relation) => {
+    if (!relation?.vorheriges_studio_id) {
+        return { ...relation, vorheriges_studio_name: null };
+    }
+    const studio = await Studio.findById(relation.vorheriges_studio_id).select('firma').lean();
+    return {
+        ...relation,
+        vorheriges_studio_name: studio?.firma ?? null,
+    };
+};
+
+/** Studio assignment history with resolved studio names for timeline UI */
+const formatFirmaTimeline = async (history = []) => {
+    if (!history.length) return [];
+
+    const studioIds = [
+        ...new Set(history.map((entry) => refId(entry.firma_id)).filter(Boolean)),
+    ];
+    const studios = await Studio.find({ _id: { $in: studioIds } }).select('firma').lean();
+    const nameById = Object.fromEntries(studios.map((s) => [s._id.toString(), s.firma ?? '']));
+
+    return [...history]
+        .sort((a, b) => new Date(a.von) - new Date(b.von))
+        .map((entry) => {
+            const firmaId = refId(entry.firma_id);
+            return {
+                firma_id: firmaId,
+                firma_name: nameById[firmaId] ?? 'Unbekanntes Studio',
+                von: entry.von,
+                bis: entry.bis ?? null,
+                grund: entry.grund ?? '',
+                is_current: entry.bis === null || entry.bis === undefined,
+            };
+        });
 };
 
 // ── GET /customers ────────────────────────────────────────────────────────
@@ -26,7 +84,7 @@ const listCustomers = asyncHandler(async (req, res) => {
 
     const filter = {};
 
-    // scope to studio
+    // scope to studio — current assignment only (transferred-in customers included)
     if (isStudio(req.user.role)) {
         filter.aktuelle_firma_id = req.user.studio_id;
     }
@@ -45,22 +103,31 @@ const listCustomers = asyncHandler(async (req, res) => {
             .sort({ nachname: 1, vorname: 1 })
             .skip(skip)
             .limit(limit)
-            .select('-elaycoins.transactions -firma_history')
+            .select('-elaycoins.transactions')
             .lean(),
         Customer.countDocuments(filter),
     ]);
 
-    // attach open case counts
+    // attach open case counts (Shared Case Layer: all cases for assigned customers)
     const ids = customers.map((c) => c._id);
     const caseCounts = await Case.aggregate([
         { $match: { customer: { $in: ids }, status: { $in: ['pending', 'active'] } } },
         { $group: { _id: '$customer', count: { $sum: 1 } } },
     ]);
     const countMap = Object.fromEntries(caseCounts.map((x) => [x._id.toString(), x.count]));
-    const enriched = customers.map((c) => ({
-        ...c,
-        offene_faelle: countMap[c._id.toString()] ?? 0,
-    }));
+    const enriched = customers.map((c) => {
+        const relation = isStudio(req.user.role)
+            ? resolveStudioCustomerRelation(req.user.studio_id, c)
+            : { wechsel_status: 'aktuell' };
+        return {
+            ...c,
+            offene_faelle: countMap[c._id.toString()] ?? 0,
+            wechsel_status: relation.wechsel_status,
+            transferiert_am: relation.transferiert_am,
+            // Coins belong to the customer, not the studio
+            elaycoins_balance: c.elaycoins?.balance ?? 0,
+        };
+    });
 
     res.json({
         success: true,
@@ -109,6 +176,14 @@ const createCustomer = asyncHandler(async (req, res) => {
         notizen: notizen || '',
         akquise_quelle: AKQUISE_QUELLE.STUDIO_EIGEN,
         aktuelle_firma_id: studioId,
+        firma_history: [
+            {
+                firma_id: studioId,
+                von: new Date(),
+                bis: null,
+                grund: 'studio_anlage',
+            },
+        ],
         pipeline_stufe: PIPELINE_STUFE.NEU,
         stufe_seit: new Date(),
     });
@@ -130,39 +205,71 @@ const getCustomer = asyncHandler(async (req, res) => {
         .lean();
 
     if (!customer) throw new ApiError(404, 'Customer not found');
-    assertCustomerAccess(req.user, customer);
+    const relation = assertCustomerAccess(req.user, customer);
+    const wechsel = isStudio(req.user.role)
+        ? await enrichWechselMeta(relation)
+        : { wechsel_status: 'aktuell' };
 
-    // attach case summary (studio users only see cases at their studio)
+    // Shared Case Layer: current studio sees full medical history; former studio only own cases
     const caseFilter = { customer: customer._id };
     if (isStudio(req.user.role)) {
-        caseFilter.studio = req.user.studio_id;
+        if (wechsel.wechsel_status === 'transferiert_aus') {
+            caseFilter.studio = req.user.studio_id;
+        }
+        // transferiert_ein / aktuell → all cases
     }
 
     const cases = await Case.find(caseFilter)
         .select(
-            'caseId type tc_title status sessions sessionsDone removal lastSessionDate medical_flag_level open_medical_flags_count anamnesis_complete'
+            'caseId type tc_title status sessions sessionsDone removal lastSessionDate medical_flag_level open_medical_flags_count anamnesis_complete studio bodyLabel'
         )
         .sort({ createdAt: -1 })
         .lean();
 
+    const viewerStudioId = isStudio(req.user.role) ? refId(req.user.studio_id) : null;
+    const casesFormatted = cases.map((c) => ({
+        ...c,
+        id: c._id,
+        transferiert: !!(viewerStudioId && refId(c.studio) !== viewerStudioId),
+        herkunft_studio_id: refId(c.studio),
+    }));
+
     const worst_medical_flag_level = worstMedicalFlagLevel(
-        cases.map((c) => c.medical_flag_level).filter(Boolean)
+        casesFormatted.map((c) => c.medical_flag_level).filter(Boolean)
     );
-    const open_medical_flags_count = cases.reduce(
+    const open_medical_flags_count = casesFormatted.reduce(
         (sum, c) => sum + (c.open_medical_flags_count ?? 0),
         0
     );
-    const pending_anamnesis_count = cases.filter((c) => !c.anamnesis_complete).length;
+    const pending_anamnesis_count = casesFormatted.filter((c) => !c.anamnesis_complete).length;
+
+    // Resolve aktuelle studio name for "left" banner
+    let aktuelle_firma_name = null;
+    if (wechsel.wechsel_status === 'transferiert_aus' && customer.aktuelle_firma_id) {
+        const s = await Studio.findById(customer.aktuelle_firma_id).select('firma').lean();
+        aktuelle_firma_name = s?.firma ?? null;
+    }
+
+    const firma_timeline = await formatFirmaTimeline(customer.firma_history);
 
     res.json({
         success: true,
         data: {
             customer: {
                 ...customer,
-                cases,
+                cases: casesFormatted,
                 worst_medical_flag_level,
                 open_medical_flags_count,
                 pending_anamnesis_count,
+                wechsel_status: wechsel.wechsel_status,
+                vorheriges_studio_id: wechsel.vorheriges_studio_id ?? null,
+                vorheriges_studio_name: wechsel.vorheriges_studio_name ?? null,
+                transferiert_am: wechsel.transferiert_am ?? null,
+                aktuelle_firma_name,
+                read_only: !!wechsel.read_only,
+                firma_timeline,
+                // Coins travel with the customer across studios
+                elaycoins_balance: customer.elaycoins?.balance ?? 0,
             },
         },
     });
@@ -172,7 +279,13 @@ const getCustomer = asyncHandler(async (req, res) => {
 const updateCustomer = asyncHandler(async (req, res) => {
     const customer = await Customer.findById(req.params.id);
     if (!customer) throw new ApiError(404, 'Customer not found');
-    assertCustomerAccess(req.user, customer);
+    const relation = assertCustomerAccess(req.user, customer);
+    if (relation.read_only) {
+        throw new ApiError(
+            403,
+            'Customer transferred to another studio — profile is read-only'
+        );
+    }
 
     const studioAllowed = [
         'vorname', 'nachname', 'telefon', 'geburtsdatum',

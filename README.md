@@ -5,7 +5,7 @@ Shared REST API for the Elaya platform — Customer Web Portal, Studio Web Dashb
 **Stack:** Node.js · Express 5 · MongoDB · Mongoose · JWT · Zod  
 **API base path:** `/api/v1`  
 **Planned production host:** [Railway](https://railway.app)  
-**Last updated:** 2026-07-17
+**Last updated:** 2026-07-20
 
 ---
 
@@ -64,6 +64,8 @@ Shared REST API for the Elaya platform — Customer Web Portal, Studio Web Dashb
 
 **Shop:** `GET /studio/shop/orders`, `PATCH /studio/shop/orders/:id` (status only). Customer catalog/checkout: `GET/POST /shop/*`. Seeds: `npm run seed:shop` (orders), `npm run seed:shop-products` (catalog).
 
+**Studio transfer:** `POST/GET /studio-transfers`, `PATCH …/approve|reject` (admin API). Studio UI: `/studio/transfers` (read-only queue).
+
 **Analytics:** `GET /studio/analytics/summary` — revenue by akquise, platform fee, shop provision, coins.
 
 **Elaycoins:** `GET /elaycoins/studio/overview` — paginated customer balances.
@@ -82,7 +84,7 @@ Shared REST API for the Elaya platform — Customer Web Portal, Studio Web Dashb
 | **Financier demo seed** | ✅ Done | `npm run seed:demo` — Maria Tribal, `#TRI-001` + `#HAN-001` on INKFREE |
 | **Public studio list (registration)** | ✅ Done | `GET /studios/public` — active studios with address + standorte for customer signup dropdown |
 
-**Mobile app developer guide:** [`../docs/MOBILE-APP-DEVELOPER.md`](../docs/MOBILE-APP-DEVELOPER.md) — screen flows, 6 tabs, tattoo + PMU wizard, API mapping for iOS/native app. See [`../docs/MOBILE-APP-LINKS.md`](../docs/MOBILE-APP-LINKS.md). *(Local monorepo docs — not in this GitHub repo.)*
+**Mobile app developer guide:** [`../MOBILE-APP-DEVELOPER.md`](../MOBILE-APP-DEVELOPER.md) — screen flows, 6 tabs, tattoo + PMU wizard, API mapping for iOS/native app. **Keep in sync:** when adding or changing customer-facing APIs, update this guide alongside `backend/README.md` and `frontend/README.md`. *(Local monorepo doc — not in this GitHub repo.)*
 
 **Financier demo verified locally:** lockout panel, blocked booking, Beratung bypass, pre-session UV/meds (longest lockout wins), appointment recalculates lockout.
 
@@ -125,7 +127,22 @@ Shared REST API for the Elaya platform — Customer Web Portal, Studio Web Dashb
 
 Cart stays **client-side** (mobile). Admin product CRUD UI → M4.
 
-**Known gaps (post-M2):** Admin dashboard UI for studio approval, zone-level lockout in customer mobile booking, full pricing multipliers UI, **customer profile self-service** (edit profile, studio switch, DSG export) — see [`docs/M3-CUSTOMER-PROFILE-BACKLOG.md`](../docs/M3-CUSTOMER-PROFILE-BACKLOG.md). Case chat CRUD still stub-only. Nachsorge check endpoint still planned. Real Stripe/Twint payment later.
+### Studio transfer / Firmenwechsel (2026-07-20 · M3)
+
+| Area | Status | Notes |
+|---|---|---|
+| **Transfer request model** | ✅ Done | `StudioTransferRequest` — `ausstehend` / `genehmigt` / `abgelehnt` |
+| **Customer request** | ✅ Done | `POST /studio-transfers` — 3 consents + signature |
+| **Customer history** | ✅ Done | `GET /studio-transfers/me` |
+| **Studio queue** | ✅ Done | `GET /studio-transfers` — **eingehend** (target) + **ausgehend** (source); admin sees all |
+| **Approve / reject** | ✅ Done | `PATCH …/approve`, `PATCH …/reject` — **admin / super_admin only** (Handoff §10.15; admin UI → M4) |
+| **Shared Case Layer** | ✅ Done | Target studio: full Akte + sessions/files, cases marked `transferiert`. Source: own cases read-only. Elaycoins stay on customer |
+| **Customer detail enrichments** | ✅ Done | `firma_timeline`, `wechsel_status`, `vorheriges_studio_name`, `aktuelle_firma_name` on `GET /customers/:id` |
+| **Transfer list dates** | ✅ Done | `beitritt_quelle_am`, `wechsel_genehmigt_am`, `richtung` on list response |
+
+**Follow-up (M4+):** Admin dashboard Studio-Wechsel page. **Email notifications** on approve/reject (customer + both studios) — reuse `services/emailService.js` (Handoff §10.15). **Mobile:** add `id` to `GET /studios/public` for transfer picker (`zu_firma_id`).
+
+**Known gaps (post-M2):** Admin dashboard UI for studio approval, zone-level lockout in customer mobile booking, full pricing multipliers UI, **customer profile edit + DSG export** — see [`docs/M3-CUSTOMER-PROFILE-BACKLOG.md`](../docs/M3-CUSTOMER-PROFILE-BACKLOG.md). Case chat CRUD still stub-only. Nachsorge check endpoint still planned. Real Stripe/Twint payment later.
 
 ### Changelog
 
@@ -164,6 +181,7 @@ Cart stays **client-side** (mobile). Admin product CRUD UI → M4.
 [2026-07-16] — Phase A–E medical: anamnesis preview, signature, CRM ampel, PS_01 booking-precheck, klaerung + freigabe + audit
 [2026-07-17] — PMU intake fields + pricing engine; private photo storage API (staging, case link, authenticated content)
 [2026-07-18] — ElayShop: product catalog, shipping quote, customer POST/GET orders; seed:shop-products
+[2026-07-20] — Studio transfer (M3): Shared Case Layer, /studio-transfers API, firma_timeline, inbound+outbound studio queue
 ```
 
 ---
@@ -191,7 +209,8 @@ backend/
 │   ├── elaycoinController.js
 │   ├── sessionController.js
 │   ├── signatureController.js
-│   └── studioController.js
+│   ├── studioController.js
+│   └── studioTransferController.js
 ├── middleware/
 │   ├── authMiddleware.js      # protect, authorize
 │   ├── authRateLimiter.js
@@ -208,6 +227,7 @@ backend/
 │   ├── refreshTokenModel.js
 │   ├── sessionModel.js
 │   ├── studioModel.js
+│   ├── studioTransferRequestModel.js
 │   └── userModel.js
 ├── routes/
 │   ├── appointmentRoute.js
@@ -218,6 +238,7 @@ backend/
 │   ├── healthRoute.js
 │   ├── sessionRoute.js
 │   ├── studioRoute.js
+│   ├── studioTransferRoute.js
 │   └── index.js
 ├── scripts/
 │   ├── bootstrapAdmin.js  # One-time production super admin (guarded)
@@ -231,11 +252,12 @@ backend/
 │   ├── configValidator.js
 │   ├── paginationValidator.js
 │   ├── sessionValidator.js
+│   ├── studioTransferValidator.js
 │   └── studioValidator.js
 ├── services/
 │   └── emailService.js          # Password reset emails (console / SMTP)
 ├── utils/
-│   ├── accessHelpers.js         # Shared role + access checks
+│   ├── accessHelpers.js         # Shared Case Layer + role/access checks (cases, sessions, customers)
 │   ├── anamnesisEngine.js       # Medical anamnesis ampel + klaerung-aware effective status
 │   ├── ApiError.js
 │   ├── asyncHandler.js
@@ -361,7 +383,18 @@ Production bootstrap (one-time — `npm run bootstrap:admin`):
 }
 ```
 
-Only studios with status **`aktiv`** appear in the public list. Pending (`ausstehend`) or locked (`gesperrt`) studios are excluded. Studio switching to another location later is a separate M3+ flow (admin approval).
+Only studios with status **`aktiv`** appear in the public list. Pending (`ausstehend`) or locked (`gesperrt`) studios are excluded. For **studio transfer**, customer/mobile uses target studio id (`zu_firma_id`) — add `id` to this response in a follow-up (currently `studio_code` only).
+
+### Studio transfers (Firmenwechsel)
+
+| Method | Path | Auth | Description |
+|---|---|---|---|
+| `POST` | `/api/v1/studio-transfers` | Customer | Create transfer request (`ausstehend`) |
+| `GET` | `/api/v1/studio-transfers/me` | Customer | Own transfer history |
+| `GET` | `/api/v1/studio-transfers` | Studio / Admin | Studio: inbound + outbound for own studio; admin: all |
+| `GET` | `/api/v1/studio-transfers/:id` | Customer / Studio / Admin | Single request |
+| `PATCH` | `/api/v1/studio-transfers/:id/approve` | Admin | Approve — activates Shared Case Layer |
+| `PATCH` | `/api/v1/studio-transfers/:id/reject` | Admin | Reject — `{ "ablehnungsgrund": "…" }` required |
 
 ### Cases
 

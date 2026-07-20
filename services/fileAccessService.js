@@ -66,10 +66,22 @@ const assertFileAccess = async (user, fileAsset) => {
     }
 
     if (isStudio(user.role)) {
-        if (fileAsset.studio.toString() !== user.studio_id.toString()) {
-            throw new ApiError(403, 'You do not have access to this file');
+        if (fileAsset.studio.toString() === user.studio_id.toString()) {
+            return;
         }
-        return;
+        // Shared Case Layer: current studio can view files for assigned customers
+        if (fileAsset.customer) {
+            const customer = await Customer.findById(fileAsset.customer)
+                .select('aktuelle_firma_id')
+                .lean();
+            if (
+                customer &&
+                customer.aktuelle_firma_id.toString() === user.studio_id.toString()
+            ) {
+                return;
+            }
+        }
+        throw new ApiError(403, 'You do not have access to this file');
     }
 
     throw new ApiError(403, 'You do not have permission for this action');

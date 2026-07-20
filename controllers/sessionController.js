@@ -5,10 +5,14 @@ const ApiError = require('../utils/ApiError');
 const asyncHandler = require('../utils/asyncHandler');
 const {
     isCustomer,
+    isStudio,
     canManageSessions,
     assertCaseAccess,
+    assertCaseWriteAccess,
     assertSessionAccess,
     buildScopedFilter,
+    buildStudioSharedFilter,
+    refId,
 } = require('../utils/accessHelpers');
 const { getNextSessionNumber, syncCaseSessionStats } = require('../utils/sessionHelpers');
 const { syncCustomerPipeline } = require('../utils/pipelineEngine');
@@ -22,7 +26,7 @@ const { parsePagination, buildPaginationMeta } = require('../utils/pagination');
 const CUSTOMER_SESSION_SELECT =
     'case customer studio session_number treatment_date treatment_time removal_pct verblassung_prozent is_draft is_no_show zonen_id createdAt updatedAt';
 
-const formatSession = (doc, role) => {
+const formatSession = (doc, role, options = {}) => {
     const s = doc.toObject ? doc.toObject() : doc;
     const base = {
         id: s._id,
@@ -39,6 +43,10 @@ const formatSession = (doc, role) => {
         zonen_id: s.zonen_id,
         createdAt: s.createdAt,
         updatedAt: s.updatedAt,
+        transferiert: !!(
+            options.viewerStudioId &&
+            refId(s.studio) !== refId(options.viewerStudioId)
+        ),
     };
 
     if (isCustomer(role)) {
@@ -106,7 +114,7 @@ const createSession = asyncHandler(async (req, res) => {
         throw new ApiError(404, 'Case not found');
     }
 
-    assertCaseAccess(req.user, caseDoc);
+    await assertCaseWriteAccess(req.user, caseDoc);
 
     const linkedAppointment = await validateLinkedAppointment(appointment_id, caseDoc);
     const session_number = await getNextSessionNumber(caseDoc._id);
@@ -145,13 +153,33 @@ const createSession = asyncHandler(async (req, res) => {
 });
 
 const listSessions = asyncHandler(async (req, res) => {
-    const filter = buildScopedFilter(req.user);
+    let filter;
+    const viewerStudioId = isStudio(req.user.role) ? req.user.studio_id : null;
+
+    if (isStudio(req.user.role)) {
+        if (req.query.customer_id) {
+            const Customer = require('../models/customerModel');
+            const assigned = await Customer.findOne({
+                _id: req.query.customer_id,
+                aktuelle_firma_id: req.user.studio_id,
+            })
+                .select('_id')
+                .lean();
+            filter = assigned
+                ? { customer: req.query.customer_id }
+                : { customer: req.query.customer_id, studio: req.user.studio_id };
+        } else {
+            filter = await buildStudioSharedFilter(req.user.studio_id);
+        }
+    } else {
+        filter = buildScopedFilter(req.user);
+        if (req.query.customer_id && !isCustomer(req.user.role)) {
+            filter.customer = req.query.customer_id;
+        }
+    }
 
     if (req.query.case_id) {
         filter.case = req.query.case_id;
-    }
-    if (req.query.customer_id && !isCustomer(req.user.role)) {
-        filter.customer = req.query.customer_id;
     }
     if (req.query.is_draft === 'true') {
         filter.is_draft = true;
@@ -190,7 +218,9 @@ const listSessions = asyncHandler(async (req, res) => {
     res.status(200).json({
         success: true,
         data: {
-            sessions: sessions.map((s) => formatSession(s, req.user.role)),
+            sessions: sessions.map((s) =>
+                formatSession(s, req.user.role, { viewerStudioId })
+            ),
             pagination: buildPaginationMeta(page, limit, total),
         },
     });
@@ -203,12 +233,16 @@ const getSession = asyncHandler(async (req, res) => {
         throw new ApiError(404, 'Session not found');
     }
 
-    assertSessionAccess(req.user, session);
+    const access = await assertSessionAccess(req.user, session);
+    const viewerStudioId = isStudio(req.user.role) ? req.user.studio_id : null;
+    const formatted = formatSession(session, req.user.role, { viewerStudioId });
+    if (access.transferiert) formatted.transferiert = true;
+    if (access.read_only) formatted.read_only = true;
 
     res.status(200).json({
         success: true,
         data: {
-            session: formatSession(session, req.user.role),
+            session: formatted,
         },
     });
 });
@@ -224,7 +258,13 @@ const updateSession = asyncHandler(async (req, res) => {
         throw new ApiError(404, 'Session not found');
     }
 
-    assertSessionAccess(req.user, session);
+    const access = await assertSessionAccess(req.user, session);
+    if (access.read_only) {
+        throw new ApiError(
+            403,
+            'Customer transferred to another studio — this session is read-only'
+        );
+    }
 
     const wasDraft = session.is_draft;
     const wasNoShow = session.is_no_show;

@@ -41,7 +41,7 @@ const getCaseMerkblatt = asyncHandler(async (req, res) => {
         throw new ApiError(404, 'Case not found');
     }
 
-    assertCaseAccess(req.user, caseDoc);
+    await assertCaseAccess(req.user, caseDoc);
 
     const locale = req.query.locale === 'en' ? 'en' : 'de';
     const content = getMerkblattContent(locale);
@@ -76,7 +76,7 @@ const getCaseSignatureImage = asyncHandler(async (req, res) => {
         throw new ApiError(404, 'Case not found');
     }
 
-    assertCaseAccess(req.user, caseDoc);
+    await assertCaseAccess(req.user, caseDoc);
 
     const stored = caseDoc.unterschrift?.unterschrift_data;
     if (!stored) {
@@ -115,7 +115,7 @@ const submitCaseSignature = asyncHandler(async (req, res) => {
         throw new ApiError(404, 'Case not found');
     }
 
-    assertCaseAccess(req.user, caseDoc);
+    await assertCaseAccess(req.user, caseDoc);
 
     if (!caseDoc.anamnesis_complete) {
         throw new ApiError(400, 'Medical anamnesis must be completed before signature');

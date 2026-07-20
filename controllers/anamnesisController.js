@@ -149,7 +149,7 @@ const getCaseAnamnesis = asyncHandler(async (req, res) => {
         throw new ApiError(404, 'Case not found');
     }
 
-    assertCaseAccess(req.user, caseDoc);
+    await assertCaseAccess(req.user, caseDoc);
 
     let anamnesis = await Anamnesis.findOne({ case: caseDoc._id });
 
@@ -171,7 +171,7 @@ const previewCaseAnamnesis = asyncHandler(async (req, res) => {
         throw new ApiError(404, 'Case not found');
     }
 
-    assertCaseAccess(req.user, caseDoc);
+    await assertCaseAccess(req.user, caseDoc);
 
     const { antworten = {} } = req.body;
     const evaluation = buildAnamnesisEvaluation(antworten);
@@ -189,7 +189,7 @@ const upsertCaseAnamnesis = asyncHandler(async (req, res) => {
         throw new ApiError(404, 'Case not found');
     }
 
-    assertCaseAccess(req.user, caseDoc);
+    await assertCaseAccess(req.user, caseDoc);
 
     const { antworten } = req.body;
 
@@ -311,7 +311,7 @@ const updateKlaerung = asyncHandler(async (req, res) => {
 
     const caseDoc = await Case.findById(req.params.id);
     if (!caseDoc) throw new ApiError(404, 'Case not found');
-    assertCaseAccess(req.user, caseDoc);
+    await assertCaseAccess(req.user, caseDoc);
 
     const anamnesis = await Anamnesis.findOne({ case: caseDoc._id });
     if (!anamnesis) throw new ApiError(404, 'Anamnesis not found');
@@ -408,7 +408,7 @@ const updateStudioFreigabe = asyncHandler(async (req, res) => {
 
     const caseDoc = await Case.findById(req.params.id);
     if (!caseDoc) throw new ApiError(404, 'Case not found');
-    assertCaseAccess(req.user, caseDoc);
+    await assertCaseAccess(req.user, caseDoc);
 
     if (!caseDoc.studio_freigabe?.erforderlich) {
         throw new ApiError(400, 'Studio freigabe is not required for this case');

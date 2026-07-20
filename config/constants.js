@@ -112,6 +112,13 @@ const SHOP_ORDER_STATUS = {
     GELIEFERT: 'geliefert',
 };
 
+/** Studio transfer (Firmenwechsel) request lifecycle */
+const STUDIO_TRANSFER_STATUS = {
+    AUSSTEHEND: 'ausstehend',
+    GENEHMIGT: 'genehmigt',
+    ABGELEHNT: 'abgelehnt',
+};
+
 module.exports = {
     USER_ROLES,
     USER_STATUS,
@@ -130,4 +137,5 @@ module.exports = {
     PAYMENT_CURRENCY,
     PAYMENT_METHOD,
     SHOP_ORDER_STATUS,
+    STUDIO_TRANSFER_STATUS,
 };
