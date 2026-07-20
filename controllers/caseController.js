@@ -17,7 +17,7 @@ const {
     formatStudioPricing,
 } = require('../utils/pricingEngine');
 const { getEffectivePricingOverrides } = require('../utils/configService');
-const { USER_ROLES, CASE_TYPE } = require('../config/constants');
+const { USER_ROLES, CASE_TYPE, CASE_STATUS } = require('../config/constants');
 const { parsePagination, buildPaginationMeta } = require('../utils/pagination');
 const {
     CUSTOMER_INTAKE_FIELDS,
@@ -492,6 +492,41 @@ const updateCase = asyncHandler(async (req, res) => {
     });
 });
 
+/**
+ * Customer (or studio/admin) may delete an incomplete intake case that was never signed.
+ * Used to clean up orphan drafts created when Basics is submitted more than once.
+ */
+const deleteIncompleteCase = asyncHandler(async (req, res) => {
+    const caseDoc = await Case.findById(req.params.id);
+
+    if (!caseDoc) {
+        throw new ApiError(404, 'Case not found');
+    }
+
+    assertCaseAccess(req.user, caseDoc);
+
+    if (caseDoc.unterschrift?.zeitstempel) {
+        throw new ApiError(400, 'Signed cases cannot be deleted from the app');
+    }
+
+    const deletable =
+        caseDoc.status === CASE_STATUS.DRAFT ||
+        caseDoc.status === CASE_STATUS.PENDING;
+
+    if (!deletable) {
+        throw new ApiError(400, 'Only incomplete draft/pending cases can be deleted');
+    }
+
+    await CaseZone.deleteMany({ case: caseDoc._id });
+    await Case.deleteOne({ _id: caseDoc._id });
+
+    res.status(200).json({
+        success: true,
+        message: 'Incomplete case deleted',
+        data: { id: caseDoc._id.toString() },
+    });
+});
+
 const getCaseAvailability = asyncHandler(async (req, res) => {
     const caseDoc = await Case.findById(req.params.id);
 
@@ -601,6 +636,7 @@ module.exports = {
     listCases,
     getCase,
     updateCase,
+    deleteIncompleteCase,
     getCaseAvailability,
     getCasePricing,
     previewCasePricing,

@@ -684,4 +684,30 @@ router.patch(
     caseController.updateCase
 );
 
+/**
+ * @swagger
+ * /cases/{id}:
+ *   delete:
+ *     summary: Delete an incomplete (unsigned) draft/pending case
+ *     tags: [Cases]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: string }
+ *     responses:
+ *       200:
+ *         description: Case deleted
+ *       400:
+ *         description: Case is signed or not deletable
+ */
+router.delete(
+    '/:id',
+    protect,
+    authorize(...caseAccessRoles),
+    caseController.deleteIncompleteCase
+);
+
 module.exports = router;
