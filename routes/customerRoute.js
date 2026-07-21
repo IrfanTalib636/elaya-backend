@@ -12,6 +12,12 @@ const {
     updateCustomerSchema,
     listCustomersQuerySchema,
 } = require('../validators/customerValidator');
+const { updateCustomerMeSchema } = require('../validators/customerMeValidator');
+const {
+    updateMe,
+    exportMe,
+    exportTransferProtocol,
+} = require('../controllers/customerMeController');
 const { USER_ROLES } = require('../config/constants');
 
 const router = express.Router();
@@ -92,6 +98,105 @@ router
     .route('/')
     .get(protect,  authorize(...STUDIO_AND_ADMIN), validateMiddleware(listCustomersQuerySchema, 'query'), listCustomers)
     .post(protect, authorize(...STUDIO_AND_ADMIN), validateMiddleware(createCustomerSchema),               createCustomer);
+
+/**
+ * @swagger
+ * /customers/me:
+ *   patch:
+ *     summary: Update own customer profile (mobile)
+ *     description: |
+ *       **Auth:** Bearer · **Who can call:** customer only
+ *
+ *       Edit vorname, nachname, telefon, address, geburtsdatum, email. Send at least one field.
+ *     tags: [Customers]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             minProperties: 1
+ *             properties:
+ *               vorname:      { type: string, example: Maria }
+ *               nachname:     { type: string, example: Muster }
+ *               email:        { type: string, format: email, example: maria@example.com }
+ *               telefon:      { type: string, example: "+41 79 123 45 67" }
+ *               geburtsdatum: { type: string, format: date, example: "1990-05-15" }
+ *               strasse:      { type: string, example: Bahnhofstrasse 1 }
+ *               plz:          { type: string, example: "8001" }
+ *               ort:          { type: string, example: Zürich }
+ *               land:         { type: string, example: Schweiz }
+ *           example:
+ *             vorname: Maria
+ *             nachname: Muster
+ *             telefon: "+41 79 123 45 67"
+ *             strasse: Bahnhofstrasse 1
+ *             plz: "8001"
+ *             ort: Zürich
+ *             land: Schweiz
+ *     responses:
+ *       200:
+ *         description: Profile updated
+ *       400:
+ *         description: Validation error (empty body or invalid email)
+ *       409:
+ *         description: Email already in use
+ */
+
+/**
+ * @swagger
+ * /customers/me/export:
+ *   get:
+ *     summary: DSG data export (JSON download)
+ *     description: |
+ *       **Auth:** Bearer · **Who can call:** customer only
+ *
+ *       Returns profile, case summaries, studio history, and Elaycoin balance as JSON attachment.
+ *     tags: [Customers]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: JSON export file
+ */
+
+/**
+ * @swagger
+ * /customers/me/transfer-protocol:
+ *   get:
+ *     summary: Studio transfer protocol (JSON download)
+ *     description: |
+ *       **Auth:** Bearer · **Who can call:** customer only
+ *
+ *       Available after an admin-approved studio transfer (`genehmigt`).
+ *     tags: [Customers]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Transfer protocol JSON
+ *       404:
+ *         description: No approved transfer found
+ */
+
+router
+    .route('/me')
+    .patch(
+        protect,
+        authorize(USER_ROLES.CUSTOMER),
+        validateMiddleware(updateCustomerMeSchema),
+        updateMe
+    );
+
+router
+    .route('/me/export')
+    .get(protect, authorize(USER_ROLES.CUSTOMER), exportMe);
+
+router
+    .route('/me/transfer-protocol')
+    .get(protect, authorize(USER_ROLES.CUSTOMER), exportTransferProtocol);
 
 /**
  * @swagger

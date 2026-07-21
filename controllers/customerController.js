@@ -14,6 +14,7 @@ const {
 } = require('../utils/accessHelpers');
 const { USER_ROLES, AKQUISE_QUELLE, PIPELINE_STUFE } = require('../config/constants');
 const { worstMedicalFlagLevel } = require('../utils/medicalFlagHelpers');
+const { formatFirmaTimeline } = require('../utils/customerProfileHelpers');
 
 // ── helpers ──────────────────────────────────────────────────────────────
 const assertCustomerAccess = (user, customer, { allowFormer = true } = {}) => {
@@ -50,31 +51,6 @@ const enrichWechselMeta = async (relation) => {
         ...relation,
         vorheriges_studio_name: studio?.firma ?? null,
     };
-};
-
-/** Studio assignment history with resolved studio names for timeline UI */
-const formatFirmaTimeline = async (history = []) => {
-    if (!history.length) return [];
-
-    const studioIds = [
-        ...new Set(history.map((entry) => refId(entry.firma_id)).filter(Boolean)),
-    ];
-    const studios = await Studio.find({ _id: { $in: studioIds } }).select('firma').lean();
-    const nameById = Object.fromEntries(studios.map((s) => [s._id.toString(), s.firma ?? '']));
-
-    return [...history]
-        .sort((a, b) => new Date(a.von) - new Date(b.von))
-        .map((entry) => {
-            const firmaId = refId(entry.firma_id);
-            return {
-                firma_id: firmaId,
-                firma_name: nameById[firmaId] ?? 'Unbekanntes Studio',
-                von: entry.von,
-                bis: entry.bis ?? null,
-                grund: entry.grund ?? '',
-                is_current: entry.bis === null || entry.bis === undefined,
-            };
-        });
 };
 
 // ── GET /customers ────────────────────────────────────────────────────────

@@ -20,6 +20,9 @@ const {
     findValidRefreshToken,
 } = require('../utils/generateTokenAndSetCookies');
 const {
+    formatCustomerProfileForMe,
+} = require('../utils/customerProfileHelpers');
+const {
     USER_ROLES,
     USER_STATUS,
     STUDIO_STATUS,
@@ -374,30 +377,12 @@ const getMe = asyncHandler(async (req, res) => {
 
     if (user.role === USER_ROLES.CUSTOMER && user.customer_id) {
         const customer = await Customer.findById(user.customer_id)
-            .select('-__v')
+            .select('-__v -elaycoins.transactions')
             .populate({ path: 'aktuelle_firma_id', select: 'firma studio_code ort' })
             .lean();
 
         if (customer) {
-            const firma = customer.aktuelle_firma_id;
-            const studioEmbed =
-                firma && typeof firma === 'object' && !Array.isArray(firma)
-                    ? {
-                          firma: firma.firma,
-                          studio_code: firma.studio_code,
-                          ort: firma.ort,
-                      }
-                    : null;
-
-            profile = {
-                ...customer,
-                aktuelle_firma_id:
-                    firma && typeof firma === 'object' && firma._id
-                        ? firma._id
-                        : customer.aktuelle_firma_id,
-                studio: studioEmbed,
-                aktuelle_firma: studioEmbed,
-            };
+            profile = await formatCustomerProfileForMe(customer);
         }
     }
 

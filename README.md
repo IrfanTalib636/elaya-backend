@@ -142,7 +142,16 @@ Cart stays **client-side** (mobile). Admin product CRUD UI → M4.
 
 **Follow-up (M4+):** Admin dashboard Studio-Wechsel page. **Email notifications** on approve/reject (customer + both studios) — reuse `services/emailService.js` (Handoff §10.15). **Mobile:** add `id` to `GET /studios/public` for transfer picker (`zu_firma_id`).
 
-**Known gaps (post-M2):** Admin dashboard UI for studio approval, zone-level lockout in customer mobile booking, full pricing multipliers UI, **customer profile edit + DSG export** — see [`docs/M3-CUSTOMER-PROFILE-BACKLOG.md`](../docs/M3-CUSTOMER-PROFILE-BACKLOG.md). Case chat CRUD still stub-only. Nachsorge check endpoint still planned. Real Stripe/Twint payment later.
+### Customer profile (mobile · 2026-07-21 · M3)
+
+| Area | Status | Notes |
+|---|---|---|
+| **Edit profile** | ✅ Done | `PATCH /customers/me` — vorname, nachname, telefon, email, address, geburtsdatum |
+| **Profile bootstrap** | ✅ Done | `GET /auth/me` includes `firma_timeline`, `studio` embed, `elaycoins_balance` |
+| **DSG data export** | ✅ Done | `GET /customers/me/export` — JSON attachment (profile, cases summary, studio history, coins) |
+| **Transfer protocol** | ✅ Done | `GET /customers/me/transfer-protocol` — after admin-approved transfer (`genehmigt`) |
+
+**Known gaps (post-M2):** Admin dashboard UI for studio approval, zone-level lockout in customer mobile booking, full pricing multipliers UI. Case chat CRUD still stub-only. Nachsorge check endpoint still planned. Real Stripe/Twint payment later.
 
 ### Changelog
 
@@ -182,6 +191,7 @@ Cart stays **client-side** (mobile). Admin product CRUD UI → M4.
 [2026-07-17] — PMU intake fields + pricing engine; private photo storage API (staging, case link, authenticated content)
 [2026-07-18] — ElayShop: product catalog, shipping quote, customer POST/GET orders; seed:shop-products
 [2026-07-20] — Studio transfer (M3): Shared Case Layer, /studio-transfers API, firma_timeline, inbound+outbound studio queue
+[2026-07-21] — Customer profile (M3): PATCH /customers/me, DSG export, transfer protocol, firma_timeline on GET /auth/me
 ```
 
 ---
