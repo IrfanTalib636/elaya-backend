@@ -11,8 +11,8 @@ const router = express.Router();
  *     description: |
  *       **Auth:** None · **Who can call:** Anyone (public)
  *
- *       Returns only studios with status `aktiv`. Use `studio_code` from the chosen row
- *       in `POST /auth/register/customer`. Primary address fields are on the studio root;
+ *       Returns only studios with status `aktiv`. Each row includes Mongo `id` (for studio
+ *       transfer `zu_firma_id`) and `studio_code` for `POST /auth/register/customer`.
  *       additional locations are in `standorte`.
  *     tags: [Studios]
  *     responses:
@@ -32,6 +32,7 @@ const router = express.Router();
  *                       items:
  *                         type: object
  *                         properties:
+ *                           id: { type: string, description: MongoDB studio id (transfer picker) }
  *                           studio_code: { type: string, example: INKFREE }
  *                           firma: { type: string }
  *                           strasse: { type: string }

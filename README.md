@@ -140,7 +140,7 @@ Cart stays **client-side** (mobile). Admin product CRUD UI → M4.
 | **Customer detail enrichments** | ✅ Done | `firma_timeline`, `wechsel_status`, `vorheriges_studio_name`, `aktuelle_firma_name` on `GET /customers/:id` |
 | **Transfer list dates** | ✅ Done | `beitritt_quelle_am`, `wechsel_genehmigt_am`, `richtung` on list response |
 
-**Follow-up (M4+):** Admin dashboard Studio-Wechsel page. **Email notifications** on approve/reject (customer + both studios) — reuse `services/emailService.js` (Handoff §10.15). **Mobile:** add `id` to `GET /studios/public` for transfer picker (`zu_firma_id`).
+**Follow-up (M4+):** Admin dashboard Studio-Wechsel page. **Email notifications** on approve/reject (customer + both studios) — reuse `services/emailService.js` (Handoff §10.15).
 
 ### Customer profile (mobile · 2026-07-21 · M3)
 
@@ -192,6 +192,7 @@ Cart stays **client-side** (mobile). Admin product CRUD UI → M4.
 [2026-07-18] — ElayShop: product catalog, shipping quote, customer POST/GET orders; seed:shop-products
 [2026-07-20] — Studio transfer (M3): Shared Case Layer, /studio-transfers API, firma_timeline, inbound+outbound studio queue
 [2026-07-21] — Customer profile (M3): PATCH /customers/me, DSG export, transfer protocol, firma_timeline on GET /auth/me
+[2026-07-21] — M3 polish: GET /studios/public returns id; Kunden list includes transferred-out customers as inactive
 ```
 
 ---

@@ -268,6 +268,7 @@ const formatPublicStandort = (standort) => {
 const formatPublicStudio = (studio) => {
     const doc = studio.toObject ? studio.toObject() : studio;
     return {
+        id: doc._id ? String(doc._id) : '',
         studio_code: doc.studio_code,
         firma: doc.firma,
         strasse: doc.strasse ?? '',

@@ -59,10 +59,14 @@ const listCustomers = asyncHandler(async (req, res) => {
     const { search, pipeline_stufe } = req.query;
 
     const filter = {};
+    const studioId = isStudio(req.user.role) ? refId(req.user.studio_id) : null;
 
-    // scope to studio — current assignment only (transferred-in customers included)
-    if (isStudio(req.user.role)) {
-        filter.aktuelle_firma_id = req.user.studio_id;
+    // Studio: current customers + former customers who transferred out (firma_history)
+    if (studioId) {
+        filter.$or = [
+            { aktuelle_firma_id: req.user.studio_id },
+            { 'firma_history.firma_id': req.user.studio_id },
+        ];
     }
 
     if (pipeline_stufe) {
@@ -71,7 +75,10 @@ const listCustomers = asyncHandler(async (req, res) => {
 
     if (search) {
         const re = new RegExp(search, 'i');
-        filter.$or = [{ vorname: re }, { nachname: re }, { email: re }, { telefon: re }];
+        filter.$and = [
+            ...(filter.$and ?? []),
+            { $or: [{ vorname: re }, { nachname: re }, { email: re }, { telefon: re }] },
+        ];
     }
 
     const [customers, total] = await Promise.all([
@@ -84,26 +91,71 @@ const listCustomers = asyncHandler(async (req, res) => {
         Customer.countDocuments(filter),
     ]);
 
-    // attach open case counts (Shared Case Layer: all cases for assigned customers)
     const ids = customers.map((c) => c._id);
-    const caseCounts = await Case.aggregate([
-        { $match: { customer: { $in: ids }, status: { $in: ['pending', 'active'] } } },
-        { $group: { _id: '$customer', count: { $sum: 1 } } },
-    ]);
-    const countMap = Object.fromEntries(caseCounts.map((x) => [x._id.toString(), x.count]));
+    const openCases = ids.length
+        ? await Case.find({
+              customer: { $in: ids },
+              status: { $in: ['pending', 'active'] },
+          })
+              .select('customer studio')
+              .lean()
+        : [];
+
+    const openCasesByCustomer = openCases.reduce((acc, caseDoc) => {
+        const cid = refId(caseDoc.customer);
+        if (!acc[cid]) acc[cid] = [];
+        acc[cid].push(caseDoc);
+        return acc;
+    }, {});
+
+    const transferredOutIds = studioId
+        ? customers
+              .filter((c) => resolveStudioCustomerRelation(studioId, c).wechsel_status === 'transferiert_aus')
+              .map((c) => refId(c.aktuelle_firma_id))
+              .filter(Boolean)
+        : [];
+    const aktuelleFirmaNames = transferredOutIds.length
+        ? Object.fromEntries(
+              (
+                  await Studio.find({ _id: { $in: [...new Set(transferredOutIds)] } })
+                      .select('firma')
+                      .lean()
+              ).map((s) => [String(s._id), s.firma ?? ''])
+          )
+        : {};
+
     const enriched = customers.map((c) => {
-        const relation = isStudio(req.user.role)
-            ? resolveStudioCustomerRelation(req.user.studio_id, c)
-            : { wechsel_status: 'aktuell' };
+        const relation = studioId
+            ? resolveStudioCustomerRelation(studioId, c)
+            : { wechsel_status: 'aktuell', read_only: false };
+        const customerCases = openCasesByCustomer[c._id.toString()] ?? [];
+        const offene_faelle =
+            relation.wechsel_status === 'transferiert_aus'
+                ? customerCases.filter((caseDoc) => refId(caseDoc.studio) === studioId).length
+                : customerCases.length;
+
         return {
             ...c,
-            offene_faelle: countMap[c._id.toString()] ?? 0,
+            offene_faelle,
             wechsel_status: relation.wechsel_status,
-            transferiert_am: relation.transferiert_am,
-            // Coins belong to the customer, not the studio
+            transferiert_am: relation.transferiert_am ?? null,
+            read_only: !!relation.read_only,
+            aktuelle_firma_name:
+                relation.wechsel_status === 'transferiert_aus'
+                    ? aktuelleFirmaNames[String(c.aktuelle_firma_id)] ?? null
+                    : null,
             elaycoins_balance: c.elaycoins?.balance ?? 0,
         };
     });
+
+    if (studioId) {
+        enriched.sort((a, b) => {
+            const aOut = a.wechsel_status === 'transferiert_aus' ? 1 : 0;
+            const bOut = b.wechsel_status === 'transferiert_aus' ? 1 : 0;
+            if (aOut !== bOut) return aOut - bOut;
+            return `${a.nachname} ${a.vorname}`.localeCompare(`${b.nachname} ${b.vorname}`, 'de');
+        });
+    }
 
     res.json({
         success: true,
