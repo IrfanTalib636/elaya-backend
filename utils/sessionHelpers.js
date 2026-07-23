@@ -22,11 +22,21 @@ const syncCaseSessionStats = async (caseId) => {
             },
         },
         {
+            $addFields: {
+                fading_pct: {
+                    $max: [
+                        { $ifNull: ['$removal_pct', 0] },
+                        { $ifNull: ['$verblassung_prozent', 0] },
+                    ],
+                },
+            },
+        },
+        {
             $group: {
                 _id: null,
                 sessionsDone: { $sum: 1 },
                 lastSessionDate: { $max: '$treatment_date' },
-                removal: { $max: '$removal_pct' },
+                removal: { $max: '$fading_pct' },
             },
         },
     ]);
@@ -36,7 +46,7 @@ const syncCaseSessionStats = async (caseId) => {
         lastSessionDate: stats?.lastSessionDate ?? null,
     };
 
-    if (stats?.removal != null) {
+    if (stats?.removal != null && stats.removal > 0) {
         update.removal = stats.removal;
     }
 

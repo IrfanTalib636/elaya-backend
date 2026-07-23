@@ -74,7 +74,28 @@ const sessionSchema = new mongoose.Schema(
         special_notes: { type: String, default: '' },
         removal_pct: { type: Number, min: 0, max: 100, default: null },
         verblassung_prozent: { type: Number, min: 0, max: 100, default: null },
+        /** Legacy string / optional file id string; prefer fortschritt_foto_file_id */
         fortschritt_foto_data: { type: String, default: '' },
+        fortschritt_foto_file_id: {
+            type: mongoose.Schema.Types.ObjectId,
+            ref: 'FileAsset',
+            default: null,
+        },
+        verblassung_ki: {
+            status: { type: String, default: '' },
+            beurteilung: { type: String, default: '' },
+            fortschritt: { type: String, default: '' },
+            lifestyle_tipps: { type: String, default: '' },
+            empfehlung_kunde: { type: String, default: '' },
+            empfehlung_studio: { type: String, default: '' },
+            farben_analyse: { type: mongoose.Schema.Types.Mixed, default: null },
+            wichtiger_hinweis: { type: String, default: '' },
+            analysed_at: { type: Date, default: null },
+            foto_vorher_file_id: { type: String, default: '' },
+            foto_aktuell_file_id: { type: String, default: '' },
+        },
+        /** Audit only — never return to clients */
+        verblassung_raw_ai: { type: mongoose.Schema.Types.Mixed, default: null },
         is_draft: { type: Boolean, default: false },
         is_no_show: { type: Boolean, default: false },
         zonen_id: { type: String, default: null },

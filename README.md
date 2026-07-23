@@ -151,7 +151,7 @@ Cart stays **client-side** (mobile). Admin product CRUD UI → M4.
 | **DSG data export** | ✅ Done | `GET /customers/me/export` — live JSON of profile, cases+anamnese, sessions, appointments, coins+tx, shop orders, transfers; filename `{Name}_Meine-Daten_{date}.json` |
 | **Transfer protocol** | ✅ Done | `GET /customers/me/transfer-protocol` — after admin-approved transfer (`genehmigt`) |
 
-**Known gaps (post-M2):** Admin dashboard UI for studio approval, zone-level lockout in customer mobile booking, full pricing multipliers UI. Case chat CRUD still stub-only. Elaya FAB chat + Verblassung AI still planned. Real Stripe/Twint payment later.
+**Known gaps (post-M2):** Admin dashboard UI for studio approval, zone-level lockout in customer mobile booking, full pricing multipliers UI. Case chat CRUD still stub-only. Elaya FAB chat still planned. Real Stripe/Twint payment later.
 
 ### AI Nachsorge / aftercare (2026-07-23)
 
@@ -164,14 +164,26 @@ Cart stays **client-side** (mobile). Admin product CRUD UI → M4.
 | **History** | ✅ Done | `GET /nachsorge`, `GET /nachsorge/:id` |
 | **Swagger Files** | ✅ Done | `POST /files/staging` documented under **Files** tag |
 | **E2E smoke** | ✅ Verified | 2026-07-23 — upload → photo-check → check (+50 coins) → list/detail (`ai_available: true`) |
-| **Verblassung AI** | ⏳ Next | Session before/after analysis |
+| **Verblassung AI** | ✅ Done | `POST /verblassung` — before/after fading % on session; syncs case `removal` |
 | **Elaya FAB chat** | ⏳ Later | `POST /chat` |
 
 **Fallback:** If key missing / `AI_ENABLED=false`, endpoints return orange “manual review” payload (`ai_available: false`) without crashing.
 
 **Photos:** Prefer private file IDs via `POST /files/staging` (`slot=nachsorge`). Do not send base64 images in JSON for production; if you temporarily test base64 payloads elsewhere, raise `JSON_BODY_LIMIT` in `.env` (default `512kb`). Restart the API after changing `ANTHROPIC_*` in `.env`.
 
-### Changelog
+### AI Verblassung / fading (2026-07-23)
+
+| Area | Status | Notes |
+|---|---|---|
+| **Analyze** | ✅ Done | `POST /verblassung` `{ session_id, foto_vorher_file_id?, foto_aktuell_file_id?, persist? }` — studio/admin only |
+| **Photos** | ✅ Done | Defaults: aktuell = session progress file; vorher = prior session progress or case intake main |
+| **Persist** | ✅ Done | Writes `verblassung_prozent`, `removal_pct`, `verblassung_ki`; syncs case `removal` |
+| **Customer read** | ✅ Done | `GET /sessions` includes `%` + customer-safe KI text (no `empfehlung_studio` / raw AI) |
+| **Progress upload** | ✅ Done | `POST /files/sessions/:id/progress` sets `fortschritt_foto_file_id` |
+| **E2E smoke** | ✅ Verified | 2026-07-23 — progress upload → `/verblassung` (`ai_available: true`, persisted); empty optional photo ids accepted |
+| **Studio UI** | ⏳ Later | Session “KI-Verblassung” button |
+
+**Disk path:** `uploads/{studioId}/sessions/{sessionId}/progress.jpg` (not under `staging/`).
 
 ```
 [2026-06-24] — Initial backend README
@@ -213,6 +225,8 @@ Cart stays **client-side** (mobile). Admin product CRUD UI → M4.
 [2026-07-21] — M3 polish: GET /studios/public returns id; Kunden list includes transferred-out customers as inactive
 [2026-07-23] — AI Nachsorge: POST /nachsorge/photo-check + /check, GET history; Anthropic server proxy (Sonnet default)
 [2026-07-23] — Nachsorge E2E verified in Swagger; Files staging documented; Files + Nachsorge OpenAPI complete
+[2026-07-23] — AI Verblassung: POST /verblassung before/after fading analysis; session KI fields + case removal sync
+[2026-07-23] — Verblassung E2E verified; optional empty photo ids in Swagger; progress files under uploads/{studio}/sessions/
 ```
 
 ---

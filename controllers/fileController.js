@@ -195,6 +195,12 @@ const uploadSessionProgress = asyncHandler(async (req, res) => {
         session_id: sessionDoc._id.toString(),
     });
 
+    sessionDoc.fortschritt_foto_file_id = fileAsset._id;
+    if (!sessionDoc.fortschritt_foto_data) {
+        sessionDoc.fortschritt_foto_data = fileAsset._id.toString();
+    }
+    await sessionDoc.save();
+
     res.status(201).json({
         success: true,
         message: 'Session progress photo uploaded',

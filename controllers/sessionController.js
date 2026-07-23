@@ -24,7 +24,28 @@ const {
 const { parsePagination, buildPaginationMeta } = require('../utils/pagination');
 
 const CUSTOMER_SESSION_SELECT =
-    'case customer studio session_number treatment_date treatment_time removal_pct verblassung_prozent is_draft is_no_show zonen_id createdAt updatedAt';
+    'case customer studio session_number treatment_date treatment_time removal_pct verblassung_prozent verblassung_ki fortschritt_foto_file_id is_draft is_no_show zonen_id createdAt updatedAt';
+
+const formatVerblassungKiForRole = (ki, role) => {
+    if (!ki) return null;
+    const customerSafe = {
+        status: ki.status || '',
+        beurteilung: ki.beurteilung || '',
+        fortschritt: ki.fortschritt || '',
+        lifestyle_tipps: ki.lifestyle_tipps || '',
+        empfehlung_kunde: ki.empfehlung_kunde || '',
+        wichtiger_hinweis: ki.wichtiger_hinweis || '',
+        farben_analyse: ki.farben_analyse || null,
+        analysed_at: ki.analysed_at || null,
+    };
+    if (isCustomer(role)) return customerSafe;
+    return {
+        ...customerSafe,
+        empfehlung_studio: ki.empfehlung_studio || '',
+        foto_vorher_file_id: ki.foto_vorher_file_id || '',
+        foto_aktuell_file_id: ki.foto_aktuell_file_id || '',
+    };
+};
 
 const formatSession = (doc, role, options = {}) => {
     const s = doc.toObject ? doc.toObject() : doc;
@@ -38,6 +59,10 @@ const formatSession = (doc, role, options = {}) => {
         treatment_time: s.treatment_time,
         removal_pct: s.removal_pct,
         verblassung_prozent: s.verblassung_prozent,
+        verblassung_ki: formatVerblassungKiForRole(s.verblassung_ki, role),
+        fortschritt_foto_file_id: s.fortschritt_foto_file_id
+            ? String(s.fortschritt_foto_file_id)
+            : null,
         is_draft: s.is_draft,
         is_no_show: s.is_no_show,
         zonen_id: s.zonen_id,
