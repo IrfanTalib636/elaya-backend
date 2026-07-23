@@ -18,7 +18,7 @@ const MIME_EXTENSIONS = {
 
 const STAGING_TTL_HOURS = Number(process.env.UPLOAD_STAGING_TTL_HOURS) || 24;
 
-const INTAKE_SLOTS = ['main', 'detail', 'marker', 'zone'];
+const INTAKE_SLOTS = ['main', 'detail', 'marker', 'zone', 'nachsorge'];
 
 const FILE_STATUS = {
     STAGING: 'staging',

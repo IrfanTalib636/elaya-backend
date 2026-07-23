@@ -87,11 +87,13 @@ const uploadStaging = asyncHandler(async (req, res) => {
 
     const customer = await resolveUploadCustomer(req.user, req.body.customer_id);
     const studioId = customer.aktuelle_firma_id;
+    const purpose =
+        slot === 'nachsorge' ? FILE_PURPOSE.NACHSORGE : FILE_PURPOSE.CASE_INTAKE;
 
     const fileAsset = await FileAsset.create({
         studio: studioId,
         customer: customer._id,
-        purpose: FILE_PURPOSE.CASE_INTAKE,
+        purpose,
         slot,
         original_name: req.file.originalname || '',
         mime_type: req.file.mimetype,

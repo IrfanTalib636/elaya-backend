@@ -148,10 +148,28 @@ Cart stays **client-side** (mobile). Admin product CRUD UI → M4.
 |---|---|---|
 | **Edit profile** | ✅ Done | `PATCH /customers/me` — vorname, nachname, telefon, email, address, geburtsdatum |
 | **Profile bootstrap** | ✅ Done | `GET /auth/me` includes `firma_timeline`, `studio` embed, `elaycoins_balance` |
-| **DSG data export** | ✅ Done | `GET /customers/me/export` — JSON attachment (profile, cases summary, studio history, coins) |
+| **DSG data export** | ✅ Done | `GET /customers/me/export` — live JSON of profile, cases+anamnese, sessions, appointments, coins+tx, shop orders, transfers; filename `{Name}_Meine-Daten_{date}.json` |
 | **Transfer protocol** | ✅ Done | `GET /customers/me/transfer-protocol` — after admin-approved transfer (`genehmigt`) |
 
-**Known gaps (post-M2):** Admin dashboard UI for studio approval, zone-level lockout in customer mobile booking, full pricing multipliers UI. Case chat CRUD still stub-only. Nachsorge check endpoint still planned. Real Stripe/Twint payment later.
+**Known gaps (post-M2):** Admin dashboard UI for studio approval, zone-level lockout in customer mobile booking, full pricing multipliers UI. Case chat CRUD still stub-only. Elaya FAB chat + Verblassung AI still planned. Real Stripe/Twint payment later.
+
+### AI Nachsorge / aftercare (2026-07-23)
+
+| Area | Status | Notes |
+|---|---|---|
+| **Anthropic proxy** | ✅ Done | Server-side only — `ANTHROPIC_API_KEY`, `ANTHROPIC_MODEL` (default Sonnet), `AI_ENABLED` |
+| **Photo upload** | ✅ Done | `POST /files/staging` with `slot=nachsorge` → `foto_file_id` |
+| **Stage 1 photo-check** | ✅ Done | `POST /nachsorge/photo-check` — vision-only ampel |
+| **Stage 2 check** | ✅ Done | `POST /nachsorge/check` — photo + symptoms (photo wins), persist, `nachsorge_check` coins |
+| **History** | ✅ Done | `GET /nachsorge`, `GET /nachsorge/:id` |
+| **Swagger Files** | ✅ Done | `POST /files/staging` documented under **Files** tag |
+| **E2E smoke** | ✅ Verified | 2026-07-23 — upload → photo-check → check (+50 coins) → list/detail (`ai_available: true`) |
+| **Verblassung AI** | ⏳ Next | Session before/after analysis |
+| **Elaya FAB chat** | ⏳ Later | `POST /chat` |
+
+**Fallback:** If key missing / `AI_ENABLED=false`, endpoints return orange “manual review” payload (`ai_available: false`) without crashing.
+
+**Photos:** Prefer private file IDs via `POST /files/staging` (`slot=nachsorge`). Do not send base64 images in JSON for production; if you temporarily test base64 payloads elsewhere, raise `JSON_BODY_LIMIT` in `.env` (default `512kb`). Restart the API after changing `ANTHROPIC_*` in `.env`.
 
 ### Changelog
 
@@ -193,6 +211,8 @@ Cart stays **client-side** (mobile). Admin product CRUD UI → M4.
 [2026-07-20] — Studio transfer (M3): Shared Case Layer, /studio-transfers API, firma_timeline, inbound+outbound studio queue
 [2026-07-21] — Customer profile (M3): PATCH /customers/me, DSG export, transfer protocol, firma_timeline on GET /auth/me
 [2026-07-21] — M3 polish: GET /studios/public returns id; Kunden list includes transferred-out customers as inactive
+[2026-07-23] — AI Nachsorge: POST /nachsorge/photo-check + /check, GET history; Anthropic server proxy (Sonnet default)
+[2026-07-23] — Nachsorge E2E verified in Swagger; Files staging documented; Files + Nachsorge OpenAPI complete
 ```
 
 ---
