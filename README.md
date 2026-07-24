@@ -151,7 +151,7 @@ Cart stays **client-side** (mobile). Admin product CRUD UI → M4.
 | **DSG data export** | ✅ Done | `GET /customers/me/export` — live JSON of profile, cases+anamnese, sessions, appointments, coins+tx, shop orders, transfers; filename `{Name}_Meine-Daten_{date}.json` |
 | **Transfer protocol** | ✅ Done | `GET /customers/me/transfer-protocol` — after admin-approved transfer (`genehmigt`) |
 
-**Known gaps (post-M2):** Admin dashboard UI for studio approval, zone-level lockout in customer mobile booking, full pricing multipliers UI. Case chat CRUD still stub-only. Elaya FAB chat still planned. Real Stripe/Twint payment later.
+**Known gaps (post-M2):** Admin dashboard UI for studio approval, zone-level lockout in customer mobile booking, full pricing multipliers UI. Case chat CRUD still stub-only. Real Stripe/Twint payment later.
 
 ### AI Nachsorge / aftercare (2026-07-23)
 
@@ -165,7 +165,7 @@ Cart stays **client-side** (mobile). Admin product CRUD UI → M4.
 | **Swagger Files** | ✅ Done | `POST /files/staging` documented under **Files** tag |
 | **E2E smoke** | ✅ Verified | 2026-07-23 — upload → photo-check → check (+50 coins) → list/detail (`ai_available: true`) |
 | **Verblassung AI** | ✅ Done | `POST /verblassung` — before/after fading % on session; syncs case `removal` |
-| **Elaya FAB chat** | ⏳ Later | `POST /chat` |
+| **Elaya FAB chat** | ✅ Done | `POST /chat` — customer + studio context; `erster_elaya_chat` coins |
 
 **Fallback:** If key missing / `AI_ENABLED=false`, endpoints return orange “manual review” payload (`ai_available: false`) without crashing.
 
@@ -184,6 +184,19 @@ Cart stays **client-side** (mobile). Admin product CRUD UI → M4.
 | **Studio UI** | ⏳ Later | Session “KI-Verblassung” button |
 
 **Disk path:** `uploads/{studioId}/sessions/{sessionId}/progress.jpg` (not under `staging/`).
+
+### AI Elaya FAB chat (2026-07-24)
+
+| Area | Status | Notes |
+|---|---|---|
+| **Endpoint** | ✅ Done | `POST /chat` `{ message, case_id?, history? }` — customer + studio/admin |
+| **Context** | ✅ Done | Server builds profile (cases, ampel, sessions, lockouts, appointments) |
+| **Coins** | ✅ Done | Customer `erster_elaya_chat` (+30, einmalig) |
+| **Escalation** | ✅ Done | Parses `[ESKALATION|…]` → `data.eskalation` (stripped from reply) |
+| **Suggested actions** | ✅ Done | Heuristic tags e.g. `termin_buchen`, `nachsorge` (customer) |
+| **Mobile / studio FAB UI** | ⏳ Later | Wire floating button to this API |
+
+### Changelog
 
 ```
 [2026-06-24] — Initial backend README
@@ -227,6 +240,7 @@ Cart stays **client-side** (mobile). Admin product CRUD UI → M4.
 [2026-07-23] — Nachsorge E2E verified in Swagger; Files staging documented; Files + Nachsorge OpenAPI complete
 [2026-07-23] — AI Verblassung: POST /verblassung before/after fading analysis; session KI fields + case removal sync
 [2026-07-23] — Verblassung E2E verified; optional empty photo ids in Swagger; progress files under uploads/{studio}/sessions/
+[2026-07-24] — AI Elaya FAB chat: POST /chat with server context, escalation parse, erster_elaya_chat coins
 ```
 
 ---
