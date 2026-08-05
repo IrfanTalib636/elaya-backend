@@ -119,6 +119,23 @@ const STUDIO_TRANSFER_STATUS = {
     ABGELEHNT: 'abgelehnt',
 };
 
+/** Studio ↔ customer live chat (Socket.io + REST /messaging) — not AI FAB /chat */
+const CHAT_MESSAGE_TYP = {
+    TEXT: 'text',
+    SYSTEM: 'system',
+};
+
+const CHAT_SENDER_ROLE = {
+    CUSTOMER: 'customer',
+    STUDIO: 'studio',
+    SYSTEM: 'system',
+};
+
+const CHAT_CONVERSATION_STATUS = {
+    OPEN: 'open',
+    ARCHIVED: 'archived',
+};
+
 module.exports = {
     USER_ROLES,
     USER_STATUS,
@@ -138,4 +155,7 @@ module.exports = {
     PAYMENT_METHOD,
     SHOP_ORDER_STATUS,
     STUDIO_TRANSFER_STATUS,
+    CHAT_MESSAGE_TYP,
+    CHAT_SENDER_ROLE,
+    CHAT_CONVERSATION_STATUS,
 };

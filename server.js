@@ -1,4 +1,5 @@
 const express = require('express');
+const http = require('http');
 const cookieParser = require('cookie-parser');
 const morgan = require('morgan');
 const helmet = require('helmet');
@@ -17,9 +18,11 @@ const apiRoutes = require('./routes');
 const wellKnownRoute = require('./routes/wellKnownRoute');
 const { sendAppleAppSiteAssociation } = wellKnownRoute;
 const errorMiddleware = require('./middleware/errorMiddleware');
+const { initSocket } = require('./sockets');
 const path = require('path');
 
 const app = express();
+const httpServer = http.createServer(app);
 
 app.set('trust proxy', 1);
 app.set('etag', false);
@@ -159,7 +162,9 @@ const startServer = async () => {
 
         const port = process.env.PORT || 4000;
 
-        const server = app.listen(port, () => {
+        initSocket(httpServer);
+
+        httpServer.listen(port, () => {
             console.log(`Server is running on http://localhost:${port}`);
             if (isSwaggerEnabled()) {
                 console.log(`API docs: http://localhost:${port}/api/v1/docs`);
@@ -167,7 +172,7 @@ const startServer = async () => {
             }
         });
 
-        server.on('error', (err) => {
+        httpServer.on('error', (err) => {
             if (err.code === 'EADDRINUSE') {
                 console.error(`Port ${port} is already in use. Stop the other process and restart.`);
             } else {
