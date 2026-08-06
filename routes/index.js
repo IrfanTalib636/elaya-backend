@@ -15,6 +15,7 @@ const studioTransferRoute = require('./studioTransferRoute');
 const nachsorgeRoute = require('./nachsorgeRoute');
 const verblassungRoute = require('./verblassungRoute');
 const chatRoute = require('./chatRoute');
+const messagingRoute = require('./messagingRoute');
 
 const router = express.Router();
 
@@ -34,5 +35,6 @@ router.use('/studio-transfers', studioTransferRoute);
 router.use('/nachsorge', nachsorgeRoute);
 router.use('/verblassung', verblassungRoute);
 router.use('/chat', chatRoute);
+router.use('/messaging', messagingRoute);
 
 module.exports = router;

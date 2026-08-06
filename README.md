@@ -151,7 +151,24 @@ Cart stays **client-side** (mobile). Admin product CRUD UI → M4.
 | **DSG data export** | ✅ Done | `GET /customers/me/export` — live JSON of profile, cases+anamnese, sessions, appointments, coins+tx, shop orders, transfers; filename `{Name}_Meine-Daten_{date}.json` |
 | **Transfer protocol** | ✅ Done | `GET /customers/me/transfer-protocol` — after admin-approved transfer (`genehmigt`) |
 
-**Known gaps (post-M2):** Admin dashboard UI for studio approval, zone-level lockout in customer mobile booking, full pricing multipliers UI. Case chat CRUD still stub-only. Real Stripe/Twint payment later.
+**Known gaps (post-M2):** Admin dashboard UI for studio approval, zone-level lockout in customer mobile booking, full pricing multipliers UI. Real Stripe/Twint payment later.
+
+### Studio ↔ customer live chat (Socket.io · 2026-08-05)
+
+| Area | Status | Notes |
+|---|---|---|
+| **REST inbox** | ✅ Done | `GET/POST /messaging/conversations`, messages + read receipts |
+| **Socket.io** | ✅ Done | JWT auth (`handshake.auth.token`), rooms, send/typing/read events |
+| **Models** | ✅ Done | `ChatConversation` + `ChatMessage` (one thread per customer↔studio) |
+| **Mobile / studio UI** | ✅ Done | Mobile Chat tab + studio `/studio/chat` (JWT Socket.io) |
+| **AI FAB** | Separate | Keep using `POST /chat` — do **not** merge with live chat |
+
+**Socket connect:** `io(API_ORIGIN, { path: '/socket.io', auth: { token: accessJwt } })`
+
+**Client → server events:** `messaging:join` · `messaging:leave` · `messaging:send` · `messaging:typing` · `messaging:read`  
+**Server → client events:** `messaging:connected` · `messaging:message` · `messaging:conversation_updated` · `messaging:typing` · `messaging:read` · `messaging:error`
+
+Optional `SOCKET_IO_PATH` (default `/socket.io`).
 
 ### AI Nachsorge / aftercare (2026-07-23)
 
@@ -241,6 +258,7 @@ Cart stays **client-side** (mobile). Admin product CRUD UI → M4.
 [2026-07-23] — AI Verblassung: POST /verblassung before/after fading analysis; session KI fields + case removal sync
 [2026-07-23] — Verblassung E2E verified; optional empty photo ids in Swagger; progress files under uploads/{studio}/sessions/
 [2026-07-24] — AI Elaya FAB chat: POST /chat with server context, escalation parse, erster_elaya_chat coins
+[2026-08-05] — Studio ↔ customer live chat: Socket.io + REST `/messaging` (Conversation/Message models)
 ```
 
 ---
