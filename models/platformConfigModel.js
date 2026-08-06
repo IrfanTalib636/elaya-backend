@@ -31,9 +31,25 @@ const platformConfigSchema = new mongoose.Schema(
         grundgebuehr: { type: Number, default: PLATFORM_CONFIG_DEFAULTS.grundgebuehr },
         transaktionsProzent: { type: Number, default: PLATFORM_CONFIG_DEFAULTS.transaktionsProzent },
         zahlungszielTage: { type: Number, default: PLATFORM_CONFIG_DEFAULTS.zahlungszielTage },
+        shop_provision_prozent: {
+            type: Number,
+            default: PLATFORM_CONFIG_DEFAULTS.shop_provision_prozent,
+            min: 0,
+            max: 100,
+        },
         gruppen_groessen: {
             type: gruppenGroessenSchema,
             default: () => ({ ...PLATFORM_CONFIG_DEFAULTS.gruppen_groessen }),
+        },
+        /** Plan → feature key list */
+        subscription_plans: {
+            type: mongoose.Schema.Types.Mixed,
+            default: () => ({ ...PLATFORM_CONFIG_DEFAULTS.subscription_plans }),
+        },
+        /** Global feature kill-switches: { [featureKey]: false } disables everywhere */
+        feature_global: {
+            type: mongoose.Schema.Types.Mixed,
+            default: {},
         },
     },
     {

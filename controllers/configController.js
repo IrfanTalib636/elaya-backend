@@ -1,7 +1,3 @@
-const ApiError = require('../utils/ApiError');
-const asyncHandler = require('../utils/asyncHandler');
-const mongoose = require('mongoose');
-const Studio = require('../models/studioModel');
 const {
     getPlatformConfig,
     updatePlatformConfig,
@@ -9,8 +5,13 @@ const {
     formatStudioConfig,
     updateStudioConfig,
 } = require('../utils/configService');
+const { getEffectiveFeaturesForStudio, FEATURE_CATALOG } = require('../utils/featureService');
 const { isAdmin, isStudio } = require('../utils/accessHelpers');
 const { USER_ROLES } = require('../config/constants');
+const Studio = require('../models/studioModel');
+const ApiError = require('../utils/ApiError');
+const asyncHandler = require('../utils/asyncHandler');
+const mongoose = require('mongoose');
 
 const assertValidStudioId = (studioId) => {
     if (
@@ -94,12 +95,85 @@ const patchStudioConfigHandler = asyncHandler(async (req, res) => {
         throw new ApiError(403, 'Only studio admins can update studio config');
     }
 
-    const studioConfig = await updateStudioConfig(studio._id, req.body);
+    // Only admins may change subscription_plan / feature_overrides
+    const patch = { ...req.body };
+    if (!isAdmin(req.user.role)) {
+        delete patch.subscription_plan;
+        delete patch.feature_overrides;
+    }
+
+    const studioConfig = await updateStudioConfig(studio._id, patch);
 
     res.status(200).json({
         success: true,
         message: 'Studio config updated',
         data: { studio_config: studioConfig },
+    });
+});
+
+/** GET /config/features/catalog */
+const getFeatureCatalog = asyncHandler(async (_req, res) => {
+    const platform = await getPlatformConfig();
+    res.json({
+        success: true,
+        data: {
+            catalog: FEATURE_CATALOG,
+            subscription_plans: platform.subscription_plans,
+            feature_global: platform.feature_global || {},
+            shop_provision_prozent: platform.shop_provision_prozent,
+            stripe_connect_enabled: Boolean(
+                process.env.STRIPE_SECRET_KEY && String(process.env.STRIPE_SECRET_KEY).trim()
+            ),
+        },
+    });
+});
+
+/** GET /config/features/effective — customer/studio effective flags */
+const getEffectiveFeatures = asyncHandler(async (req, res) => {
+    let studioId = req.query.studio_id || null;
+    if (isStudio(req.user.role) && req.user.studio_id) {
+        studioId = req.user.studio_id;
+    }
+    if (req.user.role === USER_ROLES.CUSTOMER && req.user.customer_id && !studioId) {
+        const Customer = require('../models/customerModel');
+        const c = await Customer.findById(req.user.customer_id)
+            .select('aktuelle_firma_id')
+            .lean();
+        studioId = c?.aktuelle_firma_id || null;
+    }
+
+    const data = await getEffectiveFeaturesForStudio(studioId);
+    res.json({ success: true, data });
+});
+
+/** GET /config/features/studios — admin matrix of all studios */
+const listStudioFeaturesAdmin = asyncHandler(async (_req, res) => {
+    const studios = await Studio.find()
+        .select('firma studio_code status subscription_plan feature_overrides')
+        .sort({ firma: 1 })
+        .lean();
+
+    const rows = [];
+    for (const s of studios) {
+        const effective = await getEffectiveFeaturesForStudio(s);
+        rows.push({
+            studio_id: s._id,
+            firma: s.firma,
+            studio_code: s.studio_code,
+            status: s.status,
+            subscription_plan: effective.subscription_plan,
+            features: effective.features,
+            overrides: effective.overrides,
+            plan_features: effective.plan_features,
+        });
+    }
+
+    res.json({
+        success: true,
+        data: {
+            catalog: FEATURE_CATALOG,
+            studios: rows,
+        },
     });
 });
 
@@ -109,4 +183,7 @@ module.exports = {
     getPublic,
     getStudioConfig,
     patchStudioConfigHandler,
+    getFeatureCatalog,
+    getEffectiveFeatures,
+    listStudioFeaturesAdmin,
 };

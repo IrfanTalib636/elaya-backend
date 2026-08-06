@@ -76,15 +76,66 @@ const shopOrderSchema = new mongoose.Schema(
             default: 0,
             min: 0,
         },
+        /** Studio commission payout tracking (manual until Stripe Connect). */
+        commission_status: {
+            type: String,
+            enum: ['pending', 'paid', 'cancelled'],
+            default: 'pending',
+            index: true,
+        },
+        commission_paid_at: {
+            type: Date,
+            default: null,
+        },
+        elaya_anteil_chf: {
+            type: Number,
+            default: 0,
+            min: 0,
+        },
+        elaycoins_redeemed: {
+            type: Number,
+            default: 0,
+            min: 0,
+        },
+        elaycoins_discount_chf: {
+            type: Number,
+            default: 0,
+            min: 0,
+        },
         zahlungsart: {
             type: String,
             trim: true,
             default: 'karte',
         },
-        /** MVP: payment is simulated (prototype parity) */
+        /**
+         * Payment is simulated until Stripe keys are configured.
+         * Stripe Connect automatic split — pending client credentials.
+         */
         zahlung_simuliert: {
             type: Boolean,
             default: true,
+        },
+        /** pending | requires_payment | paid | failed | cancelled */
+        payment_status: {
+            type: String,
+            enum: ['pending', 'requires_payment', 'paid', 'failed', 'cancelled'],
+            default: 'pending',
+            index: true,
+        },
+        stripe_payment_intent_id: {
+            type: String,
+            trim: true,
+            default: '',
+            index: true,
+        },
+        stripe_transfer_id: {
+            type: String,
+            trim: true,
+            default: '',
+        },
+        paid_at: {
+            type: Date,
+            default: null,
         },
         status: {
             type: String,

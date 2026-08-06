@@ -56,6 +56,12 @@ const formatStudioSettings = (studio) => {
         behandlungsraeume: (doc.behandlungsraeume ?? []).map(formatRaum),
         mitarbeiter: (doc.mitarbeiter ?? []).map(formatMitarbeiter),
         pufferzeit_minuten: doc.pufferzeit_minuten ?? 10,
+        stripe: {
+            account_id: doc.stripe_account_id || null,
+            onboarding_complete: Boolean(doc.stripe_onboarding_complete),
+            charges_enabled: Boolean(doc.stripe_charges_enabled),
+            payouts_enabled: Boolean(doc.stripe_payouts_enabled),
+        },
     };
 };
 

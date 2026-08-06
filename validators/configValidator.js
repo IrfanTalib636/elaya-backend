@@ -19,7 +19,10 @@ const patchPlatformConfigSchema = z
         grundgebuehr: z.number().min(0).optional(),
         transaktionsProzent: z.number().min(0).max(100).optional(),
         zahlungszielTage: z.number().min(0).optional(),
+        shop_provision_prozent: z.number().min(0).max(100).optional(),
         gruppen_groessen: gruppenGroessenSchema,
+        subscription_plans: z.record(z.string(), z.array(z.string())).optional(),
+        feature_global: z.record(z.string(), z.boolean()).optional(),
     })
     .strict();
 
@@ -38,6 +41,8 @@ const patchStudioConfigSchema = z
         coin_wert: z.number().min(0).nullable().optional(),
         studio_pricing: z.record(z.string(), z.number()).optional(),
         elaycoin_studio_cfg: elaycoinStudioCfgSchema.optional(),
+        subscription_plan: z.enum(['basic', 'professional', 'enterprise']).optional(),
+        feature_overrides: z.record(z.string(), z.boolean()).optional(),
     })
     .strict();
 

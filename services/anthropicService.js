@@ -47,20 +47,32 @@ const callClaude = async ({ system, messages, maxTokens = 2048, expectJson = tru
 
     const apiKey = process.env.ANTHROPIC_API_KEY.trim();
 
-    const response = await fetch(ANTHROPIC_API_URL, {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-            'x-api-key': apiKey,
-            'anthropic-version': ANTHROPIC_VERSION,
-        },
-        body: JSON.stringify({
-            model: getModel(),
-            max_tokens: maxTokens,
-            system,
-            messages,
-        }),
-    });
+    let response;
+    try {
+        response = await fetch(ANTHROPIC_API_URL, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'x-api-key': apiKey,
+                'anthropic-version': ANTHROPIC_VERSION,
+            },
+            body: JSON.stringify({
+                model: getModel(),
+                max_tokens: maxTokens,
+                system,
+                messages,
+            }),
+        });
+    } catch (networkErr) {
+        const cause = networkErr?.cause;
+        const detail =
+            cause?.code === 'ENOTFOUND'
+                ? `DNS lookup failed for api.anthropic.com (${cause.code}). Check network / restart the backend outside a restricted sandbox.`
+                : networkErr?.message || 'Network error calling Anthropic';
+        const err = new ApiError(502, detail);
+        err.code = 'AI_NETWORK';
+        throw err;
+    }
 
     const raw = await response.json().catch(() => ({}));
 

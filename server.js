@@ -121,6 +121,14 @@ app.use(
     })
 );
 app.use(compression());
+
+// Stripe webhooks need the raw body — mount before express.json()
+app.post(
+    '/api/v1/stripe/webhook',
+    express.raw({ type: 'application/json' }),
+    require('./controllers/stripeWebhookController').handleStripeWebhook
+);
+
 // Signatures as JPEG base64 (~3–15 KB); optional merkblatt PDF may be larger
 app.use(express.json({ limit: process.env.JSON_BODY_LIMIT || '512kb' }));
 app.use(cookieParser());

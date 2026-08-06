@@ -31,6 +31,7 @@ router.use('/studio', studioRoute);
 router.use('/studios', studiosRoute);
 router.use('/files', fileRoute);
 router.use('/shop', shopRoute);
+router.use('/admin/shop', require('./adminShopRoute'));
 router.use('/studio-transfers', studioTransferRoute);
 router.use('/nachsorge', nachsorgeRoute);
 router.use('/verblassung', verblassungRoute);

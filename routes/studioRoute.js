@@ -26,6 +26,11 @@ const {
 const { listShopOrders, patchShopOrderStatus } = require('../controllers/shopController');
 const { getStudioAnalyticsSummary } = require('../controllers/studioAnalyticsController');
 const {
+    getStripeStatus,
+    startStripeConnect,
+    refreshStripeConnect,
+} = require('../controllers/stripeConnectController');
+const {
     listShopOrdersQuerySchema,
     patchShopOrderStatusSchema,
     analyticsQuerySchema,
@@ -676,6 +681,27 @@ router.patch(
     authorize(...studioRoles, ...adminRoles),
     validateMiddleware(patchShopOrderStatusSchema),
     patchShopOrderStatus
+);
+
+router.get(
+    '/stripe/status',
+    protect,
+    authorize(...studioRoles, ...adminRoles),
+    getStripeStatus
+);
+
+router.post(
+    '/stripe/connect',
+    protect,
+    authorize(USER_ROLES.STUDIO_ADMIN),
+    startStripeConnect
+);
+
+router.post(
+    '/stripe/refresh',
+    protect,
+    authorize(...studioRoles, ...adminRoles),
+    refreshStripeConnect
 );
 
 /**

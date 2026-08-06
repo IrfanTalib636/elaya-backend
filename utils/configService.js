@@ -25,7 +25,14 @@ const mergePlatformConfig = (doc) => {
         grundgebuehr: merged.grundgebuehr,
         transaktionsProzent: merged.transaktionsProzent,
         zahlungszielTage: merged.zahlungszielTage,
+        shop_provision_prozent:
+            merged.shop_provision_prozent ?? PLATFORM_CONFIG_DEFAULTS.shop_provision_prozent,
         gruppen_groessen: merged.gruppen_groessen,
+        subscription_plans: {
+            ...PLATFORM_CONFIG_DEFAULTS.subscription_plans,
+            ...(merged.subscription_plans || {}),
+        },
+        feature_global: merged.feature_global || {},
     };
 };
 
@@ -125,6 +132,10 @@ const getPublicConfig = async () => {
             deckelProzent: platform.deckelProzent,
             verfallMonate: platform.verfallMonate,
         },
+        shop_provision_prozent: platform.shop_provision_prozent,
+        stripe_connect_enabled: Boolean(
+            process.env.STRIPE_SECRET_KEY && String(process.env.STRIPE_SECRET_KEY).trim()
+        ),
     };
 };
 
@@ -215,12 +226,15 @@ const formatStudioConfig = (studio, platform) => {
         coin_wert: coinWert,
         studio_pricing: pickStudioPricing(doc.studio_pricing || {}),
         elaycoin_studio_cfg: doc.elaycoin_studio_cfg || {},
+        subscription_plan: doc.subscription_plan || 'professional',
+        feature_overrides: doc.feature_overrides || {},
         platform_limits: {
             coinWert: platform.coinWert,
             minWert: platform.minWert,
             maxWert: platform.maxWert,
             deckelProzent: platform.deckelProzent,
             verfallMonate: platform.verfallMonate,
+            shop_provision_prozent: platform.shop_provision_prozent,
         },
     };
 };
@@ -247,6 +261,22 @@ const updateStudioConfig = async (studioId, patch) => {
         validateElaycoinStudioCfg(patch.elaycoin_studio_cfg);
         studio.elaycoin_studio_cfg = patch.elaycoin_studio_cfg;
         studio.markModified('elaycoin_studio_cfg');
+    }
+
+    if (patch.subscription_plan !== undefined) {
+        const allowed = ['basic', 'professional', 'enterprise'];
+        if (!allowed.includes(patch.subscription_plan)) {
+            throw new ApiError(400, 'Invalid subscription_plan');
+        }
+        studio.subscription_plan = patch.subscription_plan;
+    }
+
+    if (patch.feature_overrides !== undefined) {
+        if (typeof patch.feature_overrides !== 'object' || Array.isArray(patch.feature_overrides)) {
+            throw new ApiError(400, 'feature_overrides must be an object');
+        }
+        studio.feature_overrides = patch.feature_overrides;
+        studio.markModified('feature_overrides');
     }
 
     await studio.save();
