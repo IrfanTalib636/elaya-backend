@@ -29,6 +29,13 @@ const catalogRoles = [
  *   description: ElayShop catalog, shipping, and customer checkout
  */
 
+router.get(
+    '/payment-config',
+    protect,
+    authorize(...catalogRoles),
+    shopCustomerController.getShopPaymentConfig
+);
+
 /**
  * @swagger
  * /shop/products:
@@ -169,6 +176,13 @@ router.post(
     authorize(...customerOnly),
     validate(createShopOrderSchema),
     shopCustomerController.createOrder
+);
+
+router.post(
+    '/orders/:id/confirm-payment',
+    protect,
+    authorize(...customerOnly),
+    shopCustomerController.confirmOrderPayment
 );
 
 /**

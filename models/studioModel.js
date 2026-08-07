@@ -151,6 +151,40 @@ const studioSchema = new mongoose.Schema(
             default: 10,
             min: 0,
         },
+        /** Subscription package: basic | professional | enterprise */
+        subscription_plan: {
+            type: String,
+            enum: ['basic', 'professional', 'enterprise'],
+            default: 'professional',
+            index: true,
+        },
+        /**
+         * Per-feature overrides on top of plan defaults.
+         * true = force enable, false = force disable, omit = use plan.
+         */
+        feature_overrides: {
+            type: mongoose.Schema.Types.Mixed,
+            default: {},
+        },
+        /** Stripe Connect Express account id (acct_…) */
+        stripe_account_id: {
+            type: String,
+            trim: true,
+            default: '',
+            index: true,
+        },
+        stripe_onboarding_complete: {
+            type: Boolean,
+            default: false,
+        },
+        stripe_charges_enabled: {
+            type: Boolean,
+            default: false,
+        },
+        stripe_payouts_enabled: {
+            type: Boolean,
+            default: false,
+        },
     },
     {
         timestamps: true,

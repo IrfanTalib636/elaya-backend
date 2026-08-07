@@ -10,11 +10,46 @@ const PLATFORM_CONFIG_DEFAULTS = {
     grundgebuehr: 149,
     transaktionsProzent: 3,
     zahlungszielTage: 30,
+    /** Studio commission % on ElayShop warenwert (remaining goes to Elaya). */
+    shop_provision_prozent: 20,
     gruppen_groessen: {
         klein_max_cm2: 50,
         mittelgross_max_cm2: 150,
         max_punkte: 4,
         gruppen_rabatt: 0.15,
+    },
+    /**
+     * Subscription packages → feature keys enabled by default.
+     * Studio can have per-feature overrides (force on/off).
+     */
+    subscription_plans: {
+        basic: ['booking', 'cases', 'elaycoins', 'anamnesis'],
+        professional: [
+            'booking',
+            'cases',
+            'elaycoins',
+            'anamnesis',
+            'elayshop',
+            'group_booking',
+            'crm',
+            'analytics',
+            'messaging',
+        ],
+        enterprise: [
+            'booking',
+            'cases',
+            'elaycoins',
+            'anamnesis',
+            'elayshop',
+            'group_booking',
+            'crm',
+            'analytics',
+            'messaging',
+            'ai_nachsorge',
+            'ai_chat',
+            'ai_verblassung',
+            'studio_transfer',
+        ],
     },
 };
 

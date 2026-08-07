@@ -8,6 +8,7 @@ const listShopOrdersQuerySchema = z.object({
     from: z.string().optional(),
     to: z.string().optional(),
     status: z.enum(Object.values(SHOP_ORDER_STATUS)).optional(),
+    commission_status: z.enum(['pending', 'paid', 'cancelled']).optional(),
     studio_id: z.string().regex(/^[a-f\d]{24}$/i).optional(),
 });
 
@@ -45,6 +46,8 @@ const createShopOrderSchema = z.object({
         land: z.enum(SHOP_COUNTRIES).default('Schweiz'),
     }),
     zahlungsart: z.enum(['karte', 'twint']).default('karte'),
+    /** Optional Elaycoins to redeem (capped by balance + deckelProzent of warenwert). */
+    elaycoins_to_redeem: z.coerce.number().int().min(0).optional().default(0),
 });
 
 const shippingQuoteSchema = z.object({

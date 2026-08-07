@@ -1,6 +1,7 @@
 /** ElayShop defaults — provision, shipping, categories (prototype parity). */
 
-const DEFAULT_SHOP_PROVISION_PROZENT = 25;
+/** Studio commission share of merchandise (warenwert). Client model: 20% studio / 80% Elaya. */
+const DEFAULT_SHOP_PROVISION_PROZENT = 20;
 
 const SHOP_CATEGORIES = [
     'Nachsorge',

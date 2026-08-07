@@ -250,4 +250,25 @@ router.patch(
     configController.patchStudioConfigHandler
 );
 
+router.get(
+    '/features/catalog',
+    protect,
+    authorize(...adminRoles),
+    configController.getFeatureCatalog
+);
+
+router.get(
+    '/features/effective',
+    protect,
+    authorize(...allAuthenticatedRoles),
+    configController.getEffectiveFeatures
+);
+
+router.get(
+    '/features/studios',
+    protect,
+    authorize(...adminRoles),
+    configController.listStudioFeaturesAdmin
+);
+
 module.exports = router;

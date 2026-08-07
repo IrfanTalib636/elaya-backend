@@ -93,4 +93,18 @@ router.get(
     elaycoinController.listStudioElaycoinOverview
 );
 
+router.get(
+    '/admin/overview',
+    protect,
+    authorize(USER_ROLES.ADMIN, USER_ROLES.SUPER_ADMIN),
+    elaycoinController.listAdminElaycoinOverview
+);
+
+router.post(
+    '/admin/adjust',
+    protect,
+    authorize(USER_ROLES.ADMIN, USER_ROLES.SUPER_ADMIN),
+    elaycoinController.adminAdjustElaycoins
+);
+
 module.exports = router;

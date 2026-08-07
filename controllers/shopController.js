@@ -1,6 +1,7 @@
 const ShopOrder = require('../models/shopOrderModel');
 const ApiError = require('../utils/ApiError');
 const asyncHandler = require('../utils/asyncHandler');
+const mongoose = require('mongoose');
 const { resolveStudioId } = require('../utils/studioScope');
 const { parsePagination, buildPaginationMeta } = require('../utils/pagination');
 const { DEFAULT_SHOP_PROVISION_PROZENT } = require('../config/shopDefaults');
@@ -19,6 +20,11 @@ const formatShopOrder = (order) => ({
     lieferadresse: order.lieferadresse ?? null,
     provision_prozent: order.provision_prozent ?? DEFAULT_SHOP_PROVISION_PROZENT,
     provision_betrag: order.provision_betrag ?? 0,
+    elaya_anteil_chf: order.elaya_anteil_chf ?? 0,
+    commission_status: order.commission_status ?? 'pending',
+    commission_paid_at: order.commission_paid_at ?? null,
+    elaycoins_redeemed: order.elaycoins_redeemed ?? 0,
+    elaycoins_discount_chf: order.elaycoins_discount_chf ?? 0,
     zahlungsart: order.zahlungsart ?? '',
     zahlung_simuliert: order.zahlung_simuliert !== false,
     status: order.status,
@@ -29,10 +35,11 @@ const formatShopOrder = (order) => ({
 const listShopOrders = asyncHandler(async (req, res) => {
     const studioId = resolveStudioId(req);
     const { page, limit, skip } = parsePagination(req.query);
-    const { from, to, status } = req.query;
+    const { from, to, status, commission_status } = req.query;
 
     const filter = { studio: studioId };
     if (status) filter.status = status;
+    if (commission_status) filter.commission_status = commission_status;
     if (from || to) {
         filter.createdAt = {};
         if (from) filter.createdAt.$gte = new Date(from);
@@ -43,7 +50,7 @@ const listShopOrders = asyncHandler(async (req, res) => {
         }
     }
 
-    const [orders, total] = await Promise.all([
+    const [orders, total, agg] = await Promise.all([
         ShopOrder.find(filter)
             .populate('customer', 'vorname nachname email')
             .sort({ createdAt: -1 })
@@ -51,12 +58,53 @@ const listShopOrders = asyncHandler(async (req, res) => {
             .limit(limit)
             .lean(),
         ShopOrder.countDocuments(filter),
+        ShopOrder.aggregate([
+            { $match: { studio: new mongoose.Types.ObjectId(String(studioId)) } },
+            {
+                $group: {
+                    _id: null,
+                    revenue: { $sum: '$total_chf' },
+                    provision_total: { $sum: { $ifNull: ['$provision_betrag', 0] } },
+                    pending_provision: {
+                        $sum: {
+                            $cond: [
+                                { $eq: ['$commission_status', 'pending'] },
+                                { $ifNull: ['$provision_betrag', 0] },
+                                0,
+                            ],
+                        },
+                    },
+                    paid_provision: {
+                        $sum: {
+                            $cond: [
+                                { $eq: ['$commission_status', 'paid'] },
+                                { $ifNull: ['$provision_betrag', 0] },
+                                0,
+                            ],
+                        },
+                    },
+                },
+            },
+        ]),
     ]);
+
+    const summary = agg[0] || {
+        revenue: 0,
+        provision_total: 0,
+        pending_provision: 0,
+        paid_provision: 0,
+    };
 
     res.json({
         success: true,
         data: {
             orders: orders.map(formatShopOrder),
+            summary: {
+                revenue: summary.revenue ?? 0,
+                provision_total: summary.provision_total ?? 0,
+                pending_provision: summary.pending_provision ?? 0,
+                paid_provision: summary.paid_provision ?? 0,
+            },
             pagination: buildPaginationMeta(page, limit, total),
         },
     });

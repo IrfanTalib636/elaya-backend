@@ -327,7 +327,19 @@ async function zieheElaycoinsAb(customerId, malusKey, kontext = {}, options = {}
         return 0;
     }
 
-    const abzugBetrag = Math.max(ELAYCOIN_MIN, Math.min(ELAYCOIN_MAX, sit.coins));
+    const override =
+        options.amountOverride != null
+            ? Number(options.amountOverride)
+            : kontext.coins != null
+              ? Number(kontext.coins)
+              : null;
+    const abzugBetrag = Math.max(
+        ELAYCOIN_MIN,
+        Math.min(
+            ELAYCOIN_MAX,
+            Number.isFinite(override) && override > 0 ? override : sit.coins
+        )
+    );
     const customer = await Customer.findById(customerId);
     if (!customer) {
         return 0;
