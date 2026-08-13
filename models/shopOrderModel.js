@@ -68,7 +68,8 @@ const shopOrderSchema = new mongoose.Schema(
         },
         provision_prozent: {
             type: Number,
-            default: 25,
+            // Keep in sync with DEFAULT_SHOP_PROVISION_PROZENT (config/shopDefaults.js)
+            default: 20,
             min: 0,
         },
         provision_betrag: {

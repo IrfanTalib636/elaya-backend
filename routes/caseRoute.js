@@ -5,7 +5,7 @@ const bookingPrecheckController = require('../controllers/bookingPrecheckControl
 const signatureController = require('../controllers/signatureController');
 const validateMiddleware = require('../middleware/validateMiddleware');
 const { protect, authorize } = require('../middleware/authMiddleware');
-const { createCaseSchema, updateCaseSchema, previewCasePricingSchema, availabilityQuerySchema, listCasesQuerySchema } = require('../validators/caseValidator');
+const { createCaseSchema, updateCaseSchema, previewCasePricingSchema, estimateConfirmationSchema, availabilityQuerySchema, listCasesQuerySchema } = require('../validators/caseValidator');
 const { upsertAnamnesisSchema, previewAnamnesisSchema } = require('../validators/anamnesisValidator');
 const { bookingPrecheckBodySchema } = require('../validators/bookingPrecheckValidator');
 const { updateKlaerungSchema, updateStudioFreigabeSchema } = require('../validators/klaerungValidator');
@@ -276,6 +276,58 @@ router.get(
     protect,
     authorize(...caseAccessRoles),
     caseController.getCasePricing
+);
+
+/**
+ * @swagger
+ * /cases/{id}/estimate-confirmation:
+ *   patch:
+ *     summary: Studio confirms or adjusts the AI price + session-range estimate
+ *     description: |
+ *       **Auth:** Bearer · **Who can call:** studio_admin, studio_staff, admin, super_admin
+ *
+ *       The studio reviews the AI estimate inside the customer's case and either
+ *       confirms it (`bestaetigt`), adjusts it with its own values (`angepasst`)
+ *       or re-opens it (`offen`, estimate becomes AI-driven again).
+ *       Confirmed values are persisted on the case and the customer is
+ *       automatically notified via the internal live chat.
+ *     tags: [Cases]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: string }
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [status]
+ *             properties:
+ *               status: { type: string, enum: [offen, bestaetigt, angepasst] }
+ *               pricePerSession: { type: number, nullable: true }
+ *               sessionsMin: { type: integer, nullable: true }
+ *               sessionsMax: { type: integer, nullable: true }
+ *               notiz: { type: string }
+ *     responses:
+ *       200:
+ *         description: Estimate confirmation updated (customer notified via chat)
+ *       400:
+ *         description: No estimate to confirm / invalid range
+ *       403:
+ *         description: Customers cannot confirm estimates
+ *       404:
+ *         description: Case not found
+ */
+router.patch(
+    '/:id/estimate-confirmation',
+    protect,
+    authorize(USER_ROLES.STUDIO_ADMIN, USER_ROLES.STUDIO_STAFF, USER_ROLES.ADMIN, USER_ROLES.SUPER_ADMIN),
+    validateMiddleware(estimateConfirmationSchema),
+    caseController.updateEstimateConfirmation
 );
 
 /**

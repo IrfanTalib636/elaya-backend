@@ -53,6 +53,13 @@ const STUDIO_FREIGABE_STATUS = {
     ABGLEHNT: 'abgelehnt',
 };
 
+/** Studio confirmation of the AI price + session-range estimate (client requirement §4d). */
+const ESTIMATE_CONFIRMATION_STATUS = {
+    OFFEN: 'offen',
+    BESTAETIGT: 'bestaetigt',
+    ANGEPASST: 'angepasst',
+};
+
 const MEDICAL_FLAG_LEVEL = {
     GRUEN: 'gruen',
     ORANGE: 'orange',
@@ -145,6 +152,7 @@ module.exports = {
     CASE_TYPE,
     CASE_STATUS,
     STUDIO_FREIGABE_STATUS,
+    ESTIMATE_CONFIRMATION_STATUS,
     MEDICAL_FLAG_LEVEL,
     TC_TYPE,
     TC_COVERUP,

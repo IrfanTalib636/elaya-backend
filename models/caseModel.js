@@ -4,6 +4,7 @@ const {
     CASE_TYPE,
     CASE_STATUS,
     STUDIO_FREIGABE_STATUS,
+    ESTIMATE_CONFIRMATION_STATUS,
     MEDICAL_FLAG_LEVEL,
     TC_TYPE,
     TC_COVERUP,
@@ -94,6 +95,33 @@ const studioFreigabeSchema = new mongoose.Schema(
         grund: { type: String, default: '' },
         bearbeitet_von: { type: String, default: '' },
         bearbeitet_von_id: {
+            type: mongoose.Schema.Types.ObjectId,
+            ref: 'User',
+            default: null,
+        },
+    },
+    { _id: false }
+);
+
+/**
+ * Studio confirmation of the AI price + session-range estimate.
+ * While status is offen the server keeps recomputing the estimate from the
+ * studio's pricing config; once bestaetigt/angepasst the confirmed values win.
+ */
+const estimateConfirmationSchema = new mongoose.Schema(
+    {
+        status: {
+            type: String,
+            enum: Object.values(ESTIMATE_CONFIRMATION_STATUS),
+            default: ESTIMATE_CONFIRMATION_STATUS.OFFEN,
+        },
+        pricePerSession: { type: Number, default: null },
+        sessionsMin: { type: Number, default: null },
+        sessionsMax: { type: Number, default: null },
+        notiz: { type: String, default: '' },
+        datum: { type: Date, default: null },
+        bestaetigt_von: { type: String, default: '' },
+        bestaetigt_von_id: {
             type: mongoose.Schema.Types.ObjectId,
             ref: 'User',
             default: null,
@@ -356,6 +384,10 @@ const caseSchema = new mongoose.Schema(
         anamnesis_complete: { type: Boolean, default: false, index: true },
         studio_freigabe: {
             type: studioFreigabeSchema,
+            default: () => ({}),
+        },
+        estimate_confirmation: {
+            type: estimateConfirmationSchema,
             default: () => ({}),
         },
         lastSessionDate: { type: Date, default: null },
