@@ -1,6 +1,7 @@
 const Stripe = require('stripe');
 
 let _stripe = null;
+let _stripeKeyUsed = null;
 
 const isStripeConfigured = () =>
     Boolean(process.env.STRIPE_SECRET_KEY && String(process.env.STRIPE_SECRET_KEY).trim());
@@ -18,11 +19,14 @@ const getCurrency = () =>
 const toStripeAmount = (chf) => Math.round(Number(chf || 0) * 100);
 
 const getStripe = () => {
-    if (!isStripeConfigured()) {
+    const key = String(process.env.STRIPE_SECRET_KEY || '').trim();
+    if (!key) {
         return null;
     }
-    if (!_stripe) {
-        _stripe = new Stripe(process.env.STRIPE_SECRET_KEY.trim());
+    // Recreate client if env keys were rotated without process restart.
+    if (!_stripe || _stripeKeyUsed !== key) {
+        _stripe = new Stripe(key);
+        _stripeKeyUsed = key;
     }
     return _stripe;
 };

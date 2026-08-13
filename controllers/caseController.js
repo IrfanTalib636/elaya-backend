@@ -17,7 +17,14 @@ const {
     formatStudioPricing,
 } = require('../utils/pricingEngine');
 const { getEffectivePricingOverrides } = require('../utils/configService');
-const { USER_ROLES, CASE_TYPE, CASE_STATUS } = require('../config/constants');
+const {
+    USER_ROLES,
+    CASE_TYPE,
+    CASE_STATUS,
+    ESTIMATE_CONFIRMATION_STATUS,
+} = require('../config/constants');
+const messagingService = require('../services/messagingService');
+const { emitMessageCreated } = require('../sockets/emitHelpers');
 const { parsePagination, buildPaginationMeta } = require('../utils/pagination');
 const {
     CUSTOMER_INTAKE_FIELDS,
@@ -102,6 +109,23 @@ const formatCustomerRef = (customer) => {
     return customer.toString();
 };
 
+const formatEstimateConfirmation = (confirmation, role) => {
+    const c = confirmation?.toObject?.() ?? confirmation ?? {};
+    const payload = {
+        status: c.status ?? ESTIMATE_CONFIRMATION_STATUS.OFFEN,
+        pricePerSession: c.pricePerSession ?? null,
+        sessionsMin: c.sessionsMin ?? null,
+        sessionsMax: c.sessionsMax ?? null,
+        notiz: c.notiz ?? '',
+        datum: c.datum ?? null,
+    };
+    if (!isCustomer(role)) {
+        payload.bestaetigt_von = c.bestaetigt_von ?? '';
+        payload.bestaetigt_von_id = c.bestaetigt_von_id ?? null;
+    }
+    return payload;
+};
+
 const formatCase = (caseDoc, zones, role, options = {}) => {
     const doc = caseDoc.toObject ? caseDoc.toObject() : { ...caseDoc };
     const payload = {
@@ -156,8 +180,13 @@ const formatCase = (caseDoc, zones, role, options = {}) => {
         payload.signature_image_url = `/cases/${doc._id}/signature/image`;
     }
 
+    // AI "from" estimate — customer-visible per client requirement (§4d):
+    // the customer sees the calculated price + session range plus the studio
+    // confirmation state; the multiplier breakdown stays studio-internal.
+    payload.pricePerSession = doc.pricePerSession;
+    payload.estimate_confirmation = formatEstimateConfirmation(doc.estimate_confirmation, role);
+
     if (!isCustomer(role)) {
-        payload.pricePerSession = doc.pricePerSession;
         payload.uvBlockDate = doc.uvBlockDate;
         payload.medicationBlockDate = doc.medicationBlockDate;
         payload.sperrfrist_deaktiviert = doc.sperrfrist_deaktiviert;
@@ -278,6 +307,78 @@ const syncCaseZones = async (caseDoc, zonenInput) => {
     return CaseZone.insertMany(buildZoneDocs(caseDoc._id, zonenInput));
 };
 
+/** Intake fields that feed the price / session-range estimate. */
+const ESTIMATE_RELEVANT_FIELDS = [
+    'type',
+    'tc_colors_present',
+    'tc_size_length',
+    'tc_size_width',
+    'tc_type',
+    'tc_age_bucket',
+    'tc_age_years',
+    'tc_density',
+    'tc_body_location_main',
+    'tc_coverup',
+    'tc_prior_treatment',
+    'tc_prior_treatment_count',
+    'skin_fitzpatrick',
+    'skin_fitzpatrick_type',
+    'skin_sun_zone',
+    'life_smoker',
+    'life_activity',
+    'life_aftercare_commitment',
+    'goal_target',
+    'zonen_aktiv',
+    'zonen',
+    'pmu_type',
+    'pigment_type',
+    'stitch_depth',
+    'previously_lasered',
+];
+
+/** Server-computed estimate fields — clients may not force these directly. */
+const ESTIMATE_OUTPUT_FIELDS = ['sessions', 'sessionsMin', 'sessionsMax', 'pricePerSession'];
+
+const isEstimateConfirmed = (caseDoc) =>
+    [
+        ESTIMATE_CONFIRMATION_STATUS.BESTAETIGT,
+        ESTIMATE_CONFIRMATION_STATUS.ANGEPASST,
+    ].includes(caseDoc.estimate_confirmation?.status);
+
+const touchesEstimateInput = (body) =>
+    ESTIMATE_RELEVANT_FIELDS.some((field) => body[field] !== undefined) ||
+    ESTIMATE_OUTPUT_FIELDS.some((field) => body[field] !== undefined);
+
+/**
+ * Recompute + persist the AI estimate (price per session + session range)
+ * from the owning studio's pricing config. Once the studio has confirmed or
+ * adjusted the estimate, the confirmed values win and are never overwritten.
+ */
+const refreshCaseEstimate = async (caseDoc, zoneDocs = null) => {
+    if (isEstimateConfirmed(caseDoc)) {
+        return;
+    }
+
+    const pricingInput = caseDoc.toObject ? caseDoc.toObject() : { ...caseDoc };
+
+    if (caseDoc.zonen_aktiv) {
+        const zones =
+            zoneDocs ??
+            (await CaseZone.find({ case: caseDoc._id }).sort({ zonen_id: 1 }).lean());
+        pricingInput.zonen = zones.map((z) => (z.toObject ? z.toObject() : z));
+    }
+
+    const pricingOverrides = await getEffectivePricingOverrides(caseDoc.studio);
+    const preview = calculateCasePreview(pricingInput, pricingOverrides);
+
+    caseDoc.pricePerSession = preview.pricePerSession ?? 0;
+    caseDoc.sessions = preview.sessions?.base ?? preview.sessions?.max ?? 0;
+    caseDoc.sessionsMin = preview.sessions?.min ?? 0;
+    caseDoc.sessionsMax = preview.sessions?.max ?? 0;
+
+    await caseDoc.save();
+};
+
 const applyCaseUpdate = async (caseDoc, body) => {
     const { zonen, ...fields } = body;
     const normalized = syncDerivedIntakeFields(fields);
@@ -320,16 +421,6 @@ const createCase = asyncHandler(async (req, res) => {
         throw new ApiError(400, 'Zone mode requires between 2 and 8 zones');
     }
 
-    // Apply prototype PMU session + price estimate when creating a PMU case
-    if (caseFields.type === CASE_TYPE.PMU) {
-        const pricingOverrides = await getEffectivePricingOverrides(studioId);
-        const preview = calculateCasePreview(caseFields, pricingOverrides);
-        caseFields.pricePerSession = preview.pricePerSession;
-        caseFields.sessions = preview.sessions?.base ?? preview.sessions?.max ?? 0;
-        caseFields.sessionsMin = preview.sessions?.min ?? 0;
-        caseFields.sessionsMax = preview.sessions?.max ?? 0;
-    }
-
     let caseDoc = null;
     let zoneDocs = [];
 
@@ -362,6 +453,10 @@ const createCase = asyncHandler(async (req, res) => {
             const linkedZones = await linkZonePhotoFiles(caseDoc, zonen, req.user, req);
             zoneDocs = await CaseZone.insertMany(buildZoneDocs(caseDoc._id, linkedZones));
         }
+
+        // Persist the AI estimate (price + session range) for BOTH tattoo and
+        // PMU cases, computed from the owning studio's pricing configuration.
+        await refreshCaseEstimate(caseDoc, zoneDocs);
     } catch (error) {
         if (caseDoc?._id) {
             await CaseZone.deleteMany({ case: caseDoc._id });
@@ -489,6 +584,14 @@ const updateCase = asyncHandler(async (req, res) => {
         }
     }
 
+    // Estimate outputs are server-computed (and studio-confirmed values are
+    // immutable) — ignore any client-sent values; refreshCaseEstimate below
+    // recomputes them from the studio's pricing config when still offen.
+    const touchedEstimate = touchesEstimateInput(req.body);
+    ESTIMATE_OUTPUT_FIELDS.forEach((field) => {
+        delete req.body[field];
+    });
+
     if (
         req.body.zonen_aktiv &&
         req.body.zonen?.length > 0 &&
@@ -498,6 +601,13 @@ const updateCase = asyncHandler(async (req, res) => {
     }
 
     const zoneDocs = await applyCaseUpdate(caseDoc, req.body);
+
+    if (touchedEstimate) {
+        await refreshCaseEstimate(
+            caseDoc,
+            req.body.zonen !== undefined ? zoneDocs : null
+        );
+    }
 
     await caseDoc.populate('customer', 'vorname nachname email telefon');
 
@@ -616,9 +726,168 @@ const getCasePricing = asyncHandler(async (req, res) => {
           ? result
           : formatStudioPricing(result);
 
+    payload.estimate_confirmation = formatEstimateConfirmation(
+        caseDoc.estimate_confirmation,
+        req.user.role
+    );
+    payload.persisted = {
+        pricePerSession: caseDoc.pricePerSession,
+        sessionsMin: caseDoc.sessionsMin,
+        sessionsMax: caseDoc.sessionsMax,
+    };
+
     res.status(200).json({
         success: true,
         data: payload,
+    });
+});
+
+/**
+ * PATCH /cases/:id/estimate-confirmation — studio confirms (or adjusts) the
+ * AI price + session-range estimate directly inside the customer's case.
+ * The customer is notified automatically via the internal live chat.
+ */
+const updateEstimateConfirmation = asyncHandler(async (req, res) => {
+    if (isCustomer(req.user.role)) {
+        throw new ApiError(403, 'Only studio staff or admin can confirm estimates');
+    }
+
+    const caseDoc = await Case.findById(req.params.id);
+    if (!caseDoc) {
+        throw new ApiError(404, 'Case not found');
+    }
+
+    await assertCaseWriteAccess(req.user, caseDoc);
+
+    const { status, pricePerSession, sessionsMin, sessionsMax, notiz = '' } = req.body;
+    const now = new Date();
+    const label = req.user?.email || 'Studio';
+
+    if (status === ESTIMATE_CONFIRMATION_STATUS.OFFEN) {
+        // Re-open: estimate becomes AI-driven again and is recomputed.
+        caseDoc.estimate_confirmation = {
+            status: ESTIMATE_CONFIRMATION_STATUS.OFFEN,
+            pricePerSession: null,
+            sessionsMin: null,
+            sessionsMax: null,
+            notiz,
+            datum: now,
+            bestaetigt_von: label,
+            bestaetigt_von_id: req.user._id,
+        };
+        caseDoc.markModified('estimate_confirmation');
+        caseDoc.activityLog.push({
+            type: 'estimate_confirmation',
+            ts: now,
+            details: `Kostenschätzung wieder geöffnet · ${label}`,
+        });
+        await caseDoc.save();
+        await refreshCaseEstimate(caseDoc);
+
+        return res.status(200).json({
+            success: true,
+            message: 'Estimate confirmation reset',
+            data: {
+                estimate_confirmation: formatEstimateConfirmation(
+                    caseDoc.estimate_confirmation,
+                    req.user.role
+                ),
+                pricePerSession: caseDoc.pricePerSession,
+                sessionsMin: caseDoc.sessionsMin,
+                sessionsMax: caseDoc.sessionsMax,
+            },
+        });
+    }
+
+    const confirmedPrice =
+        pricePerSession != null ? pricePerSession : caseDoc.pricePerSession;
+    const confirmedMin = sessionsMin != null ? sessionsMin : caseDoc.sessionsMin;
+    const confirmedMax = sessionsMax != null ? sessionsMax : caseDoc.sessionsMax;
+
+    if (!(confirmedPrice > 0) || !(confirmedMax > 0)) {
+        throw new ApiError(
+            400,
+            'No estimate to confirm yet — provide pricePerSession and session range'
+        );
+    }
+    if (confirmedMin > confirmedMax) {
+        throw new ApiError(400, 'sessionsMin must not exceed sessionsMax');
+    }
+
+    caseDoc.estimate_confirmation = {
+        status,
+        pricePerSession: confirmedPrice,
+        sessionsMin: confirmedMin,
+        sessionsMax: confirmedMax,
+        notiz,
+        datum: now,
+        bestaetigt_von: label,
+        bestaetigt_von_id: req.user._id,
+    };
+    caseDoc.markModified('estimate_confirmation');
+
+    // Confirmed values become the case values shown everywhere.
+    caseDoc.pricePerSession = confirmedPrice;
+    caseDoc.sessionsMin = confirmedMin;
+    caseDoc.sessionsMax = confirmedMax;
+    caseDoc.sessions = confirmedMax;
+
+    const verb =
+        status === ESTIMATE_CONFIRMATION_STATUS.ANGEPASST ? 'angepasst' : 'bestätigt';
+    caseDoc.activityLog.push({
+        type: 'estimate_confirmation',
+        ts: now,
+        details: `Kostenschätzung ${verb}: CHF ${confirmedPrice}/Sitzung · ${confirmedMin}–${confirmedMax} Sitzungen · ${label}`,
+    });
+
+    const chatText =
+        `Dein Studio hat die Einschätzung für ${caseDoc.caseId} ${verb}: ` +
+        `CHF ${confirmedPrice} pro Sitzung, voraussichtlich ${confirmedMin}–${confirmedMax} Sitzungen.` +
+        (notiz ? ` Hinweis: ${notiz}` : '') +
+        ' Der endgültige Preis und die finale Sitzungszahl werden im Studio besprochen.';
+
+    caseDoc.chat_nachrichten.push({
+        von: 'studio',
+        typ: 'system',
+        text: chatText,
+        datum: now,
+        gelesen: false,
+    });
+    caseDoc.markModified('chat_nachrichten');
+
+    await caseDoc.save();
+
+    // Live-chat notification to the customer (best effort — the confirmation
+    // itself must not fail if messaging is unavailable).
+    let chatNotified = false;
+    try {
+        const conversation = await messagingService.getOrCreateConversation(req.user, {
+            customer_id: refId(caseDoc.customer),
+            studio_id: refId(caseDoc.studio),
+        });
+        const chatPayload = await messagingService.sendMessage(req.user, conversation.id, {
+            text: chatText,
+            case_id: String(caseDoc._id),
+        });
+        emitMessageCreated(chatPayload);
+        chatNotified = true;
+    } catch (error) {
+        console.error('Estimate confirmation chat notification failed:', error.message);
+    }
+
+    res.status(200).json({
+        success: true,
+        message: `Estimate ${verb}`,
+        data: {
+            estimate_confirmation: formatEstimateConfirmation(
+                caseDoc.estimate_confirmation,
+                req.user.role
+            ),
+            pricePerSession: caseDoc.pricePerSession,
+            sessionsMin: caseDoc.sessionsMin,
+            sessionsMax: caseDoc.sessionsMax,
+            chat_notified: chatNotified,
+        },
     });
 });
 
@@ -665,5 +934,6 @@ module.exports = {
     getCaseAvailability,
     getCasePricing,
     previewCasePricing,
+    updateEstimateConfirmation,
     formatCase,
 };

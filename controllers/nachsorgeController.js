@@ -182,10 +182,20 @@ const aiUnavailableFallback = (stage) => {
 
 const formatCheck = (doc) => {
     const d = doc.toObject ? doc.toObject() : doc;
+    const customerRef =
+        d.customer && typeof d.customer === 'object' && d.customer._id
+            ? d.customer
+            : null;
+    const caseRef =
+        d.case && typeof d.case === 'object' && d.case._id ? d.case : null;
     return {
         id: String(d._id),
-        case_id: String(d.case),
-        customer_id: String(d.customer),
+        case_id: String(caseRef ? caseRef._id : d.case),
+        case_display_id: caseRef?.caseId ?? null,
+        customer_id: String(customerRef ? customerRef._id : d.customer),
+        customer_name: customerRef
+            ? [customerRef.vorname, customerRef.nachname].filter(Boolean).join(' ')
+            : null,
         studio_id: String(d.studio),
         foto_file_id: d.foto_file_id ? String(d.foto_file_id) : null,
         symptome: d.symptome || [],
@@ -436,6 +446,8 @@ const listChecks = asyncHandler(async (req, res) => {
             .skip(skip)
             .limit(limit)
             .select('-raw_ai')
+            .populate('customer', 'vorname nachname')
+            .populate('case', 'caseId')
             .lean(),
         NachsorgeCheck.countDocuments(filter),
     ]);
@@ -451,7 +463,11 @@ const listChecks = asyncHandler(async (req, res) => {
 
 // ── GET /nachsorge/:id ────────────────────────────────────────────────────
 const getCheck = asyncHandler(async (req, res) => {
-    const check = await NachsorgeCheck.findById(req.params.id).select('-raw_ai').lean();
+    const check = await NachsorgeCheck.findById(req.params.id)
+        .select('-raw_ai')
+        .populate('customer', 'vorname nachname')
+        .populate('case', 'caseId')
+        .lean();
     if (!check) throw new ApiError(404, 'Nachsorge check not found');
 
     if (isCustomer(req.user.role)) {
@@ -461,7 +477,7 @@ const getCheck = asyncHandler(async (req, res) => {
     } else if (isStudio(req.user.role)) {
         if (refId(check.studio) !== refId(req.user.studio_id)) {
             // allow if customer currently assigned here
-            const caseDoc = await Case.findById(check.case).select('customer studio').lean();
+            const caseDoc = await Case.findById(refId(check.case)).select('customer studio').lean();
             if (caseDoc) await assertCaseAccess(req.user, caseDoc);
             else throw new ApiError(403, 'You do not have access to this check');
         }

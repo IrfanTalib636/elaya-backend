@@ -6,6 +6,7 @@ const {
     TC_TYPE,
     TC_COVERUP,
     GOAL_TARGET,
+    ESTIMATE_CONFIRMATION_STATUS,
 } = require('../config/constants');
 const {
     BODY_LOCATIONS,
@@ -254,10 +255,19 @@ const listCasesQuerySchema = z.object({
 
 const previewCasePricingSchema = createCaseSchema.omit({ customer_id: true });
 
+const estimateConfirmationSchema = z.object({
+    status: z.enum(Object.values(ESTIMATE_CONFIRMATION_STATUS)),
+    pricePerSession: z.number().min(0).nullable().optional(),
+    sessionsMin: z.number().int().min(0).nullable().optional(),
+    sessionsMax: z.number().int().min(0).nullable().optional(),
+    notiz: z.string().trim().max(1000).optional().default(''),
+});
+
 module.exports = {
     createCaseSchema,
     updateCaseSchema,
     previewCasePricingSchema,
+    estimateConfirmationSchema,
     caseZoneInputSchema,
     caseIntakeFieldsSchema,
     preSessionCheckSchema,

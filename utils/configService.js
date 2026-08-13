@@ -225,6 +225,10 @@ const formatStudioConfig = (studio, platform) => {
         firma: doc.firma,
         coin_wert: coinWert,
         studio_pricing: pickStudioPricing(doc.studio_pricing || {}),
+        /** Platform defaults for every studio-editable pricing key — UI placeholders. */
+        pricing_defaults: Object.fromEntries(
+            STUDIO_PRICING_KEYS.map((key) => [key, DEFAULT_PRICING_CONFIG[key]])
+        ),
         elaycoin_studio_cfg: doc.elaycoin_studio_cfg || {},
         subscription_plan: doc.subscription_plan || 'professional',
         feature_overrides: doc.feature_overrides || {},

@@ -340,8 +340,11 @@ const createOrder = asyncHandler(async (req, res) => {
 
 /**
  * POST /shop/orders/:id/confirm-payment
- * Body: { test_confirm?: true } — test mode only, charges with pm_card_visa
- * Or after client-side confirm: { payment_intent_id }
+ * After Stripe Payment Sheet succeeds on the client, verify the PaymentIntent
+ * and fulfill the order (stock + coins). Same path for test and live keys.
+ *
+ * Optional body.test_confirm (dev only): confirm with pm_card_visa when
+ * STRIPE_ALLOW_TEST_CONFIRM=true AND sk_test_ keys — not used by the mobile app.
  */
 const confirmOrderPayment = asyncHandler(async (req, res) => {
     if (!isCustomer(req.user.role) || !req.user.customer_id) {
@@ -370,21 +373,35 @@ const confirmOrderPayment = asyncHandler(async (req, res) => {
     }
 
     let pi;
+    const allowTestConfirm =
+        process.env.STRIPE_ALLOW_TEST_CONFIRM === 'true' && isStripeTestMode();
     if (req.body?.test_confirm) {
-        if (!isStripeTestMode()) {
-            throw new ApiError(400, 'test_confirm only works with Stripe test keys');
+        if (!allowTestConfirm) {
+            throw new ApiError(
+                400,
+                'test_confirm is disabled — use Stripe Payment Sheet (set STRIPE_ALLOW_TEST_CONFIRM=true only for local debugging)'
+            );
         }
         pi = await confirmPaymentIntentTest(order.stripe_payment_intent_id);
     } else {
         pi = await retrievePaymentIntent(order.stripe_payment_intent_id);
     }
 
+    if (pi.status === 'processing') {
+        return res.status(202).json({
+            success: true,
+            message: 'Payment is processing',
+            data: {
+                order: formatCustomerOrder(order.toObject()),
+                payment_intent_status: pi.status,
+            },
+        });
+    }
+
     if (pi.status !== 'succeeded') {
-        order.payment_status = 'failed';
-        await order.save();
         throw new ApiError(
             402,
-            `Payment not completed (status: ${pi.status}). Use Stripe Payment Sheet or test_confirm in test mode.`
+            `Payment not completed (status: ${pi.status}). Complete payment in the Stripe sheet first.`
         );
     }
 
