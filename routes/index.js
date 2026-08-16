@@ -16,6 +16,7 @@ const nachsorgeRoute = require('./nachsorgeRoute');
 const verblassungRoute = require('./verblassungRoute');
 const chatRoute = require('./chatRoute');
 const messagingRoute = require('./messagingRoute');
+const pushTokenRoute = require('./pushTokenRoute');
 
 const router = express.Router();
 
@@ -37,5 +38,6 @@ router.use('/nachsorge', nachsorgeRoute);
 router.use('/verblassung', verblassungRoute);
 router.use('/chat', chatRoute);
 router.use('/messaging', messagingRoute);
+router.use('/push-tokens', pushTokenRoute);
 
 module.exports = router;

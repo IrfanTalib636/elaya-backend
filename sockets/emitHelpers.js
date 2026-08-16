@@ -1,7 +1,14 @@
 const messagingService = require('../services/messagingService');
+const pushService = require('../services/pushService');
 const { getIO } = require('./io');
 
 const emitMessageCreated = (payload) => {
+    // Push to the receiving side's devices (skipped when they are viewing the
+    // conversation live). Best effort — must never block the socket fan-out.
+    pushService
+        .notifyChatMessage(payload)
+        .catch((err) => console.error('Chat push notification failed:', err.message));
+
     try {
         const io = getIO();
         if (!io) return;

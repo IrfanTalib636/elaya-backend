@@ -46,6 +46,15 @@ const userSchema = new mongoose.Schema(
             type: Date,
             default: null,
         },
+        // Expo push tokens of the user's signed-in devices (customer mobile app).
+        push_tokens: [
+            {
+                _id: false,
+                token: { type: String, required: true },
+                platform: { type: String, enum: ['ios', 'android'], default: null },
+                updated_at: { type: Date, default: Date.now },
+            },
+        ],
     },
     {
         timestamps: true,
