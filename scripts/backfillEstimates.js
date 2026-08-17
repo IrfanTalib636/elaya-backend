@@ -54,6 +54,9 @@ const run = async () => {
         caseDoc.sessions = preview.sessions?.base ?? max;
         caseDoc.sessionsMin = min;
         caseDoc.sessionsMax = max;
+        caseDoc.calculated_pricePerSession = price;
+        caseDoc.calculated_sessionsMin = min;
+        caseDoc.calculated_sessionsMax = max;
         await caseDoc.save();
         updated += 1;
         console.log(
