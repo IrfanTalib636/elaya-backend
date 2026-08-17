@@ -93,9 +93,14 @@ const normalizePreSessionCheck = (check = {}) => {
     }
 
     if (Array.isArray(normalized.medikamente)) {
-        normalized.medikamente = normalized.medikamente.filter(Boolean);
+        normalized.medikamente = normalized.medikamente.filter(
+            (item) => item && item !== 'keine'
+        );
     } else if (typeof normalized.medikamente === 'string' && normalized.medikamente.trim()) {
-        normalized.medikamente = normalized.medikamente.split(',').map((m) => m.trim()).filter(Boolean);
+        normalized.medikamente = normalized.medikamente
+            .split(',')
+            .map((m) => m.trim())
+            .filter((item) => item && item !== 'keine');
     } else if (!normalized.medikamente) {
         normalized.medikamente = [];
     }

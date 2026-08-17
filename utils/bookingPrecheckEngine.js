@@ -74,16 +74,17 @@ const KO_RECHECKS = [
 ];
 
 const MEDICATION_GROUPS = [
-    { key: 'antibiotika', label_de: 'Antibiotika', lock_days: MED_SHORT_DAYS },
-    { key: 'antidepressiva', label_de: 'Antidepressiva', lock_days: MED_SHORT_DAYS },
-    { key: 'retinoide', label_de: 'Retinoide', lock_days: MED_RETINOID_DAYS },
+    { key: 'keine', label_de: 'Keine / keine Medikamente', label_en: 'None / no medications', lock_days: 0 },
+    { key: 'antibiotika', label_de: 'Antibiotika', label_en: 'Antibiotics', lock_days: MED_SHORT_DAYS },
+    { key: 'antidepressiva', label_de: 'Antidepressiva', label_en: 'Antidepressants', lock_days: MED_SHORT_DAYS },
+    { key: 'retinoide', label_de: 'Retinoide', label_en: 'Retinoids', lock_days: MED_RETINOID_DAYS },
 ];
 
 const UV_OPTIONS = [
-    { value: 'keine', label_de: 'Keine' },
-    { value: 'leicht', label_de: 'Leicht' },
-    { value: 'mittel', label_de: 'Mittel', lock_days: UV_MODERATE_DAYS },
-    { value: 'intensiv', label_de: 'Intensiv', lock_days: UV_INTENSE_DAYS },
+    { value: 'keine', label_de: 'Keine', label_en: 'None', lock_days: 0 },
+    { value: 'leicht', label_de: 'Leicht', label_en: 'Light', lock_days: 0 },
+    { value: 'mittel', label_de: 'Mittel', label_en: 'Moderate', lock_days: UV_MODERATE_DAYS },
+    { value: 'intensiv', label_de: 'Intensiv', label_en: 'Intense', lock_days: UV_INTENSE_DAYS },
 ];
 
 const BLOCK_MESSAGES = {
@@ -96,8 +97,11 @@ const BLOCK_MESSAGES = {
         message_de: 'Während Schwangerschaft oder Stillzeit ist eine Behandlung nicht möglich.',
     },
     akute_erkrankung_still: {
-        code: 'ko_still_active',
-        message_de: 'Bei akuter Erkrankung können wir aktuell nicht behandeln.',
+        code: 'health_not_recovered',
+        message_de:
+            'Du kannst die Buchung fortsetzen. Das Studio kontaktiert dich vor dem Termin, um deinen Gesundheitszustand zu klären. Die Behandlung kann verschoben werden, wenn du noch nicht genesen bist.',
+        message_en:
+            'You can continue with the booking. The studio will contact you before the appointment to clarify your current health condition. Treatment may need to be postponed if you are still unwell.',
     },
     alkohol_drogen_still: {
         code: 'ko_still_active',
@@ -108,8 +112,11 @@ const BLOCK_MESSAGES = {
         message_de: 'Für eine Behandlung benötigen wir deine freiwillige Zustimmung.',
     },
     akute_erkrankung_wiederholung: {
-        code: 'ko_still_active',
-        message_de: 'Bei akuter Erkrankung können wir aktuell nicht behandeln.',
+        code: 'health_not_recovered',
+        message_de:
+            'Du kannst die Buchung fortsetzen. Das Studio kontaktiert dich vor dem Termin, um deinen Gesundheitszustand zu klären. Die Behandlung kann verschoben werden, wenn du noch nicht genesen bist.',
+        message_en:
+            'You can continue with the booking. The studio will contact you before the appointment to clarify your current health condition. Treatment may need to be postponed if you are still unwell.',
     },
     pre_session_incomplete: {
         code: 'pre_session_incomplete',
@@ -172,6 +179,10 @@ const buildBookingPrecheckForm = (caseDoc, anamnesis) => {
             title: 'Kurz-Check vor dem Termin',
             subtitle: 'Dauert nur 30 Sekunden. Pflicht vor jeder Behandlung.',
             uv_options: UV_OPTIONS,
+            medication_question:
+                'Hast du in den letzten 6 Monaten Medikamente eingenommen?',
+            medication_question_en:
+                'Have you taken any medications in the last 6 months?',
             medication_groups: MEDICATION_GROUPS,
             ko_rechecks: buildKoRechecks(answers),
             rote_fragen_rechecks: buildRoteFragenRechecks(ampel.rote_fragen),
@@ -180,13 +191,113 @@ const buildBookingPrecheckForm = (caseDoc, anamnesis) => {
     };
 };
 
+const REAL_MED_KEYS = new Set(['antibiotika', 'antidepressiva', 'retinoide']);
+
+const toDateKey = (date) => {
+    const d = startOfDay(date);
+    const month = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${d.getFullYear()}-${month}-${day}`;
+};
+
+const hasExplicitNoMeds = (rawMeds = []) =>
+    rawMeds.includes('keine') && !rawMeds.some((m) => REAL_MED_KEYS.has(m));
+
+const realMedications = (rawMeds = []) =>
+    rawMeds.filter((m) => REAL_MED_KEYS.has(m));
+
 const isPreSessionComplete = (preSession = {}) => {
+    const rawMeds = Array.isArray(preSession.medikamente)
+        ? preSession.medikamente.filter(Boolean)
+        : [];
     const check = normalizePreSessionCheck(preSession);
     const uvOk = !!check.uv_exposition;
-    const meds = check.medikamente || [];
-    const medOk = meds.length === 0 || (meds.length > 0 && !!check.medikament_datum);
+    const none = hasExplicitNoMeds(rawMeds);
+    const meds = realMedications(rawMeds);
+    const medOk = none || (meds.length > 0 && !!check.medikament_datum);
     return uvOk && medOk;
 };
+
+const formatNotice = ({ source, days, earliest, active, label_de, label_en }) => {
+    if (!active) {
+        return {
+            source,
+            days,
+            earliest: null,
+            active: false,
+            message_de: `Keine aktive Sperrfrist für ${label_de}.`,
+            message_en: `No active blocking period for ${label_en}.`,
+        };
+    }
+    return {
+        source,
+        days,
+        earliest,
+        active: true,
+        message_de: `Sperrfrist ${days} Tage — Behandlung frühestens am ${earliest} buchbar.`,
+        message_en: `Blocking period ${days} days — earliest treatment ${earliest}.`,
+    };
+};
+
+/**
+ * Immediate UV/medication lockout notices for the Quick Check UI.
+ * Longest active lockout wins for earliest_bookable.
+ */
+const summarizePreSessionLockouts = (preSession = {}, now = new Date()) => {
+    const rawMeds = Array.isArray(preSession.medikamente)
+        ? preSession.medikamente.filter(Boolean)
+        : [];
+    const check = normalizePreSessionCheck(preSession);
+    const heute = startOfDay(now);
+    const notices = [];
+
+    if (check.uv_exposition === 'intensiv' || check.uv_exposition === 'mittel') {
+        const days = check.uv_exposition === 'intensiv' ? UV_INTENSE_DAYS : UV_MODERATE_DAYS;
+        const until = addDays(heute, days);
+        notices.push(
+            formatNotice({
+                source: 'uv',
+                days,
+                earliest: toDateKey(until),
+                active: until > heute,
+                label_de: check.uv_exposition === 'intensiv' ? 'intensive UV-Exposition' : 'mittlere UV-Exposition',
+                label_en: check.uv_exposition === 'intensiv' ? 'intense UV exposure' : 'moderate UV exposure',
+            })
+        );
+    }
+
+    const meds = realMedications(rawMeds);
+    const intakeDate = check.medikament_datum ? startOfDay(check.medikament_datum) : null;
+
+    if (meds.length && intakeDate) {
+        const groups = [
+            { key: 'retinoide', days: MED_RETINOID_DAYS, label_de: 'Retinoide', label_en: 'retinoids' },
+            { key: 'antibiotika', days: MED_SHORT_DAYS, label_de: 'Antibiotika', label_en: 'antibiotics' },
+            { key: 'antidepressiva', days: MED_SHORT_DAYS, label_de: 'Antidepressiva', label_en: 'antidepressants' },
+        ];
+        for (const group of groups) {
+            if (!meds.includes(group.key)) continue;
+            const until = addDays(intakeDate, group.days);
+            notices.push(
+                formatNotice({
+                    source: 'medication',
+                    days: group.days,
+                    earliest: toDateKey(until),
+                    active: until > heute,
+                    label_de: group.label_de,
+                    label_en: group.label_en,
+                })
+            );
+        }
+    }
+
+    const active = notices.filter((n) => n.active && n.earliest);
+    active.sort((a, b) => String(a.earliest).localeCompare(String(b.earliest)));
+    const earliest_bookable = active.length ? active[active.length - 1].earliest : null;
+
+    return { notices, earliest_bookable };
+};
+
 
 const computeBlockDatesFromPreSession = (preSession = {}, now = new Date()) => {
     const check = normalizePreSessionCheck(preSession);
@@ -238,13 +349,16 @@ const validateBookingPrecheck = ({
         return {
             can_proceed: true,
             blocks: [],
+            warnings: [],
             requires_ko_signature: false,
             pre_session_check: {},
             block_dates: { uvBlockDate: null, medicationBlockDate: null },
+            lockouts: { notices: [], earliest_bookable: null },
         };
     }
 
     const blocks = [];
+    const warnings = [];
     const answers = anamnesis?.antworten || {};
     const ampel = computeAmpel(answers);
     const koRechecks = buildKoRechecks(answers);
@@ -269,6 +383,13 @@ const validateBookingPrecheck = ({
             continue;
         }
         if (ans === 'still') {
+            if (ko.frage_key === 'akute_erkrankung') {
+                warnings.push({
+                    ...BLOCK_MESSAGES.akute_erkrankung_still,
+                    frage_key: ko.frage_key,
+                });
+                continue;
+            }
             const msgKey = `${ko.frage_key}_still`;
             blocks.push({
                 ...(BLOCK_MESSAGES[msgKey] || BLOCK_MESSAGES.ko_still_active),
@@ -278,13 +399,19 @@ const validateBookingPrecheck = ({
     }
 
     for (const f of roteFragen) {
-        const ans = wiederholungen[String(f.frage_nr)] ?? wiederholungen[f.frage_nr];
+        const ans =
+            wiederholungen[f.frage_key] ??
+            wiederholungen[String(f.frage_nr)] ??
+            wiederholungen[f.frage_nr];
         if (!ans || typeof ans.aktuell_gleich !== 'boolean') {
             blocks.push({ ...BLOCK_MESSAGES.wiederholungen_incomplete, frage_key: f.frage_key });
             continue;
         }
         if (f.frage_key === 'akute_erkrankung' && ans.aktuell_gleich === true) {
-            blocks.push({ ...BLOCK_MESSAGES.akute_erkrankung_wiederholung, frage_key: f.frage_key });
+            warnings.push({
+                ...BLOCK_MESSAGES.akute_erkrankung_wiederholung,
+                frage_key: f.frage_key,
+            });
         }
     }
 
@@ -303,14 +430,25 @@ const validateBookingPrecheck = ({
 
     const { uvBlockDate, medicationBlockDate, preSessionCheck } =
         computeBlockDatesFromPreSession(preSession);
+    const lockouts = summarizePreSessionLockouts(preSession);
+    const uniqueWarnings = [];
+    const seen = new Set();
+    for (const warning of warnings) {
+        const key = `${warning.code}:${warning.frage_key || ''}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        uniqueWarnings.push(warning);
+    }
 
     return {
         can_proceed: blocks.length === 0,
         blocks,
+        warnings: uniqueWarnings,
         requires_ko_signature: requiresKoSignature,
         changed_ko_keys: changedKoKeys,
         pre_session_check: preSessionCheck,
         block_dates: { uvBlockDate, medicationBlockDate },
+        lockouts,
     };
 };
 
@@ -330,7 +468,10 @@ const buildWiederholungenEntries = (roteFragen, wiederholungen, koAnswers, answe
     const now = new Date().toISOString();
 
     for (const f of roteFragen) {
-        const ans = wiederholungen[String(f.frage_nr)] ?? wiederholungen[f.frage_nr];
+        const ans =
+            wiederholungen[f.frage_key] ??
+            wiederholungen[String(f.frage_nr)] ??
+            wiederholungen[f.frage_nr];
         if (!ans) continue;
         entries.push({
             frage_nr: f.frage_nr,
@@ -404,7 +545,10 @@ const buildActivityEntries = (roteFragen, wiederholungen, koAnswers) => {
     const now = new Date();
 
     for (const f of roteFragen) {
-        const ans = wiederholungen[String(f.frage_nr)] ?? wiederholungen[f.frage_nr];
+        const ans =
+            wiederholungen[f.frage_key] ??
+            wiederholungen[String(f.frage_nr)] ??
+            wiederholungen[f.frage_nr];
         if (!ans) continue;
         entries.push({
             type: 'rueckfrage_beantwortet',
@@ -437,6 +581,7 @@ module.exports = {
     buildBookingPrecheckForm,
     validateBookingPrecheck,
     computeBlockDatesFromPreSession,
+    summarizePreSessionLockouts,
     applyKoAnswerUpdates,
     buildWiederholungenEntries,
     buildStatuswechselEntries,

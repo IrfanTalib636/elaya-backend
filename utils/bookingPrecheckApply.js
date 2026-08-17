@@ -11,6 +11,39 @@ const {
     buildActivityEntries,
 } = require('../utils/bookingPrecheckEngine');
 
+const HEALTH_KLAERUNG_NOTE =
+    'Kunde hat beim Kurz-Check angegeben, noch nicht vollständig genesen zu sein. Bitte vor dem Termin klären.';
+
+const isStillUnwell = (bookingPrecheck = {}) => {
+    const koAnswers = bookingPrecheck.ko_answers || {};
+    if (koAnswers.akute_erkrankung === 'still') return true;
+    const wiederholungen = bookingPrecheck.wiederholungen || {};
+    return (
+        wiederholungen.akute_erkrankung?.aktuell_gleich === true ||
+        wiederholungen['3']?.aktuell_gleich === true
+    );
+};
+
+const flagHealthForStudioReview = (anamnesis, caseDoc) => {
+    if (!anamnesis.klaerung || typeof anamnesis.klaerung !== 'object') {
+        anamnesis.klaerung = {};
+    }
+    anamnesis.klaerung.F3 = {
+        status: 'in_klaerung',
+        notiz: HEALTH_KLAERUNG_NOTE,
+        datum: new Date(),
+        frage_key: 'akute_erkrankung',
+    };
+    anamnesis.markModified('klaerung');
+
+    caseDoc.activityLog.push({
+        type: 'klaerung_update',
+        details:
+            'Kurz-Check: Kunde noch nicht genesen — Studio-Klärung erforderlich (Flag F3).',
+        ts: new Date(),
+    });
+};
+
 const syncAnamnesisAfterPrecheck = async (caseDoc, anamnesis, bookingPrecheck, customerName = '') => {
     const {
         ko_answers: koAnswers = {},
@@ -120,6 +153,17 @@ const applyBookingPrecheckToCase = async (caseDoc, bookingPrecheck, options = {}
 
     const ampel = computeAmpel(anamnesis.antworten || {});
     await syncAnamnesisAfterPrecheck(caseDoc, anamnesis, bookingPrecheck, customerName);
+
+    if (isStillUnwell(bookingPrecheck)) {
+        flagHealthForStudioReview(anamnesis, caseDoc);
+        await anamnesis.save();
+        const evaluation = buildAnamnesisEvaluation(
+            anamnesis.antworten || {},
+            anamnesis.klaerung || {}
+        );
+        caseDoc.medical_flag_level = evaluation.ampel_status;
+        caseDoc.open_medical_flags_count = evaluation.open_medical_flags_count;
+    }
 
     const activityEntries = buildActivityEntries(ampel.rote_fragen, wiederholungen, koAnswers);
     for (const entry of activityEntries) {
