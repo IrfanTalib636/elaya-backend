@@ -60,7 +60,11 @@ const formatSession = (doc, role, options = {}) => {
         treatment_time: s.treatment_time,
         removal_pct: s.removal_pct,
         verblassung_prozent: s.verblassung_prozent,
-        verblassung_ki: formatVerblassungKiForRole(s.verblassung_ki, role),
+        verblassung_ki:
+            Number(s.session_number) < 2
+                ? null
+                : formatVerblassungKiForRole(s.verblassung_ki, role),
+        ki_analysis_available: Number(s.session_number) >= 2,
         fortschritt_foto_file_id: s.fortschritt_foto_file_id
             ? String(s.fortschritt_foto_file_id)
             : null,
