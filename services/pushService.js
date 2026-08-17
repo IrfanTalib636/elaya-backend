@@ -13,6 +13,7 @@ const { Expo } = require('expo-server-sdk');
 const User = require('../models/userModel');
 const { getIO } = require('../sockets/io');
 const { CHAT_SENDER_ROLE } = require('../config/constants');
+const notificationService = require('./notificationService');
 
 const expo = new Expo();
 
@@ -183,18 +184,36 @@ const notifyChatMessage = async ({ message, conversation }) => {
     if (!recipients.length) return;
     if (isRecipientViewingConversation(conversationRoom, recipientRoom)) return;
 
-    await sendToUsers(
-        recipients.map((u) => u._id),
-        {
+    const recipientIds = recipients.map((u) => u._id);
+    const conversationId = String(conversation.id);
+    const caseId = message.case_id ? String(message.case_id) : null;
+    const data = {
+        type: 'chat',
+        conversation_id: conversationId,
+        case_id: caseId,
+    };
+
+    // Inbox row first so the Mitteilungen screen stays consistent even if
+    // Expo delivery fails; never let persistence block the push send.
+    try {
+        await notificationService.createForUsers({
+            userIds: recipientIds,
+            type: 'chat',
             title,
             body: message.text,
-            data: {
-                type: 'chat',
-                conversation_id: String(conversation.id),
-                case_id: message.case_id ? String(message.case_id) : null,
-            },
-        }
-    );
+            conversationId: conversation.id,
+            caseId: message.case_id || null,
+            messageId: message.id || message._id || null,
+        });
+    } catch (err) {
+        console.error('In-app notification create failed:', err.message);
+    }
+
+    await sendToUsers(recipientIds, {
+        title,
+        body: message.text,
+        data,
+    });
 };
 
 module.exports = {
