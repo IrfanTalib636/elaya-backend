@@ -55,6 +55,9 @@ const hasWavelength = (session) => (session.wavelength_nm || []).length > 0;
 const isAppointmentCancelled = (appointment) => CANCELLED_STATUSES.has(appointment.status);
 
 const isAppointmentCompletedBySession = (appointment, sessions) => {
+    if (sessions.some((session) => session.appointment && String(session.appointment) === String(appointment._id))) {
+        return true;
+    }
     if (!appointment.date) {
         return false;
     }
@@ -63,6 +66,64 @@ const isAppointmentCompletedBySession = (appointment, sessions) => {
         (session) =>
             session.treatment_date && startOfDay(session.treatment_date).getTime() === aptDay
     );
+};
+
+const isOpenTreatmentAppointment = (appointment) =>
+    appointment &&
+    appointment.status === APPOINTMENT_STATUS.GEBUCHT &&
+    !appointment.consultationOnly &&
+    appointment.type !== APPOINTMENT_TYPE.BERATUNG;
+
+/** Close booked treatments that already have a documented session (stale "upcoming" rows). */
+const reconcileAppointmentsCoveredBySessions = async (appointments, sessions) => {
+    const ids = new Set();
+    const sessionsByCase = groupByCaseId(sessions);
+    const appointmentsByCase = groupByCaseId(appointments);
+
+    for (const [caseId, caseSessions] of sessionsByCase.entries()) {
+        const documented = caseSessions.filter((session) => session.treatment_date);
+        if (!documented.length) continue;
+
+        const caseAppointments = appointmentsByCase.get(caseId) || [];
+        const openTreatments = caseAppointments.filter(isOpenTreatmentAppointment);
+
+        for (const session of documented) {
+            if (session.appointment) ids.add(String(session.appointment));
+            const day = startOfDay(session.treatment_date).getTime();
+            for (const appointment of openTreatments) {
+                if (appointment.date && startOfDay(appointment.date).getTime() === day) {
+                    ids.add(String(appointment._id));
+                }
+            }
+        }
+
+        if (openTreatments.length === 1 && documented.length >= 1) {
+            const appointment = openTreatments[0];
+            const latestSessionCreated = Math.max(
+                ...documented.map((session) => new Date(session.createdAt || session.treatment_date).getTime())
+            );
+            const appointmentCreated = new Date(
+                appointment.createdAt || appointment.date || 0
+            ).getTime();
+            if (appointmentCreated && appointmentCreated <= latestSessionCreated) {
+                ids.add(String(appointment._id));
+            }
+        }
+    }
+
+    const pending = [...ids].filter((id) =>
+        appointments.some(
+            (appointment) =>
+                String(appointment._id) === id && appointment.status === APPOINTMENT_STATUS.GEBUCHT
+        )
+    );
+    if (!pending.length) return [];
+
+    await Appointment.updateMany(
+        { _id: { $in: pending }, status: APPOINTMENT_STATUS.GEBUCHT },
+        { $set: { status: APPOINTMENT_STATUS.COMPLETED } }
+    );
+    return pending;
 };
 
 const isCrossCaseAppointment = (appointment) =>
@@ -458,9 +519,18 @@ const loadLockoutContext = async (customerId) => {
         Session.find({ customer: customerId, is_draft: false, is_no_show: false }).lean(),
     ]);
 
+    const healed = await reconcileAppointmentsCoveredBySessions(appointments, sessions);
+    const nextAppointments = healed.length
+        ? appointments.map((appointment) => {
+              const id = String(appointment._id);
+              if (!healed.includes(id)) return appointment;
+              return { ...appointment, status: APPOINTMENT_STATUS.COMPLETED };
+          })
+        : appointments;
+
     return {
         cases,
-        appointmentsByCase: groupByCaseId(appointments),
+        appointmentsByCase: groupByCaseId(nextAppointments),
         sessionsByCase: groupByCaseId(sessions),
     };
 };
