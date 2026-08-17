@@ -22,6 +22,7 @@ const {
     processFinalizedSessionElaycoins,
 } = require('../utils/elaycoinEngine');
 const { parsePagination, buildPaginationMeta } = require('../utils/pagination');
+const { APPOINTMENT_STATUS } = require('../config/constants');
 
 const CUSTOMER_SESSION_SELECT =
     'case customer studio session_number treatment_date treatment_time removal_pct verblassung_prozent verblassung_ki fortschritt_foto_file_id is_draft is_no_show zonen_id createdAt updatedAt';
@@ -142,6 +143,14 @@ const createSession = asyncHandler(async (req, res) => {
     await assertCaseWriteAccess(req.user, caseDoc);
 
     const linkedAppointment = await validateLinkedAppointment(appointment_id, caseDoc);
+
+    if (linkedAppointment) {
+        const existing = await Session.findOne({ appointment: linkedAppointment }).select('_id').lean();
+        if (existing) {
+            throw new ApiError(400, 'Für diesen Termin wurde bereits eine Sitzung dokumentiert');
+        }
+    }
+
     const session_number = await getNextSessionNumber(caseDoc._id);
 
     const session = await Session.create({
@@ -158,6 +167,12 @@ const createSession = asyncHandler(async (req, res) => {
     if (!session.is_draft && !session.is_no_show) {
         await syncCaseSessionStats(caseDoc._id);
         await syncCustomerPipeline(caseDoc.customer);
+    }
+
+    if (linkedAppointment && !session.is_draft) {
+        await Appointment.findByIdAndUpdate(linkedAppointment, {
+            status: APPOINTMENT_STATUS.COMPLETED,
+        });
     }
 
     if (!session.is_draft) {
