@@ -14,6 +14,7 @@ const {
     buildActivityEntries,
     lookupWiederholung,
     parseAktuellGleich,
+    mergeRecoveryKoAnswers,
 } = require('../utils/bookingPrecheckEngine');
 
 const collectClarificationFlags = (roteFragen = [], bookingPrecheck = {}) => {
@@ -113,16 +114,17 @@ const syncAnamnesisAfterPrecheck = async (caseDoc, anamnesis, bookingPrecheck, c
     } = bookingPrecheck;
 
     const answers = anamnesis.antworten || {};
+    const mergedKoAnswers = mergeRecoveryKoAnswers(answers, koAnswers, wiederholungen);
     const ampel = computeAmpel(answers);
-    const updatedAnswers = applyKoAnswerUpdates(answers, koAnswers);
+    const updatedAnswers = applyKoAnswerUpdates(answers, mergedKoAnswers);
     const wiederholungenNeu = buildWiederholungenEntries(
         ampel.rote_fragen,
         wiederholungen,
-        koAnswers,
+        mergedKoAnswers,
         answers
     );
     const statuswechselNeu = buildStatuswechselEntries(
-        koAnswers,
+        mergedKoAnswers,
         answers,
         koSignature,
         customerName
@@ -190,12 +192,18 @@ const applyBookingPrecheckToCase = async (caseDoc, bookingPrecheck, options = {}
         throw new ApiError(400, 'Anamnesis must be completed before booking a treatment');
     }
 
+    const mergedKoAnswers = mergeRecoveryKoAnswers(
+        anamnesis.antworten || {},
+        koAnswers,
+        wiederholungen
+    );
+
     const validation = validateBookingPrecheck({
         caseDoc,
         anamnesis,
         consultationOnly: false,
         preSession: preSession,
-        koAnswers,
+        koAnswers: mergedKoAnswers,
         wiederholungen,
         wiederholungenConfirmed,
         koSignature,
@@ -213,7 +221,12 @@ const applyBookingPrecheckToCase = async (caseDoc, bookingPrecheck, options = {}
         `${customer?.vorname ?? ''} ${customer?.nachname ?? ''}`.trim();
 
     const ampel = computeAmpel(anamnesis.antworten || {});
-    await syncAnamnesisAfterPrecheck(caseDoc, anamnesis, bookingPrecheck, customerName);
+    await syncAnamnesisAfterPrecheck(
+        caseDoc,
+        anamnesis,
+        { ...bookingPrecheck, ko_answers: mergedKoAnswers },
+        customerName
+    );
 
     const clarificationFlags = collectClarificationFlags(ampel.rote_fragen, bookingPrecheck);
     if (clarificationFlags.length) {

@@ -157,6 +157,37 @@ const parseAktuellGleich = (ans) => {
     return { ok: false, value: null, aenderung: ans.aenderung || '' };
 };
 
+const KO_RECOVERY_LABELS = {
+    schwanger: { original: 'Schwanger/stillend', neu: 'Nicht mehr schwanger/stillend' },
+    akute_erkrankung: { original: 'Akut krank', neu: 'Von akuter Erkrankung genesen' },
+    alkohol_drogen: { original: 'Unter Einfluss', neu: 'Nicht mehr unter Einfluss' },
+    urteilsfaehig: { original: 'Nicht urteilsfähig', neu: 'Urteilsfähigkeit wiederhergestellt' },
+};
+
+const collectRecoveryKeys = (answers = {}, koAnswers = {}, wiederholungen = {}) => {
+    const keys = [];
+    for (const def of KO_RECHECKS) {
+        if (def.permanent || !def.trigger(answers)) continue;
+        if (koAnswers[def.frage_key] === 'changed') {
+            keys.push(def.frage_key);
+            continue;
+        }
+        const parsed = parseAktuellGleich(lookupWiederholung(wiederholungen, def));
+        if (parsed.ok && parsed.value === false) {
+            keys.push(def.frage_key);
+        }
+    }
+    return keys;
+};
+
+const mergeRecoveryKoAnswers = (answers, koAnswers, wiederholungen) => {
+    const merged = { ...(koAnswers || {}) };
+    for (const key of collectRecoveryKeys(answers, koAnswers, wiederholungen)) {
+        if (!merged[key]) merged[key] = 'changed';
+    }
+    return merged;
+};
+
 const clarificationWarning = (frageKey, frageText) => ({
     ...CLARIFICATION_MESSAGE,
     frage_key: frageKey || null,
@@ -390,6 +421,7 @@ const validateBookingPrecheck = ({
     const ampel = computeAmpel(answers);
     const koRechecks = buildKoRechecks(answers);
     const roteFragen = ampel.rote_fragen;
+    const effectiveKoAnswers = mergeRecoveryKoAnswers(answers, koAnswers, wiederholungen);
 
     if (!caseDoc.anamnesis_complete) {
         blocks.push({ ...BLOCK_MESSAGES.anamnesis_required, frage_key: null });
@@ -404,7 +436,7 @@ const validateBookingPrecheck = ({
             blocks.push({ ...BLOCK_MESSAGES.mindestalter_18, frage_key: ko.frage_key });
             continue;
         }
-        const ans = koAnswers[ko.frage_key];
+        const ans = effectiveKoAnswers[ko.frage_key];
         if (!ans) {
             blocks.push({ ...BLOCK_MESSAGES.pre_session_incomplete, frage_key: ko.frage_key });
             continue;
@@ -419,6 +451,12 @@ const validateBookingPrecheck = ({
     for (const f of roteFragen) {
         const parsed = parseAktuellGleich(lookupWiederholung(wiederholungen, f));
         if (!parsed.ok) {
+            if (effectiveKoAnswers[f.frage_key] === 'changed' || effectiveKoAnswers[f.frage_key] === 'still') {
+                if (effectiveKoAnswers[f.frage_key] === 'still') {
+                    warnings.push(clarificationWarning(f.frage_key, f.frage_text));
+                }
+                continue;
+            }
             unansweredRechecks.push(f);
             continue;
         }
@@ -434,9 +472,7 @@ const validateBookingPrecheck = ({
         });
     }
 
-    const changedKoKeys = KO_RECHECKS.filter(
-        (def) => def.trigger(answers) && koAnswers[def.frage_key] === 'changed'
-    ).map((def) => def.frage_key);
+    const changedKoKeys = collectRecoveryKeys(answers, effectiveKoAnswers, wiederholungen);
 
     const requiresKoSignature = changedKoKeys.length > 0;
     if (requiresKoSignature && !koSignature?.unterschrift_data) {
@@ -535,12 +571,7 @@ const buildStatuswechselEntries = (koAnswers, answers, koSignature, customerName
     const entries = [];
     const now = new Date();
 
-    const KO_INFO = {
-        schwanger: { original: 'Schwanger/stillend', neu: 'Nicht mehr schwanger/stillend' },
-        akute_erkrankung: { original: 'Akut krank', neu: 'Von akuter Erkrankung genesen' },
-        alkohol_drogen: { original: 'Unter Einfluss', neu: 'Nicht mehr unter Einfluss' },
-        urteilsfaehig: { original: 'Nicht urteilsfähig', neu: 'Urteilsfähigkeit wiederhergestellt' },
-    };
+    const KO_INFO = KO_RECOVERY_LABELS;
 
     for (const def of KO_RECHECKS) {
         if (def.permanent || !def.trigger(answers)) continue;
@@ -616,5 +647,8 @@ module.exports = {
     computeAvailability,
     lookupWiederholung,
     parseAktuellGleich,
+    collectRecoveryKeys,
+    mergeRecoveryKoAnswers,
+    KO_RECOVERY_LABELS,
     CLARIFICATION_MESSAGE,
 };
