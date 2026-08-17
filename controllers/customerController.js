@@ -15,6 +15,8 @@ const {
 const { USER_ROLES, AKQUISE_QUELLE, PIPELINE_STUFE } = require('../config/constants');
 const { worstMedicalFlagLevel } = require('../utils/medicalFlagHelpers');
 const { formatFirmaTimeline } = require('../utils/customerProfileHelpers');
+const { recordActivityFromUser } = require('../utils/activityLog');
+const { ACTIVITY_CATEGORY } = require('../config/activityConfig');
 
 // ── helpers ──────────────────────────────────────────────────────────────
 const assertCustomerAccess = (user, customer, { allowFormer = true } = {}) => {
@@ -323,13 +325,70 @@ const updateCustomer = asyncHandler(async (req, res) => {
 
     const allowed = isAdmin(req.user.role) ? [...studioAllowed, ...adminOnly] : studioAllowed;
 
+    const PROFILE_LABELS = {
+        vorname: 'Vorname',
+        nachname: 'Nachname',
+        telefon: 'Telefon',
+        geburtsdatum: 'Geburtsdatum',
+        strasse: 'Strasse',
+        plz: 'PLZ',
+        ort: 'Ort',
+        land: 'Land',
+    };
+
+    const changedLabels = [];
+    let pipelineChanged = false;
+    let notesChanged = false;
+
     allowed.forEach((field) => {
-        if (req.body[field] !== undefined) {
-            customer[field] = req.body[field];
+        if (req.body[field] === undefined) return;
+        const prev = customer[field];
+        const next = req.body[field];
+        const same =
+            field === 'geburtsdatum'
+                ? new Date(prev || 0).getTime() === new Date(next || 0).getTime()
+                : String(prev ?? '') === String(next ?? '');
+        if (!same) {
+            if (PROFILE_LABELS[field]) changedLabels.push(PROFILE_LABELS[field]);
+            if (field === 'pipeline_stufe') pipelineChanged = true;
+            if (field === 'notizen') notesChanged = true;
         }
+        customer[field] = next;
     });
 
     await customer.save();
+
+    const studioId = customer.aktuelle_firma_id || req.user.studio_id;
+    if (changedLabels.length) {
+        await recordActivityFromUser(req.user, {
+            studio: studioId,
+            customer: customer._id,
+            category: ACTIVITY_CATEGORY.PROFILE,
+            type: 'profile_change',
+            source_key: `customer:${customer._id}:profile:${Date.now()}`,
+            title: `Profildaten geändert: ${changedLabels.join(', ')}`,
+        });
+    }
+    if (pipelineChanged) {
+        await recordActivityFromUser(req.user, {
+            studio: studioId,
+            customer: customer._id,
+            category: ACTIVITY_CATEGORY.STUDIO,
+            type: 'studio_action',
+            source_key: `customer:${customer._id}:pipeline:${Date.now()}`,
+            title: `Pipeline geändert: ${req.body.pipeline_stufe}`,
+        });
+    }
+    if (notesChanged) {
+        await recordActivityFromUser(req.user, {
+            studio: studioId,
+            customer: customer._id,
+            category: ACTIVITY_CATEGORY.STUDIO,
+            type: 'studio_action',
+            source_key: `customer:${customer._id}:notes:${Date.now()}`,
+            title: 'Interne Notizen aktualisiert',
+        });
+    }
 
     res.json({
         success: true,

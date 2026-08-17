@@ -203,7 +203,7 @@ const formatCase = (caseDoc, zones, role, options = {}) => {
         };
     }
 
-    if (isAdmin(role)) {
+    if (isAdmin(role) || isStudio(role)) {
         payload.activityLog = doc.activityLog;
     }
 

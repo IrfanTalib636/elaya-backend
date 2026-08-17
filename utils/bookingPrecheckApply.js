@@ -16,6 +16,7 @@ const {
     parseAktuellGleich,
     mergeRecoveryKoAnswers,
 } = require('../utils/bookingPrecheckEngine');
+const { formatApptStamp } = require('./activityLog');
 
 const collectClarificationFlags = (roteFragen = [], bookingPrecheck = {}) => {
     const koAnswers = bookingPrecheck.ko_answers || {};
@@ -250,11 +251,36 @@ const applyBookingPrecheckToCase = async (caseDoc, bookingPrecheck, options = {}
         caseDoc.activityLog.push(entry);
     }
 
+    const prevUv = caseDoc.uvBlockDate;
+    const prevMed = caseDoc.medicationBlockDate;
     caseDoc.uvBlockDate = mergeBlockDate(caseDoc.uvBlockDate, validation.block_dates.uvBlockDate);
     caseDoc.medicationBlockDate = mergeBlockDate(
         caseDoc.medicationBlockDate,
         validation.block_dates.medicationBlockDate
     );
+
+    const now = new Date();
+    if (
+        validation.block_dates.uvBlockDate &&
+        (!prevUv || new Date(caseDoc.uvBlockDate).getTime() !== new Date(prevUv).getTime())
+    ) {
+        caseDoc.activityLog.push({
+            type: 'lockout',
+            ts: now,
+            details: `Sperrfrist Sonne/UV bis ${formatApptStamp(caseDoc.uvBlockDate)}`,
+        });
+    }
+    if (
+        validation.block_dates.medicationBlockDate &&
+        (!prevMed ||
+            new Date(caseDoc.medicationBlockDate).getTime() !== new Date(prevMed).getTime())
+    ) {
+        caseDoc.activityLog.push({
+            type: 'lockout',
+            ts: now,
+            details: `Sperrfrist Medikamente bis ${formatApptStamp(caseDoc.medicationBlockDate)}`,
+        });
+    }
 
     await caseDoc.save();
 
