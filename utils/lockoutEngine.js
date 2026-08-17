@@ -486,6 +486,19 @@ const computeAvailability = async ({
         lockoutDisabled: activeCase ? isLockoutDisabled(activeCase) : false,
     });
 
+    let blockedDates = buildBlockedDates(from, to, sperren, fruehestes);
+    if (from && to && activeCase?.studio) {
+        const Studio = require('../models/studioModel');
+        const { collectClosedDates } = require('./studioHours');
+        const studio = await Studio.findById(activeCase.studio)
+            .select('oeffnungszeiten oeffnungs_ausnahmen')
+            .lean();
+        if (studio) {
+            const closed = collectClosedDates(studio, from, to);
+            blockedDates = [...new Set([...blockedDates, ...closed])].sort();
+        }
+    }
+
     return {
         case_id: activeCaseId.toString(),
         consultationOnly,
@@ -493,7 +506,7 @@ const computeAvailability = async ({
         fruehestes: toDateKey(fruehestes),
         sperren: sperren.map(serializeSperre),
         frei_fenster: frei_fenster.map(serializeFreeWindow),
-        blocked_dates: buildBlockedDates(from, to, sperren, fruehestes),
+        blocked_dates: blockedDates,
     };
 };
 
@@ -527,6 +540,19 @@ const assertBookingDateAllowed = async ({
     preSessionCheck = {},
 }) => {
     if (consultationOnly) {
+        const availability = await computeAvailability({
+            activeCaseId: caseId,
+            customerId,
+            consultationOnly: true,
+            preSessionCheck: {},
+            from: date,
+            to: date,
+        });
+        const dayKey = toDateKey(date);
+        if (availability.blocked_dates.includes(dayKey)) {
+            const ApiError = require('./ApiError');
+            throw new ApiError(400, 'Das Studio ist an diesem Tag geschlossen.');
+        }
         return;
     }
 

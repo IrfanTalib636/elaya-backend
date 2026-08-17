@@ -1,46 +1,107 @@
 const Anamnesis = require('../models/anamnesisModel');
 const Customer = require('../models/customerModel');
+const CrmTask = require('../models/crmTaskModel');
 const ApiError = require('../utils/ApiError');
+const { CRM_TASK_TYP, CRM_TASK_PRIORITAET } = require('../config/crmDefaults');
 const { computeAmpel, buildAnamnesisEvaluation } = require('../utils/anamnesisEngine');
 const {
+    KO_RECHECKS,
     validateBookingPrecheck,
     applyKoAnswerUpdates,
     buildWiederholungenEntries,
     buildStatuswechselEntries,
     mergeBlockDate,
     buildActivityEntries,
+    lookupWiederholung,
+    parseAktuellGleich,
 } = require('../utils/bookingPrecheckEngine');
 
-const HEALTH_KLAERUNG_NOTE =
-    'Kunde hat beim Kurz-Check angegeben, noch nicht vollständig genesen zu sein. Bitte vor dem Termin klären.';
-
-const isStillUnwell = (bookingPrecheck = {}) => {
+const collectClarificationFlags = (roteFragen = [], bookingPrecheck = {}) => {
     const koAnswers = bookingPrecheck.ko_answers || {};
-    if (koAnswers.akute_erkrankung === 'still') return true;
     const wiederholungen = bookingPrecheck.wiederholungen || {};
-    return (
-        wiederholungen.akute_erkrankung?.aktuell_gleich === true ||
-        wiederholungen['3']?.aktuell_gleich === true
-    );
+    const flags = [];
+    const seen = new Set();
+
+    const pushFlag = (flag) => {
+        const key = flag.frage_key || String(flag.frage_nr);
+        if (!key || seen.has(key)) return;
+        seen.add(key);
+        flags.push(flag);
+    };
+
+    for (const f of roteFragen) {
+        const parsed = parseAktuellGleich(lookupWiederholung(wiederholungen, f));
+        if (parsed.ok && parsed.value === true) {
+            pushFlag({
+                frage_nr: f.frage_nr,
+                frage_key: f.frage_key,
+                frage_text: f.frage_text,
+            });
+        }
+    }
+
+    for (const def of KO_RECHECKS) {
+        if (def.permanent || koAnswers[def.frage_key] !== 'still') continue;
+        pushFlag({
+            frage_nr: def.frage_nr,
+            frage_key: def.frage_key,
+            frage_text: def.frage_text,
+        });
+    }
+
+    return flags;
 };
 
-const flagHealthForStudioReview = (anamnesis, caseDoc) => {
+const flagConditionsForStudioReview = (anamnesis, caseDoc, flags = []) => {
+    if (!flags.length) return;
     if (!anamnesis.klaerung || typeof anamnesis.klaerung !== 'object') {
         anamnesis.klaerung = {};
     }
-    anamnesis.klaerung.F3 = {
-        status: 'in_klaerung',
-        notiz: HEALTH_KLAERUNG_NOTE,
-        datum: new Date(),
-        frage_key: 'akute_erkrankung',
-    };
+
+    const now = new Date();
+    for (const flag of flags) {
+        if (flag.frage_nr == null) continue;
+        const key = `F${flag.frage_nr}`;
+        anamnesis.klaerung[key] = {
+            status: 'in_klaerung',
+            notiz:
+                `Kunde hat beim Kurz-Check bestätigt: ${flag.frage_text} besteht weiterhin. ` +
+                'Bitte vor dem Termin klären — die Behandlung ist nicht automatisch ausgeschlossen.',
+            datum: now,
+            frage_key: flag.frage_key,
+        };
+    }
     anamnesis.markModified('klaerung');
 
+    const labels = flags.map((f) => f.frage_text).filter(Boolean).join(', ');
     caseDoc.activityLog.push({
         type: 'klaerung_update',
-        details:
-            'Kurz-Check: Kunde noch nicht genesen — Studio-Klärung erforderlich (Flag F3).',
-        ts: new Date(),
+        details: `Kurz-Check: Studio-Klärung erforderlich (${labels}). Kunde hat trotzdem gebucht.`,
+        ts: now,
+    });
+};
+
+const notifyStudioForClarification = async (caseDoc, flags = []) => {
+    if (!flags.length || !caseDoc.studio || !caseDoc.customer) return;
+
+    const labels = flags.map((f) => f.frage_text).filter(Boolean).join(', ');
+    const titel = `Medizinische Klärung vor Termin: ${labels || 'Anamnese-Flag'}`;
+
+    const existing = await CrmTask.findOne({
+        studio: caseDoc.studio,
+        customer: caseDoc.customer,
+        erledigt: false,
+        titel,
+    }).lean();
+    if (existing) return;
+
+    await CrmTask.create({
+        studio: caseDoc.studio,
+        customer: caseDoc.customer,
+        titel,
+        typ: CRM_TASK_TYP.ANRUF,
+        prioritaet: CRM_TASK_PRIORITAET.HOCH,
+        faellig_am: new Date(),
     });
 };
 
@@ -124,7 +185,7 @@ const applyBookingPrecheckToCase = async (caseDoc, bookingPrecheck, options = {}
         return { preSessionCheck: {}, applied: false };
     }
 
-    let anamnesis = await Anamnesis.findOne({ case: caseDoc._id });
+    const anamnesis = await Anamnesis.findOne({ case: caseDoc._id });
     if (!anamnesis) {
         throw new ApiError(400, 'Anamnesis must be completed before booking a treatment');
     }
@@ -154,8 +215,9 @@ const applyBookingPrecheckToCase = async (caseDoc, bookingPrecheck, options = {}
     const ampel = computeAmpel(anamnesis.antworten || {});
     await syncAnamnesisAfterPrecheck(caseDoc, anamnesis, bookingPrecheck, customerName);
 
-    if (isStillUnwell(bookingPrecheck)) {
-        flagHealthForStudioReview(anamnesis, caseDoc);
+    const clarificationFlags = collectClarificationFlags(ampel.rote_fragen, bookingPrecheck);
+    if (clarificationFlags.length) {
+        flagConditionsForStudioReview(anamnesis, caseDoc, clarificationFlags);
         await anamnesis.save();
         const evaluation = buildAnamnesisEvaluation(
             anamnesis.antworten || {},
@@ -163,6 +225,11 @@ const applyBookingPrecheckToCase = async (caseDoc, bookingPrecheck, options = {}
         );
         caseDoc.medical_flag_level = evaluation.ampel_status;
         caseDoc.open_medical_flags_count = evaluation.open_medical_flags_count;
+        try {
+            await notifyStudioForClarification(caseDoc, clarificationFlags);
+        } catch (err) {
+            console.error('Studio clarification CRM task failed:', err.message);
+        }
     }
 
     const activityEntries = buildActivityEntries(ampel.rote_fragen, wiederholungen, koAnswers);
@@ -182,6 +249,7 @@ const applyBookingPrecheckToCase = async (caseDoc, bookingPrecheck, options = {}
         preSessionCheck: validation.pre_session_check,
         applied: true,
         block_dates: validation.block_dates,
+        warnings: validation.warnings,
     };
 };
 

@@ -26,6 +26,19 @@ const oeffnungszeitenSchema = z
     .partial()
     .optional();
 
+const oeffnungsAusnahmeSchema = z
+    .object({
+        datum: z
+            .string()
+            .trim()
+            .regex(/^\d{4}-\d{2}-\d{2}$/, 'datum must be YYYY-MM-DD'),
+        offen: z.boolean().optional(),
+        von: timeSchema.optional(),
+        bis: timeSchema.optional(),
+        notiz: z.string().trim().max(200).optional(),
+    })
+    .strict();
+
 const behandlungsraumSchema = z
     .object({
         id: z.string().trim().optional(),
@@ -72,6 +85,7 @@ const patchStudioSettingsSchema = z
     .object({
         profile: patchStudioProfileSchema.optional(),
         oeffnungszeiten: oeffnungszeitenSchema,
+        oeffnungs_ausnahmen: z.array(oeffnungsAusnahmeSchema).optional(),
         behandlungsraeume: z.array(behandlungsraumSchema).optional(),
         mitarbeiter: z.array(mitarbeiterSchema).optional(),
         pufferzeit_minuten: z.number().int().min(0).max(120).optional(),
@@ -81,6 +95,7 @@ const patchStudioSettingsSchema = z
         (body) =>
             body.profile !== undefined ||
             body.oeffnungszeiten !== undefined ||
+            body.oeffnungs_ausnahmen !== undefined ||
             body.behandlungsraeume !== undefined ||
             body.mitarbeiter !== undefined ||
             body.pufferzeit_minuten !== undefined,

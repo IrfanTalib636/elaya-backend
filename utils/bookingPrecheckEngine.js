@@ -87,37 +87,20 @@ const UV_OPTIONS = [
     { value: 'intensiv', label_de: 'Intensiv', label_en: 'Intense', lock_days: UV_INTENSE_DAYS },
 ];
 
+const CLARIFICATION_MESSAGE = {
+    code: 'studio_clarification_required',
+    message_de:
+        'Medizinische Abklärung durch das Studio ist erforderlich. Du kannst den Termin trotzdem buchen — das Studio kontaktiert dich vor der Behandlung und trifft die endgültige Entscheidung.',
+    message_en:
+        'Medical/studio clarification is required. You can still book — the studio will contact you before treatment and make the final decision.',
+};
+
 const BLOCK_MESSAGES = {
     mindestalter_18: {
         code: 'ko_permanent',
         message_de: 'Die Behandlung ist erst ab 18 Jahren möglich. Bitte kontaktiere das Studio.',
     },
-    schwanger_still: {
-        code: 'ko_still_active',
-        message_de: 'Während Schwangerschaft oder Stillzeit ist eine Behandlung nicht möglich.',
-    },
-    akute_erkrankung_still: {
-        code: 'health_not_recovered',
-        message_de:
-            'Du kannst die Buchung fortsetzen. Das Studio kontaktiert dich vor dem Termin, um deinen Gesundheitszustand zu klären. Die Behandlung kann verschoben werden, wenn du noch nicht genesen bist.',
-        message_en:
-            'You can continue with the booking. The studio will contact you before the appointment to clarify your current health condition. Treatment may need to be postponed if you are still unwell.',
-    },
-    alkohol_drogen_still: {
-        code: 'ko_still_active',
-        message_de: 'Unter diesem Einfluss ist eine Behandlung nicht möglich.',
-    },
-    urteilsfaehig_still: {
-        code: 'ko_still_active',
-        message_de: 'Für eine Behandlung benötigen wir deine freiwillige Zustimmung.',
-    },
-    akute_erkrankung_wiederholung: {
-        code: 'health_not_recovered',
-        message_de:
-            'Du kannst die Buchung fortsetzen. Das Studio kontaktiert dich vor dem Termin, um deinen Gesundheitszustand zu klären. Die Behandlung kann verschoben werden, wenn du noch nicht genesen bist.',
-        message_en:
-            'You can continue with the booking. The studio will contact you before the appointment to clarify your current health condition. Treatment may need to be postponed if you are still unwell.',
-    },
+    studio_clarification: CLARIFICATION_MESSAGE,
     pre_session_incomplete: {
         code: 'pre_session_incomplete',
         message_de: 'Bitte beantworte alle Pflichtfragen im Kurz-Check.',
@@ -135,6 +118,50 @@ const BLOCK_MESSAGES = {
         message_de: 'Bitte schliesse zuerst die medizinische Anamnese ab.',
     },
 };
+
+const lookupWiederholung = (wiederholungen = {}, frage = {}) => {
+    if (!wiederholungen || typeof wiederholungen !== 'object') return null;
+    const candidates = [
+        frage.frage_key,
+        frage.frage_key != null ? String(frage.frage_key) : null,
+        frage.frage_nr != null ? String(frage.frage_nr) : null,
+        frage.frage_nr,
+        frage.frage_nr != null ? `F${frage.frage_nr}` : null,
+    ].filter((key) => key !== null && key !== undefined && key !== '');
+
+    for (const key of candidates) {
+        if (wiederholungen[key] != null) return wiederholungen[key];
+    }
+
+    const lower = String(frage.frage_key || '').toLowerCase();
+    if (lower) {
+        for (const [key, value] of Object.entries(wiederholungen)) {
+            if (String(key).toLowerCase() === lower) return value;
+        }
+    }
+    return null;
+};
+
+const parseAktuellGleich = (ans) => {
+    if (ans == null || typeof ans !== 'object') return { ok: false, value: null, aenderung: '' };
+    const raw = ans.aktuell_gleich;
+    if (typeof raw === 'boolean') {
+        return { ok: true, value: raw, aenderung: ans.aenderung || '' };
+    }
+    if (raw === 1 || raw === '1' || raw === 'true' || raw === 'yes' || raw === 'ja') {
+        return { ok: true, value: true, aenderung: ans.aenderung || '' };
+    }
+    if (raw === 0 || raw === '0' || raw === 'false' || raw === 'no' || raw === 'nein') {
+        return { ok: true, value: false, aenderung: ans.aenderung || '' };
+    }
+    return { ok: false, value: null, aenderung: ans.aenderung || '' };
+};
+
+const clarificationWarning = (frageKey, frageText) => ({
+    ...CLARIFICATION_MESSAGE,
+    frage_key: frageKey || null,
+    frage_text: frageText || '',
+});
 
 const buildKoRechecks = (answers = {}) =>
     KO_RECHECKS.filter((def) => def.trigger(answers)).map((def) => ({
@@ -383,40 +410,28 @@ const validateBookingPrecheck = ({
             continue;
         }
         if (ans === 'still') {
-            if (ko.frage_key === 'akute_erkrankung') {
-                warnings.push({
-                    ...BLOCK_MESSAGES.akute_erkrankung_still,
-                    frage_key: ko.frage_key,
-                });
-                continue;
-            }
-            const msgKey = `${ko.frage_key}_still`;
-            blocks.push({
-                ...(BLOCK_MESSAGES[msgKey] || BLOCK_MESSAGES.ko_still_active),
-                frage_key: ko.frage_key,
-            });
+            // Condition still present → warn, never block. Studio decides after contact.
+            warnings.push(clarificationWarning(ko.frage_key, ko.frage_text));
         }
     }
 
+    const unansweredRechecks = [];
     for (const f of roteFragen) {
-        const ans =
-            wiederholungen[f.frage_key] ??
-            wiederholungen[String(f.frage_nr)] ??
-            wiederholungen[f.frage_nr];
-        if (!ans || typeof ans.aktuell_gleich !== 'boolean') {
-            blocks.push({ ...BLOCK_MESSAGES.wiederholungen_incomplete, frage_key: f.frage_key });
+        const parsed = parseAktuellGleich(lookupWiederholung(wiederholungen, f));
+        if (!parsed.ok) {
+            unansweredRechecks.push(f);
             continue;
         }
-        if (f.frage_key === 'akute_erkrankung' && ans.aktuell_gleich === true) {
-            warnings.push({
-                ...BLOCK_MESSAGES.akute_erkrankung_wiederholung,
-                frage_key: f.frage_key,
-            });
+        if (parsed.value === true) {
+            warnings.push(clarificationWarning(f.frage_key, f.frage_text));
         }
     }
 
-    if (roteFragen.length > 0 && !wiederholungenConfirmed) {
-        blocks.push({ ...BLOCK_MESSAGES.wiederholungen_incomplete, frage_key: null });
+    if (unansweredRechecks.length > 0) {
+        blocks.push({
+            ...BLOCK_MESSAGES.wiederholungen_incomplete,
+            frage_key: unansweredRechecks[0].frage_key,
+        });
     }
 
     const changedKoKeys = KO_RECHECKS.filter(
@@ -433,11 +448,28 @@ const validateBookingPrecheck = ({
     const lockouts = summarizePreSessionLockouts(preSession);
     const uniqueWarnings = [];
     const seen = new Set();
+    const clarificationLabels = [];
     for (const warning of warnings) {
+        if (warning.code === CLARIFICATION_MESSAGE.code) {
+            if (warning.frage_text && !clarificationLabels.includes(warning.frage_text)) {
+                clarificationLabels.push(warning.frage_text);
+            }
+            continue;
+        }
         const key = `${warning.code}:${warning.frage_key || ''}`;
         if (seen.has(key)) continue;
         seen.add(key);
         uniqueWarnings.push(warning);
+    }
+    if (clarificationLabels.length) {
+        const prefix = `${clarificationLabels.join(', ')}: `;
+        uniqueWarnings.unshift({
+            ...CLARIFICATION_MESSAGE,
+            frage_key: null,
+            conditions: clarificationLabels,
+            message_de: `${prefix}${CLARIFICATION_MESSAGE.message_de}`,
+            message_en: `${prefix}${CLARIFICATION_MESSAGE.message_en}`,
+        });
     }
 
     return {
@@ -468,18 +500,15 @@ const buildWiederholungenEntries = (roteFragen, wiederholungen, koAnswers, answe
     const now = new Date().toISOString();
 
     for (const f of roteFragen) {
-        const ans =
-            wiederholungen[f.frage_key] ??
-            wiederholungen[String(f.frage_nr)] ??
-            wiederholungen[f.frage_nr];
-        if (!ans) continue;
+        const parsed = parseAktuellGleich(lookupWiederholung(wiederholungen, f));
+        if (!parsed.ok) continue;
         entries.push({
             frage_nr: f.frage_nr,
             frage_key: f.frage_key,
             frage_text: f.frage_text,
             original_antwort: f.antwort,
-            aktuell_gleich: ans.aktuell_gleich,
-            aenderung: ans.aenderung || '',
+            aktuell_gleich: parsed.value,
+            aenderung: parsed.aenderung || '',
             datum: now,
         });
     }
@@ -545,14 +574,11 @@ const buildActivityEntries = (roteFragen, wiederholungen, koAnswers) => {
     const now = new Date();
 
     for (const f of roteFragen) {
-        const ans =
-            wiederholungen[f.frage_key] ??
-            wiederholungen[String(f.frage_nr)] ??
-            wiederholungen[f.frage_nr];
-        if (!ans) continue;
+        const parsed = parseAktuellGleich(lookupWiederholung(wiederholungen, f));
+        if (!parsed.ok) continue;
         entries.push({
             type: 'rueckfrage_beantwortet',
-            details: `Rückfrage: ${f.frage_text} → ${ans.aktuell_gleich ? 'Ja, stimmt noch' : 'Nein, hat sich geändert'}`,
+            details: `Rückfrage: ${f.frage_text} → ${parsed.value ? 'Ja, stimmt noch' : 'Nein, hat sich geändert'}`,
             ts: now,
         });
     }
@@ -588,4 +614,7 @@ module.exports = {
     mergeBlockDate,
     buildActivityEntries,
     computeAvailability,
+    lookupWiederholung,
+    parseAktuellGleich,
+    CLARIFICATION_MESSAGE,
 };

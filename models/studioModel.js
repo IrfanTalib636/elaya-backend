@@ -135,6 +135,20 @@ const studioSchema = new mongoose.Schema(
             type: mongoose.Schema.Types.Mixed,
             default: () => ({ ...DEFAULT_OEFFNUNGSZEITEN }),
         },
+        /** Date-specific overrides: extra open days or closed days (holidays). */
+        oeffnungs_ausnahmen: {
+            type: [
+                {
+                    datum: { type: String, required: true, trim: true },
+                    offen: { type: Boolean, default: true },
+                    von: { type: String, default: '10:00', trim: true },
+                    bis: { type: String, default: '19:00', trim: true },
+                    notiz: { type: String, default: '', trim: true },
+                    _id: false,
+                },
+            ],
+            default: [],
+        },
         /** Treatment rooms for calendar + sessions */
         behandlungsraeume: {
             type: [behandlungsraumSchema],

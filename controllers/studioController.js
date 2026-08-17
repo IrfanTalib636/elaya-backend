@@ -6,6 +6,7 @@ const User = require('../models/userModel');
 const { USER_ROLES, USER_STATUS, STUDIO_STATUS } = require('../config/constants');
 const { isAdmin, isStudio } = require('../utils/accessHelpers');
 const { mergeOeffnungszeiten } = require('../config/studioDefaults');
+const { normalizeAusnahmen } = require('../utils/studioHours');
 const { parsePagination, buildPaginationMeta } = require('../utils/pagination');
 
 const PROFILE_FIELDS = ['firma', 'telefon', 'strasse', 'plz', 'ort', 'land', 'notizen'];
@@ -53,6 +54,7 @@ const formatStudioSettings = (studio) => {
             notizen: doc.notizen ?? '',
         },
         oeffnungszeiten: mergeOeffnungszeiten(doc.oeffnungszeiten),
+        oeffnungs_ausnahmen: normalizeAusnahmen(doc.oeffnungs_ausnahmen),
         behandlungsraeume: (doc.behandlungsraeume ?? []).map(formatRaum),
         mitarbeiter: (doc.mitarbeiter ?? []).map(formatMitarbeiter),
         pufferzeit_minuten: doc.pufferzeit_minuten ?? 10,
@@ -157,8 +159,14 @@ const patchStudioSettings = asyncHandler(async (req, res) => {
         throw new ApiError(403, 'Only studio admins can update studio settings');
     }
 
-    const { profile, oeffnungszeiten, behandlungsraeume, mitarbeiter, pufferzeit_minuten } =
-        req.body;
+    const {
+        profile,
+        oeffnungszeiten,
+        oeffnungs_ausnahmen,
+        behandlungsraeume,
+        mitarbeiter,
+        pufferzeit_minuten,
+    } = req.body;
 
     if (profile) {
         applyProfilePatch(studio, profile);
@@ -166,6 +174,11 @@ const patchStudioSettings = asyncHandler(async (req, res) => {
 
     if (oeffnungszeiten) {
         applyOeffnungszeitenPatch(studio, oeffnungszeiten);
+    }
+
+    if (oeffnungs_ausnahmen !== undefined) {
+        studio.oeffnungs_ausnahmen = normalizeAusnahmen(oeffnungs_ausnahmen);
+        studio.markModified('oeffnungs_ausnahmen');
     }
 
     if (behandlungsraeume !== undefined) {
