@@ -9,6 +9,7 @@ const { applyKurzfristigeStornierungMalusIfNeeded } = require('../utils/elaycoin
 const { applyBookingPrecheckToCase } = require('../utils/bookingPrecheckApply');
 const { parsePagination, buildPaginationMeta } = require('../utils/pagination');
 const { syncCustomerPipeline } = require('../utils/pipelineEngine');
+const { formatApptStamp } = require('../utils/activityLog');
 const {
     USER_ROLES,
     APPOINTMENT_TYPE,
@@ -380,6 +381,7 @@ const updateAppointment = asyncHandler(async (req, res) => {
     }
 
     const previousDate = appointment.date;
+    const previousTime = appointment.time;
     const wasCancelled =
         appointment.status === APPOINTMENT_STATUS.STORNIERT ||
         appointment.status === APPOINTMENT_STATUS.CANCELLED;
@@ -449,12 +451,16 @@ const updateAppointment = asyncHandler(async (req, res) => {
             req.body.status === APPOINTMENT_STATUS.STORNIERT ||
             req.body.status === APPOINTMENT_STATUS.CANCELLED
         ) {
-            await appendCaseActivity(caseDoc, 'cancelled', appointment.time);
+            await appendCaseActivity(
+                caseDoc,
+                'cancelled',
+                formatApptStamp(appointment.date, appointment.time)
+            );
         } else if (req.body.date && new Date(req.body.date).getTime() !== new Date(previousDate).getTime()) {
             await appendCaseActivity(
                 caseDoc,
                 'rescheduled',
-                `${appointment.time} · ${appointment.month}`
+                `${formatApptStamp(previousDate, previousTime)} → ${formatApptStamp(appointment.date, appointment.time)}`
             );
         }
     }

@@ -3,6 +3,7 @@ const { z } = require('zod');
 const jaNein = z.enum(['ja', 'nein']);
 const jaNeinUnsicher = z.enum(['ja', 'nein', 'unsicher']);
 const diabetesEnum = z.enum(['nein', 'typ1', 'typ2', 'unbekannt']);
+const objectId = z.string().regex(/^[a-f\d]{24}$/i);
 
 const anamnesisAnswersSchema = z.object({
     hauterkrankungen: z.array(z.string()).min(1, 'hauterkrankungen is required'),
@@ -34,9 +35,36 @@ const anamnesisAnswersSchema = z.object({
     mitarbeiter: z.string().optional(),
 });
 
-const upsertAnamnesisSchema = z.object({
-    antworten: anamnesisAnswersSchema,
+const bestaetigungSchema = z.object({
+    unterschrift_data: z.string().trim().min(40, 'signature is required'),
+    name: z.string().trim().max(120).optional().default(''),
 });
+
+const upsertAnamnesisSchema = z
+    .object({
+        antworten: anamnesisAnswersSchema.optional(),
+        reuse_previous: z.boolean().optional().default(false),
+        gesundheit_unveraendert: z.boolean().optional(),
+        previous_case_id: objectId.optional(),
+        bestaetigung: bestaetigungSchema.optional(),
+    })
+    .superRefine((value, ctx) => {
+        const unchanged = value.reuse_previous && value.gesundheit_unveraendert === true;
+        if (!unchanged && !value.antworten) {
+            ctx.addIssue({
+                code: z.ZodIssueCode.custom,
+                message: 'antworten is required unless confirming an unchanged previous check',
+                path: ['antworten'],
+            });
+        }
+        if ((value.reuse_previous || value.gesundheit_unveraendert === false) && !value.bestaetigung) {
+            ctx.addIssue({
+                code: z.ZodIssueCode.custom,
+                message: 'signature confirmation is required when reusing or updating a previous medical check',
+                path: ['bestaetigung'],
+            });
+        }
+    });
 
 const previewAnamnesisSchema = z.object({
     antworten: anamnesisAnswersSchema.partial().optional().default({}),

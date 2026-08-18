@@ -9,6 +9,8 @@ const {
     buildAnamnesisEvaluation,
     isAnamnesisComplete,
     KLAERUNG_STATUS,
+    formatAnamnesisAnswerRows,
+    diffAnamnesisAnswers,
 } = require('../utils/anamnesisEngine');
 const { vergebeElaycoins } = require('../utils/elaycoinEngine');
 const { STUDIO_FREIGABE_STATUS } = require('../config/constants');
@@ -24,10 +26,40 @@ const FREIGABE_CHAT_ABGELEHNT =
 
 const staffLabel = (user) => user?.email || 'Studio';
 
-const formatAnamnesis = (doc, caseDoc = null) => {
+const caseLabelOf = (caseDoc) =>
+    caseDoc?.bodyLabel || caseDoc?.tc_title || caseDoc?.caseId || '';
+
+const stripSignature = (entry) => {
+    if (!entry) return entry;
+    const copy = { ...entry };
+    if (copy.bestaetigung) {
+        copy.bestaetigung = {
+            ...copy.bestaetigung,
+            unterschrift_data: copy.bestaetigung.unterschrift_data ? '[stored]' : '',
+            hat_unterschrift: Boolean(copy.bestaetigung.unterschrift_data),
+        };
+    }
+    return copy;
+};
+
+const formatHistoryEntry = (entry, includeSignature) => {
+    const raw = entry.toObject ? entry.toObject() : { ...entry };
+    const formatted = includeSignature ? raw : stripSignature(raw);
+    return {
+        ...formatted,
+        answer_rows: formatted.antworten_snapshot
+            ? formatAnamnesisAnswerRows(formatted.antworten_snapshot)
+            : undefined,
+    };
+};
+
+const formatAnamnesis = (doc, caseDoc = null, { includeSignatures = false } = {}) => {
     const payload = doc.toObject ? doc.toObject() : { ...doc };
     const klaerung = payload.klaerung || {};
     const evaluation = buildAnamnesisEvaluation(payload.antworten || {}, klaerung);
+    const history = (payload.medical_history || []).map((entry) =>
+        formatHistoryEntry(entry, includeSignatures)
+    );
 
     return {
         id: payload._id,
@@ -42,14 +74,100 @@ const formatAnamnesis = (doc, caseDoc = null) => {
         summary: evaluation.summary,
         open_medical_flags_count: evaluation.open_medical_flags_count,
         antworten: payload.antworten,
+        answer_rows: formatAnamnesisAnswerRows(payload.antworten || {}),
         wiederholungen: payload.wiederholungen,
         statuswechsel: payload.statuswechsel,
+        medical_history: history,
         klaerung,
         audit_log: payload.audit_log || [],
         filled: evaluation.filled,
         createdAt: payload.createdAt,
         updatedAt: payload.updatedAt,
     };
+};
+
+const findPreviousAnamnesis = async (customerId, excludeCaseId) => {
+    const otherCases = await Case.find({
+        customer: customerId,
+        _id: { $ne: excludeCaseId },
+        anamnesis_complete: true,
+    })
+        .select('_id caseId bodyLabel tc_title')
+        .sort({ updatedAt: -1 })
+        .limit(20)
+        .lean();
+
+    if (!otherCases.length) return null;
+
+    const anamnesis = await Anamnesis.findOne({
+        case: { $in: otherCases.map((c) => c._id) },
+    })
+        .sort({ updatedAt: -1 })
+        .lean();
+
+    if (!anamnesis || !isAnamnesisComplete(anamnesis.antworten || {})) return null;
+
+    const sourceCase = otherCases.find((c) => String(c._id) === String(anamnesis.case));
+    return {
+        case_id: String(anamnesis.case),
+        case_label: caseLabelOf(sourceCase),
+        case_code: sourceCase?.caseId || '',
+        filled_at: anamnesis.antworten?.zeitstempel || anamnesis.updatedAt,
+        antworten: anamnesis.antworten,
+        answer_rows: formatAnamnesisAnswerRows(anamnesis.antworten || {}),
+    };
+};
+
+const buildCustomerMedicalTimeline = async (customerId, { includeSignatures = false } = {}) => {
+    const cases = await Case.find({ customer: customerId })
+        .select('_id caseId bodyLabel tc_title')
+        .lean();
+    if (!cases.length) return [];
+
+    const byId = new Map(cases.map((c) => [String(c._id), c]));
+    const docs = await Anamnesis.find({ case: { $in: cases.map((c) => c._id) } })
+        .select('case antworten medical_history audit_log createdAt')
+        .lean();
+
+    const events = [];
+    for (const doc of docs) {
+        const source = byId.get(String(doc.case));
+        const label = caseLabelOf(source);
+        const history = Array.isArray(doc.medical_history) ? doc.medical_history : [];
+        if (history.length) {
+            for (const entry of history) {
+                events.push({
+                    ...formatHistoryEntry(entry, includeSignatures),
+                    case_id: String(doc.case),
+                    case_label: label,
+                    case_code: source?.caseId || '',
+                });
+            }
+        } else if (doc.antworten?.zeitstempel) {
+            events.push({
+                typ: 'submitted',
+                zeitstempel: doc.antworten.zeitstempel,
+                details: 'Anamnese eingereicht',
+                case_id: String(doc.case),
+                case_label: label,
+                case_code: source?.caseId || '',
+                hat_unterschrift: false,
+            });
+        }
+    }
+
+    events.sort((a, b) => new Date(b.zeitstempel || 0) - new Date(a.zeitstempel || 0));
+    return events;
+};
+
+const sanitizeCopiedAnswers = (answers = {}) => {
+    const {
+        zeitstempel,
+        ausgefuellt_im_studio,
+        mitarbeiter,
+        ...rest
+    } = answers;
+    return rest;
 };
 
 const appendAudit = (anamnesis, entry) => {
@@ -151,6 +269,7 @@ const getCaseAnamnesis = asyncHandler(async (req, res) => {
 
     await assertCaseAccess(req.user, caseDoc);
 
+    const includeSignatures = isStudio(req.user.role) || isAdmin(req.user.role);
     let anamnesis = await Anamnesis.findOne({ case: caseDoc._id });
 
     if (anamnesis) {
@@ -158,9 +277,27 @@ const getCaseAnamnesis = asyncHandler(async (req, res) => {
         anamnesis = await Anamnesis.findById(anamnesis._id);
     }
 
+    const [previous_anamnesis, customer_medical_timeline] = await Promise.all([
+        findPreviousAnamnesis(caseDoc.customer, caseDoc._id),
+        buildCustomerMedicalTimeline(caseDoc.customer, { includeSignatures }),
+    ]);
+
+    const payload = anamnesis
+        ? formatAnamnesis(anamnesis, caseDoc, { includeSignatures })
+        : {
+              filled: false,
+              antworten: null,
+              answer_rows: [],
+              medical_history: [],
+          };
+
     res.status(200).json({
         success: true,
-        data: anamnesis ? formatAnamnesis(anamnesis, caseDoc) : null,
+        data: {
+            ...payload,
+            previous_anamnesis: payload.filled ? null : previous_anamnesis,
+            customer_medical_timeline,
+        },
     });
 });
 
@@ -191,7 +328,29 @@ const upsertCaseAnamnesis = asyncHandler(async (req, res) => {
 
     await assertCaseAccess(req.user, caseDoc);
 
-    const { antworten } = req.body;
+    const {
+        antworten: bodyAnswers,
+        reuse_previous = false,
+        gesundheit_unveraendert,
+        previous_case_id,
+        bestaetigung,
+    } = req.body;
+
+    const previous = await findPreviousAnamnesis(caseDoc.customer, caseDoc._id);
+    const confirmingUnchanged = reuse_previous && gesundheit_unveraendert === true;
+
+    let antworten = bodyAnswers;
+    if (confirmingUnchanged) {
+        const source =
+            previous_case_id && previous?.case_id === previous_case_id ? previous : previous;
+        if (!source?.antworten) {
+            throw new ApiError(400, 'No previous medical check found to confirm');
+        }
+        if (!bestaetigung?.unterschrift_data) {
+            throw new ApiError(400, 'Signature is required to confirm unchanged medical information');
+        }
+        antworten = sanitizeCopiedAnswers(source.antworten);
+    }
 
     if (!isAnamnesisComplete(antworten)) {
         throw new ApiError(400, 'All anamnesis questions must be answered');
@@ -199,6 +358,7 @@ const upsertCaseAnamnesis = asyncHandler(async (req, res) => {
 
     const { ampel_status, orange_keys, rote_keys } = computeAmpel(antworten);
     const now = new Date();
+    const includeSignatures = isStudio(req.user.role) || isAdmin(req.user.role);
 
     const enrichedAntworten = {
         ...antworten,
@@ -209,6 +369,44 @@ const upsertCaseAnamnesis = asyncHandler(async (req, res) => {
 
     let anamnesis = await Anamnesis.findOne({ case: caseDoc._id });
     const isNew = !anamnesis;
+    const baselineAnswers = anamnesis?.antworten || previous?.antworten;
+    const changes = baselineAnswers
+        ? diffAnamnesisAnswers(baselineAnswers, enrichedAntworten)
+        : [];
+
+    const historyTyp = confirmingUnchanged
+        ? 'confirmed_unchanged'
+        : !isNew || previous
+          ? 'updated'
+          : 'submitted';
+
+    const historyEntry = {
+        typ: historyTyp,
+        zeitstempel: now,
+        quelle_case_id: previous?.case_id || null,
+        quelle_case_label: previous?.case_label || '',
+        gesundheit_unveraendert: confirmingUnchanged,
+        aenderungen: confirmingUnchanged ? [] : changes,
+        details: confirmingUnchanged
+            ? 'Gesundheitszustand unverändert bestätigt'
+            : historyTyp === 'updated'
+              ? `Medizinische Angaben aktualisiert${changes.length ? ` (${changes.length} Änderung(en))` : ''}`
+              : 'Anamnese eingereicht',
+        antworten_snapshot: enrichedAntworten,
+        bestaetigung: bestaetigung
+            ? {
+                  name: bestaetigung.name || staffLabel(req.user),
+                  zeitstempel: now,
+                  unterschrift_data: bestaetigung.unterschrift_data,
+                  hat_unterschrift: true,
+                  text: confirmingUnchanged
+                      ? 'Ich bestätige, dass meine medizinischen Angaben unverändert und aktuell sind.'
+                      : 'Ich bestätige, dass die aktualisierten medizinischen Angaben korrekt sind.',
+              }
+            : null,
+        bearbeitet_von: staffLabel(req.user),
+        bearbeitet_von_id: req.user._id,
+    };
 
     if (isNew) {
         anamnesis = await Anamnesis.create({
@@ -218,10 +416,11 @@ const upsertCaseAnamnesis = asyncHandler(async (req, res) => {
             rote_fragen: rote_keys,
             antworten: enrichedAntworten,
             klaerung: {},
+            medical_history: [historyEntry],
             audit_log: [
                 {
-                    typ: 'anamnesis_submitted',
-                    details: 'Anamnese eingereicht',
+                    typ: confirmingUnchanged ? 'anamnesis_confirmed' : 'anamnesis_submitted',
+                    details: historyEntry.details,
                     bearbeitet_von: staffLabel(req.user),
                     bearbeitet_von_id: req.user._id,
                     zeitstempel: now,
@@ -258,13 +457,17 @@ const upsertCaseAnamnesis = asyncHandler(async (req, res) => {
 
         appendAudit(anamnesis, {
             typ: 'anamnesis_updated',
-            details: 'Anamnese aktualisiert (Antworten archiviert in wiederholungen)',
+            details: historyEntry.details,
             bearbeitet_von: staffLabel(req.user),
             bearbeitet_von_id: req.user._id,
             zeitstempel: now,
             ampel_status,
             previous_ampel: previousAmpel,
         });
+
+        if (!Array.isArray(anamnesis.medical_history)) anamnesis.medical_history = [];
+        anamnesis.medical_history.push(historyEntry);
+        anamnesis.markModified('medical_history');
 
         // Fresh answers → reset klaerung (new flags need new review)
         anamnesis.klaerung = {};
@@ -290,10 +493,16 @@ const upsertCaseAnamnesis = asyncHandler(async (req, res) => {
         { studio, studioOverrides: studio?.elaycoin_studio_cfg || {} }
     );
 
+    const timeline = await buildCustomerMedicalTimeline(caseDoc.customer, { includeSignatures });
+
     res.status(isNew ? 201 : 200).json({
         success: true,
         message: isNew ? 'Anamnesis created' : 'Anamnesis updated',
-        data: formatAnamnesis(responseDoc, caseDoc),
+        data: {
+            ...formatAnamnesis(responseDoc, caseDoc, { includeSignatures }),
+            previous_anamnesis: null,
+            customer_medical_timeline: timeline,
+        },
         case_flags: {
             medical_flag_level: caseDoc.medical_flag_level,
             open_medical_flags_count: caseDoc.open_medical_flags_count,

@@ -128,6 +128,7 @@ const formatEstimateConfirmation = (confirmation, role) => {
 
 const formatCase = (caseDoc, zones, role, options = {}) => {
     const doc = caseDoc.toObject ? caseDoc.toObject() : { ...caseDoc };
+    const prices = resolveDisplayedPrices(doc);
     const payload = {
         id: doc._id,
         caseId: doc.caseId,
@@ -180,10 +181,13 @@ const formatCase = (caseDoc, zones, role, options = {}) => {
         payload.signature_image_url = `/cases/${doc._id}/signature/image`;
     }
 
-    // AI "from" estimate — customer-visible per client requirement (§4d):
-    // the customer sees the calculated price + session range plus the studio
-    // confirmation state; the multiplier breakdown stays studio-internal.
-    payload.pricePerSession = doc.pricePerSession;
+    payload.pricePerSession = prices.pricePerSession;
+    payload.calculated_pricePerSession = prices.calculated_pricePerSession;
+    payload.calculated_sessionsMin = prices.calculated_sessionsMin;
+    payload.calculated_sessionsMax = prices.calculated_sessionsMax;
+    payload.confirmed_pricePerSession = prices.confirmed_pricePerSession;
+    payload.confirmed_sessionsMin = prices.confirmed_sessionsMin;
+    payload.confirmed_sessionsMax = prices.confirmed_sessionsMax;
     payload.estimate_confirmation = formatEstimateConfirmation(doc.estimate_confirmation, role);
 
     if (!isCustomer(role)) {
@@ -199,7 +203,7 @@ const formatCase = (caseDoc, zones, role, options = {}) => {
         };
     }
 
-    if (isAdmin(role)) {
+    if (isAdmin(role) || isStudio(role)) {
         payload.activityLog = doc.activityLog;
     }
 
@@ -345,6 +349,61 @@ const isEstimateConfirmed = (caseDoc) =>
         ESTIMATE_CONFIRMATION_STATUS.ANGEPASST,
     ].includes(caseDoc.estimate_confirmation?.status);
 
+const applyCalculatedPreview = (caseDoc, preview) => {
+    const price = preview.pricePerSession ?? 0;
+    const min = preview.sessions?.min ?? 0;
+    const max = preview.sessions?.max ?? 0;
+    const base = preview.sessions?.base ?? max;
+
+    caseDoc.calculated_pricePerSession = price;
+    caseDoc.calculated_sessionsMin = min;
+    caseDoc.calculated_sessionsMax = max;
+
+    if (!isEstimateConfirmed(caseDoc)) {
+        caseDoc.pricePerSession = price;
+        caseDoc.sessions = base;
+        caseDoc.sessionsMin = min;
+        caseDoc.sessionsMax = max;
+    }
+};
+
+const resolveDisplayedPrices = (doc) => {
+    const confirmed = isEstimateConfirmed(doc);
+    const calculatedPrice =
+        doc.calculated_pricePerSession > 0
+            ? doc.calculated_pricePerSession
+            : confirmed
+              ? null
+              : (doc.pricePerSession ?? null);
+    const confirmedPrice = confirmed
+        ? (doc.estimate_confirmation?.pricePerSession ?? doc.pricePerSession ?? null)
+        : null;
+
+    return {
+        calculated_pricePerSession: calculatedPrice,
+        calculated_sessionsMin:
+            doc.calculated_sessionsMin > 0
+                ? doc.calculated_sessionsMin
+                : confirmed
+                  ? null
+                  : (doc.sessionsMin ?? null),
+        calculated_sessionsMax:
+            doc.calculated_sessionsMax > 0
+                ? doc.calculated_sessionsMax
+                : confirmed
+                  ? null
+                  : (doc.sessionsMax ?? null),
+        confirmed_pricePerSession: confirmedPrice,
+        confirmed_sessionsMin: confirmed
+            ? (doc.estimate_confirmation?.sessionsMin ?? doc.sessionsMin ?? null)
+            : null,
+        confirmed_sessionsMax: confirmed
+            ? (doc.estimate_confirmation?.sessionsMax ?? doc.sessionsMax ?? null)
+            : null,
+        pricePerSession: confirmedPrice ?? calculatedPrice ?? doc.pricePerSession ?? null,
+    };
+};
+
 const touchesEstimateInput = (body) =>
     ESTIMATE_RELEVANT_FIELDS.some((field) => body[field] !== undefined) ||
     ESTIMATE_OUTPUT_FIELDS.some((field) => body[field] !== undefined);
@@ -355,10 +414,6 @@ const touchesEstimateInput = (body) =>
  * adjusted the estimate, the confirmed values win and are never overwritten.
  */
 const refreshCaseEstimate = async (caseDoc, zoneDocs = null) => {
-    if (isEstimateConfirmed(caseDoc)) {
-        return;
-    }
-
     const pricingInput = caseDoc.toObject ? caseDoc.toObject() : { ...caseDoc };
 
     if (caseDoc.zonen_aktiv) {
@@ -370,12 +425,7 @@ const refreshCaseEstimate = async (caseDoc, zoneDocs = null) => {
 
     const pricingOverrides = await getEffectivePricingOverrides(caseDoc.studio);
     const preview = calculateCasePreview(pricingInput, pricingOverrides);
-
-    caseDoc.pricePerSession = preview.pricePerSession ?? 0;
-    caseDoc.sessions = preview.sessions?.base ?? preview.sessions?.max ?? 0;
-    caseDoc.sessionsMin = preview.sessions?.min ?? 0;
-    caseDoc.sessionsMax = preview.sessions?.max ?? 0;
-
+    applyCalculatedPreview(caseDoc, preview);
     await caseDoc.save();
 };
 
@@ -555,6 +605,13 @@ const getCase = asyncHandler(async (req, res) => {
         : [];
 
     const viewerStudioId = isStudio(req.user.role) ? req.user.studio_id : null;
+    if (!(caseDoc.calculated_pricePerSession > 0)) {
+        try {
+            await refreshCaseEstimate(caseDoc, zones);
+        } catch (error) {
+            console.error('Calculated estimate snapshot failed:', error.message);
+        }
+    }
     const formatted = formatCase(caseDoc, zones, req.user.role, { viewerStudioId });
     if (access.transferiert) formatted.transferiert = true;
     if (access.read_only) formatted.read_only = true;
@@ -730,10 +787,13 @@ const getCasePricing = asyncHandler(async (req, res) => {
         caseDoc.estimate_confirmation,
         req.user.role
     );
+    const prices = resolveDisplayedPrices(caseDoc);
     payload.persisted = {
-        pricePerSession: caseDoc.pricePerSession,
+        pricePerSession: prices.pricePerSession,
         sessionsMin: caseDoc.sessionsMin,
         sessionsMax: caseDoc.sessionsMax,
+        calculated_pricePerSession: prices.calculated_pricePerSession,
+        confirmed_pricePerSession: prices.confirmed_pricePerSession,
     };
 
     res.status(200).json({
@@ -792,7 +852,7 @@ const updateEstimateConfirmation = asyncHandler(async (req, res) => {
                     caseDoc.estimate_confirmation,
                     req.user.role
                 ),
-                pricePerSession: caseDoc.pricePerSession,
+                ...resolveDisplayedPrices(caseDoc),
                 sessionsMin: caseDoc.sessionsMin,
                 sessionsMax: caseDoc.sessionsMax,
             },
@@ -812,6 +872,12 @@ const updateEstimateConfirmation = asyncHandler(async (req, res) => {
     }
     if (confirmedMin > confirmedMax) {
         throw new ApiError(400, 'sessionsMin must not exceed sessionsMax');
+    }
+
+    if (!(caseDoc.calculated_pricePerSession > 0)) {
+        caseDoc.calculated_pricePerSession = caseDoc.pricePerSession ?? 0;
+        caseDoc.calculated_sessionsMin = caseDoc.sessionsMin ?? 0;
+        caseDoc.calculated_sessionsMax = caseDoc.sessionsMax ?? 0;
     }
 
     caseDoc.estimate_confirmation = {
@@ -883,7 +949,7 @@ const updateEstimateConfirmation = asyncHandler(async (req, res) => {
                 caseDoc.estimate_confirmation,
                 req.user.role
             ),
-            pricePerSession: caseDoc.pricePerSession,
+            ...resolveDisplayedPrices(caseDoc),
             sessionsMin: caseDoc.sessionsMin,
             sessionsMax: caseDoc.sessionsMax,
             chat_notified: chatNotified,

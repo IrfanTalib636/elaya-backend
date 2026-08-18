@@ -30,7 +30,8 @@ const anamnesisSchema = new mongoose.Schema(
             type: mongoose.Schema.Types.Mixed,
             default: {},
         },
-        /** Append-only audit trail for klaerung / freigabe / status changes */
+        /** Chronological medical checks / confirmations / updates for this case */
+        medical_history: { type: [mongoose.Schema.Types.Mixed], default: [] },
         audit_log: { type: [mongoose.Schema.Types.Mixed], default: [] },
     },
     {

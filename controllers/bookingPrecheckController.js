@@ -69,6 +69,7 @@ const previewBookingPrecheck = asyncHandler(async (req, res) => {
         data: {
             can_proceed: result.can_proceed,
             blocks: result.blocks,
+            warnings: result.warnings,
             requires_ko_signature: result.requires_ko_signature,
             changed_ko_keys: result.changed_ko_keys,
             pre_session_check: result.pre_session_check,
@@ -76,6 +77,7 @@ const previewBookingPrecheck = asyncHandler(async (req, res) => {
                 uvBlockDate: result.block_dates.uvBlockDate,
                 medicationBlockDate: result.block_dates.medicationBlockDate,
             },
+            lockouts: result.lockouts,
             availability_hint: availabilityHint,
         },
     });

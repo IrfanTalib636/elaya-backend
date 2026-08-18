@@ -22,6 +22,7 @@ const {
     processFinalizedSessionElaycoins,
 } = require('../utils/elaycoinEngine');
 const { parsePagination, buildPaginationMeta } = require('../utils/pagination');
+const { APPOINTMENT_STATUS, APPOINTMENT_TYPE } = require('../config/constants');
 
 const CUSTOMER_SESSION_SELECT =
     'case customer studio session_number treatment_date treatment_time removal_pct verblassung_prozent verblassung_ki fortschritt_foto_file_id is_draft is_no_show zonen_id createdAt updatedAt';
@@ -59,7 +60,11 @@ const formatSession = (doc, role, options = {}) => {
         treatment_time: s.treatment_time,
         removal_pct: s.removal_pct,
         verblassung_prozent: s.verblassung_prozent,
-        verblassung_ki: formatVerblassungKiForRole(s.verblassung_ki, role),
+        verblassung_ki:
+            Number(s.session_number) < 2
+                ? null
+                : formatVerblassungKiForRole(s.verblassung_ki, role),
+        ki_analysis_available: Number(s.session_number) >= 2,
         fortschritt_foto_file_id: s.fortschritt_foto_file_id
             ? String(s.fortschritt_foto_file_id)
             : null,
@@ -127,6 +132,64 @@ const validateLinkedAppointment = async (appointmentId, caseDoc) => {
     return appointmentId;
 };
 
+const startOfDay = (date) => {
+    const d = new Date(date);
+    d.setHours(0, 0, 0, 0);
+    return d;
+};
+
+const isOpenTreatmentAppointment = (appointment) =>
+    appointment &&
+    appointment.status === APPOINTMENT_STATUS.GEBUCHT &&
+    !appointment.consultationOnly &&
+    appointment.type !== APPOINTMENT_TYPE.BERATUNG;
+
+/** Mark the matching booked treatment as completed so it is no longer "upcoming". */
+const markAppointmentCompletedForSession = async (session) => {
+    if (!session || session.is_draft) return;
+
+    const complete = async (appointmentId) => {
+        if (!appointmentId) return;
+        await Appointment.findByIdAndUpdate(appointmentId, {
+            status: APPOINTMENT_STATUS.COMPLETED,
+        });
+        if (!session.appointment || String(session.appointment) !== String(appointmentId)) {
+            session.appointment = appointmentId;
+            await session.save();
+        }
+    };
+
+    if (session.appointment) {
+        await complete(session.appointment);
+        return;
+    }
+
+    const open = await Appointment.find({
+        case: session.case,
+        status: APPOINTMENT_STATUS.GEBUCHT,
+    })
+        .sort({ date: 1 })
+        .select('_id date status consultationOnly type')
+        .lean();
+
+    const treatments = open.filter(isOpenTreatmentAppointment);
+    if (!treatments.length) return;
+
+    if (session.treatment_date) {
+        const sessionDay = startOfDay(session.treatment_date).getTime();
+        const sameDay = treatments.find(
+            (appointment) =>
+                appointment.date && startOfDay(appointment.date).getTime() === sessionDay
+        );
+        if (sameDay) {
+            await complete(sameDay._id);
+            return;
+        }
+    }
+
+    await complete(treatments[0]._id);
+};
+
 const createSession = asyncHandler(async (req, res) => {
     if (!canManageSessions(req.user.role)) {
         throw new ApiError(403, 'Only studio staff or admins can record sessions');
@@ -142,6 +205,14 @@ const createSession = asyncHandler(async (req, res) => {
     await assertCaseWriteAccess(req.user, caseDoc);
 
     const linkedAppointment = await validateLinkedAppointment(appointment_id, caseDoc);
+
+    if (linkedAppointment) {
+        const existing = await Session.findOne({ appointment: linkedAppointment }).select('_id').lean();
+        if (existing) {
+            throw new ApiError(400, 'Für diesen Termin wurde bereits eine Sitzung dokumentiert');
+        }
+    }
+
     const session_number = await getNextSessionNumber(caseDoc._id);
 
     const session = await Session.create({
@@ -158,6 +229,10 @@ const createSession = asyncHandler(async (req, res) => {
     if (!session.is_draft && !session.is_no_show) {
         await syncCaseSessionStats(caseDoc._id);
         await syncCustomerPipeline(caseDoc.customer);
+    }
+
+    if (!session.is_draft) {
+        await markAppointmentCompletedForSession(session);
     }
 
     if (!session.is_draft) {
@@ -310,6 +385,10 @@ const updateSession = asyncHandler(async (req, res) => {
     await session.save();
     await syncCaseSessionStats(session.case);
     await syncCustomerPipeline(session.customer);
+
+    if (!session.is_draft) {
+        await markAppointmentCompletedForSession(session);
+    }
 
     const caseDoc = await Case.findById(session.case);
     if (caseDoc) {

@@ -215,7 +215,7 @@ const optionalNullableDate = z.preprocess(
 const preSessionCheckSchema = z.object({
     uv_exposition: z.enum(['keine', 'leicht', 'mittel', 'intensiv']).optional(),
     medikamente: z
-        .array(z.enum(['retinoide', 'antibiotika', 'antidepressiva']))
+        .array(z.enum(['keine', 'retinoide', 'antibiotika', 'antidepressiva']))
         .optional()
         .default([]),
     medikament_datum: optionalNullableDate,

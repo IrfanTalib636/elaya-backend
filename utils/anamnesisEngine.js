@@ -8,6 +8,104 @@ const HAUT_MAP = {
     andere: 'Andere',
 };
 
+const INFEKT_MAP = {
+    hepatitis: 'Hepatitis',
+    hiv: 'HIV',
+    andere: 'Andere',
+};
+
+const ANAMNESIS_ANSWER_FIELDS = [
+    { nr: 1, key: 'hauterkrankungen', label: 'Hauterkrankungen' },
+    { nr: 2, key: 'pigmentstoerungen', label: 'Pigmentstörungen' },
+    { nr: 3, key: 'akute_erkrankung', label: 'Akute Erkrankung / Fieber' },
+    { nr: 4, key: 'chronische_erkrankungen', label: 'Chronische Erkrankungen' },
+    { nr: 5, key: 'diabetes', label: 'Diabetes' },
+    { nr: 6, key: 'autoimmun', label: 'Autoimmunerkrankung' },
+    { nr: 7, key: 'immunschwaeche', label: 'Immunschwäche' },
+    { nr: 8, key: 'herz_kreislauf', label: 'Herz- / Kreislauferkrankungen' },
+    { nr: 9, key: 'epilepsie', label: 'Epilepsie / Krampfanfälle' },
+    { nr: 10, key: 'blutgerinnung', label: 'Blutgerinnungsstörung' },
+    { nr: 11, key: 'blutverduenner', label: 'Blutverdünnende Medikamente' },
+    { nr: 12, key: 'infektionskrankheiten', label: 'Infektionskrankheiten' },
+    { nr: 13, key: 'allergien', label: 'Allergien' },
+    { nr: 14, key: 'wundheilung', label: 'Schlechte Wundheilung' },
+    { nr: 15, key: 'herpes_bereich', label: 'Herpes im Bereich des Tattoos' },
+    { nr: 16, key: 'schwanger', label: 'Schwanger / stillend' },
+    { nr: 17, key: 'alkohol_drogen', label: 'Alkohol / Drogen / Medikamenteneinfluss' },
+    { nr: 18, key: 'urteilsfaehig', label: 'Urteilsfähig' },
+    { nr: 19, key: 'mindestalter_18', label: 'Mindestalter 18 Jahre' },
+];
+
+const formatJaNein = (value, extra = '') => {
+    if (value === 'nein') return 'Nein';
+    if (value === 'unsicher') return 'Unsicher';
+    if (value === 'ja') return extra ? `Ja, ${extra}` : 'Ja';
+    return value ? String(value) : '—';
+};
+
+const formatListAnswer = (values, extra, map) => {
+    const list = (values || []).filter((x) => x && x !== 'nein');
+    if (!list.length) return 'Nein';
+    const labels = list.map((x) => map[x] || x);
+    if (extra && list.includes('andere')) labels.push(extra);
+    return labels.filter(Boolean).join(', ');
+};
+
+const formatDiabetes = (value) => {
+    if (value === 'typ1') return 'Ja, Typ 1';
+    if (value === 'typ2') return 'Ja, Typ 2';
+    if (value === 'unbekannt') return 'Weiss ich nicht';
+    return 'Nein';
+};
+
+const formatSingleAnswer = (field, answers = {}) => {
+    const key = field.key;
+    if (key === 'hauterkrankungen') {
+        return formatListAnswer(answers.hauterkrankungen, answers.hauterkrankungen_andere, HAUT_MAP);
+    }
+    if (key === 'infektionskrankheiten') {
+        return formatListAnswer(
+            answers.infektionskrankheiten,
+            answers.infektionskrankheiten_andere,
+            INFEKT_MAP
+        );
+    }
+    if (key === 'diabetes') return formatDiabetes(answers.diabetes);
+    const extras = {
+        chronische_erkrankungen: answers.chronische_erkrankungen_text,
+        autoimmun: answers.autoimmun_text,
+        blutverduenner: answers.blutverduenner_text,
+        allergien: answers.allergien_text,
+    };
+    return formatJaNein(answers[key], extras[key] || '');
+};
+
+const formatAnamnesisAnswerRows = (answers = {}) =>
+    ANAMNESIS_ANSWER_FIELDS.map((field) => ({
+        nr: field.nr,
+        key: field.key,
+        label: field.label,
+        value: formatSingleAnswer(field, answers),
+    }));
+
+const diffAnamnesisAnswers = (previous = {}, next = {}) => {
+    const changes = [];
+    for (const field of ANAMNESIS_ANSWER_FIELDS) {
+        const von = formatSingleAnswer(field, previous);
+        const nach = formatSingleAnswer(field, next);
+        if (von !== nach) {
+            changes.push({
+                frage_nr: field.nr,
+                frage_key: field.key,
+                frage_text: field.label,
+                von,
+                nach,
+            });
+        }
+    }
+    return changes;
+};
+
 const computeAmpel = (answers = {}) => {
     const orange_fragen = [];
     const rote_fragen = [];
@@ -534,6 +632,9 @@ module.exports = {
     buildAnamnesisEvaluation,
     emptyAnamnesisAnswers,
     isAnamnesisComplete,
+    formatAnamnesisAnswerRows,
+    diffAnamnesisAnswers,
+    ANAMNESIS_ANSWER_FIELDS,
     KLAERUNG_STATUS,
     klaerungKeyForFlag,
 };

@@ -30,10 +30,10 @@ const STUDIO_AND_ADMIN = [
  *     description: |
  *       **Auth:** Bearer · **Who can call:** studio, admin (not customer)
  *
- *       Compares **vorher** vs **aktuell** progress photos when possible.
- *       Defaults: aktuell = session progress photo; vorher = prior session progress
- *       or case `photo_intake_main`. Persists `verblassung_prozent` + `verblassung_ki`
- *       on the session and syncs case `removal`.
+ *       Compares the current session progress photo with the **previous treatment**
+ *       progress photo. Not available for session 1 (no prior treatment photo, no API call).
+ *       Intake photos are not used as the before-image.
+ *       Persists `verblassung_prozent` + `verblassung_ki` on the session and syncs case `removal`.
  *
  *       Upload photos first via `POST /files/sessions/{sessionId}/progress`.
  *     tags: [Verblassung]

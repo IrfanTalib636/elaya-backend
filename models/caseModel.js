@@ -391,7 +391,12 @@ const caseSchema = new mongoose.Schema(
             default: () => ({}),
         },
         lastSessionDate: { type: Date, default: null },
+        /** Effective price per session (CHF) — AI estimate until studio confirms, then confirmed value. */
         pricePerSession: { type: Number, default: 0, min: 0 },
+        /** Immutable-from-studio AI snapshot; always updated by the pricing engine. */
+        calculated_pricePerSession: { type: Number, default: 0, min: 0 },
+        calculated_sessionsMin: { type: Number, default: 0, min: 0 },
+        calculated_sessionsMax: { type: Number, default: 0, min: 0 },
         akquise_quelle: {
             type: String,
             enum: Object.values(AKQUISE_QUELLE),

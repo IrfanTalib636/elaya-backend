@@ -69,25 +69,23 @@ const resolveProgressFileIdForSession = async (sessionDoc) => {
     return linked ? String(linked._id) : null;
 };
 
-const resolveVorherFileId = async (sessionDoc, caseDoc) => {
+const FIRST_SESSION_AI_MESSAGE =
+    'KI-Verblassungsanalyse ist erst ab der zweiten Behandlung möglich. Für die erste Sitzung bitte nur das Vorher-Foto speichern — es wird ab Sitzung 2 für den Vergleich benötigt.';
+
+/** Previous completed treatment photo only — never the intake photo, never session 1. */
+const resolvePreviousTreatmentPhotoId = async (sessionDoc) => {
     const prev = await Session.findOne({
         case: sessionDoc.case,
         _id: { $ne: sessionDoc._id },
         session_number: { $lt: sessionDoc.session_number },
         is_no_show: false,
+        is_draft: false,
     })
         .sort({ session_number: -1 })
         .lean();
 
-    if (prev) {
-        const fromPrev = await resolveProgressFileIdForSession(prev);
-        if (fromPrev) return fromPrev;
-    }
-
-    if (isObjectId(caseDoc.photo_intake_main)) {
-        return caseDoc.photo_intake_main;
-    }
-    return null;
+    if (!prev) return null;
+    return resolveProgressFileIdForSession(prev);
 };
 
 const mapVerblassungResult = (parsed) => {
@@ -174,6 +172,10 @@ const analyzeVerblassung = asyncHandler(async (req, res) => {
     if (!caseDoc) throw new ApiError(404, 'Case not found');
     await assertCaseAccess(req.user, caseDoc);
 
+    if (Number(sessionDoc.session_number) < 2) {
+        throw new ApiError(400, FIRST_SESSION_AI_MESSAGE);
+    }
+
     const aktuellId =
         req.body.foto_aktuell_file_id ||
         (await resolveProgressFileIdForSession(sessionDoc));
@@ -185,20 +187,19 @@ const analyzeVerblassung = asyncHandler(async (req, res) => {
     }
 
     const vorherId =
-        req.body.foto_vorher_file_id || (await resolveVorherFileId(sessionDoc, caseDoc));
+        req.body.foto_vorher_file_id || (await resolvePreviousTreatmentPhotoId(sessionDoc));
+    if (!vorherId) {
+        throw new ApiError(400, FIRST_SESSION_AI_MESSAGE);
+    }
 
     const aktuell = await loadPhotoBuffer(req.user, aktuellId, req, {
         session_id: String(sessionDoc._id),
         role: 'aktuell',
     });
-
-    let vorher = null;
-    if (vorherId) {
-        vorher = await loadPhotoBuffer(req.user, vorherId, req, {
-            session_id: String(sessionDoc._id),
-            role: 'vorher',
-        });
-    }
+    const vorher = await loadPhotoBuffer(req.user, vorherId, req, {
+        session_id: String(sessionDoc._id),
+        role: 'vorher',
+    });
 
     const persist = req.body.persist !== false;
     const sitzungNr = sessionDoc.session_number || 1;
@@ -210,25 +211,18 @@ const analyzeVerblassung = asyncHandler(async (req, res) => {
     if (!isAiEnabled()) {
         mapped = aiUnavailableFallback();
     } else {
-        const content = [];
-        if (vorher) {
-            content.push(imageContentFromBuffer(vorher.buffer, vorher.mimeType));
-            content.push({
+        const content = [
+            imageContentFromBuffer(vorher.buffer, vorher.mimeType),
+            {
                 type: 'text',
-                text: 'VORHER-BILD: Tattoo vor / nach früherer Laserbehandlung (ältere Referenz)',
-            });
-            content.push(imageContentFromBuffer(aktuell.buffer, aktuell.mimeType));
-            content.push({
+                text: 'VORHER-BILD: Tattoo nach der vorherigen Laserbehandlung (Referenz)',
+            },
+            imageContentFromBuffer(aktuell.buffer, aktuell.mimeType),
+            {
                 type: 'text',
-                text: `NACHHER-BILD: Tattoo aktuell (Sitzung ${sitzungNr} von geschätzt ${estimated}). Analysiere den Verblassungsfortschritt und antworte nur als reines JSON.`,
-            });
-        } else {
-            content.push(imageContentFromBuffer(aktuell.buffer, aktuell.mimeType));
-            content.push({
-                type: 'text',
-                text: `Einzelfoto-Analyse Sitzung ${sitzungNr} von geschätzt ${estimated}. Schätze den Verblassungsgrad (0% = original, 100% = vollständig entfernt). Antworte nur als reines JSON.`,
-            });
-        }
+                text: `NACHHER-BILD: Tattoo aktuell vor Sitzung ${sitzungNr} von geschätzt ${estimated}. Analysiere den Verblassungsfortschritt und antworte nur als reines JSON.`,
+            },
+        ];
 
         const { parsed } = await callClaude({
             system: ELAYA_VERBLASSUNG_SYSTEM,
@@ -240,7 +234,7 @@ const analyzeVerblassung = asyncHandler(async (req, res) => {
         rawAi = {
             parsed,
             model: process.env.ANTHROPIC_MODEL || 'claude-sonnet-4-5',
-            compared: Boolean(vorher),
+            compared: true,
         };
     }
 
@@ -254,7 +248,7 @@ const analyzeVerblassung = asyncHandler(async (req, res) => {
         farben_analyse: mapped.farben_analyse,
         wichtiger_hinweis: mapped.wichtiger_hinweis,
         analysed_at: new Date(),
-        foto_vorher_file_id: vorher?.id || '',
+        foto_vorher_file_id: vorher.id,
         foto_aktuell_file_id: aktuell.id,
     };
 
@@ -283,8 +277,8 @@ const analyzeVerblassung = asyncHandler(async (req, res) => {
             session_id: String(sessionDoc._id),
             case_id: String(sessionDoc.case),
             verblassung_prozent: mapped.verblassung_prozent,
-            compared: Boolean(vorher),
-            foto_vorher_file_id: vorher?.id || null,
+            compared: true,
+            foto_vorher_file_id: vorher.id,
             foto_aktuell_file_id: aktuell.id,
             result: forStudio ? formatStudioKi(kiPayload) : formatCustomerKi(kiPayload),
             ai_available: mapped.ai_available !== false,

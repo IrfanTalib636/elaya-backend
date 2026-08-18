@@ -36,6 +36,8 @@ const {
     analyticsQuerySchema,
 } = require('../validators/shopValidator');
 const { USER_ROLES } = require('../config/constants');
+const { listStudioActivity } = require('../controllers/activityController');
+const { listActivityQuerySchema } = require('../validators/activityValidator');
 
 const router = express.Router();
 
@@ -734,6 +736,46 @@ router.get(
     authorize(...studioRoles, ...adminRoles),
     validateMiddleware(analyticsQuerySchema, 'query'),
     getStudioAnalyticsSummary
+);
+
+/**
+ * @swagger
+ * /studio/activity:
+ *   get:
+ *     summary: Studio activity / Terminverlauf
+ *     description: |
+ *       **Auth:** Bearer · **Who can call:** studio_admin, studio_staff, admin, super_admin
+ *
+ *       Chronological feed of bookings, cancellations, reschedules, no-shows,
+ *       medical/quick-check changes, profile edits, price confirmations, and sessions.
+ *     tags: [Studio]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: customer_id
+ *         schema: { type: string }
+ *       - in: query
+ *         name: category
+ *         schema:
+ *           type: string
+ *           enum: [all, bookings, cancellations, reschedules, no_shows, lockouts, medical, profile, studio, prices, sessions, other]
+ *       - in: query
+ *         name: from
+ *         schema: { type: string, format: date }
+ *       - in: query
+ *         name: to
+ *         schema: { type: string, format: date }
+ *     responses:
+ *       200:
+ *         description: Paginated activity events
+ */
+router.get(
+    '/activity',
+    protect,
+    authorize(...studioRoles, ...adminRoles),
+    validateMiddleware(listActivityQuerySchema, 'query'),
+    listStudioActivity
 );
 
 module.exports = router;

@@ -21,6 +21,7 @@ const chatMessageSchema = z
     .object({
         message: z.string().trim().min(1, 'message is required').max(4000),
         case_id: optionalObjectId,
+        customer_id: optionalObjectId,
         history: z.array(historyMessageSchema).max(20).optional().default([]),
     })
     .strict();
