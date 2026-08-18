@@ -6,6 +6,11 @@ const {
     DIFFICULT_COLORS,
     BODY_LOCATION_KEYS,
 } = require('../config/pricingDefaults');
+const { mergeSessionPrediction } = require('../config/sessionPredictionDefaults');
+const {
+    estimateSessionsFromConfig,
+    estimatePmuSessionsFromConfig,
+} = require('./sessionPredictionEngine');
 
 const roundToNearest5 = (value) => Math.round(value / 5) * 5;
 
@@ -178,64 +183,28 @@ const computeConfidence = (caseInput) => {
     return Math.max(40, 100 - missing * 15);
 };
 
-/**
- * Session estimate (prototype calcSessions) — used in intake KI preview.
- */
-const estimateSessions = (caseInput) => {
-    let base = 8;
-    const fitz = resolveFitzInt(caseInput);
-
-    if (fitz >= 4) {
-        base += 1;
-    }
-    if (fitz >= 5) {
-        base += 1;
-    }
-    if (caseInput.tc_type === TC_TYPE.AMATEUR) {
-        base -= 2;
-    } else if (caseInput.tc_type === TC_TYPE.COVERUP) {
-        base += 2;
-    }
-    if (caseInput.tc_coverup === TC_COVERUP.ONCE) {
-        base += 1;
-    } else if (caseInput.tc_coverup === TC_COVERUP.MULTIPLE) {
-        base += 3;
-    }
-    if (caseInput.tc_prior_treatment === true) {
-        base -= 1;
-    }
-
-    const colors = caseInput.tc_colors_present || [];
-    if (colors.some((color) => DIFFICULT_COLORS.includes(color))) {
-        base += 2;
-    } else if (colors.length > 3) {
-        base += 1;
-    }
-
-    if (caseInput.skin_sun_zone === 'high') {
-        base += 1;
-    }
-    if (caseInput.life_smoker === 'daily_heavy') {
-        base += 2;
-    } else if (caseInput.life_smoker === 'daily_light') {
-        base += 1;
-    }
-    if (caseInput.life_activity === 'high') {
-        base -= 1;
-    }
-
-    base = Math.max(3, Math.min(20, base));
-
+const splitOverrides = (overrides = {}) => {
+    const { session_prediction, ...pricingOverrides } = overrides;
     return {
-        base,
-        min: Math.max(3, base - 2),
-        max: base + 2,
+        pricingOverrides,
+        sessionPrediction: mergeSessionPrediction(session_prediction),
+    };
+};
+
+/**
+ * Session estimate from platform Sitzungsprognose parameters (Master Excel).
+ */
+const estimateSessions = (caseInput, sessionPrediction = {}) => {
+    const result = estimateSessionsFromConfig(caseInput, sessionPrediction);
+    return {
+        ...result,
         confidence_pct: computeConfidence(caseInput),
     };
 };
 
 const calculatePriceForInput = (caseInput, pricingOverrides = {}, options = {}) => {
-    const config = mergePricingConfig(pricingOverrides);
+    const { pricingOverrides: pricingOnly } = splitOverrides(pricingOverrides);
+    const config = mergePricingConfig(pricingOnly);
     const dichteMult = options.dichteMult ?? 1;
 
     if (caseInput.type === CASE_TYPE.PMU) {
@@ -287,20 +256,10 @@ const calculatePriceForInput = (caseInput, pricingOverrides = {}, options = {}) 
 /**
  * Prototype calcPmuSessions — session estimate for PMU intake.
  */
-const calcPmuSessions = (caseInput = {}) => {
-    let base = 2;
-    if (caseInput.pigment_type === 'inorganic') base += 1;
-    if (caseInput.stitch_depth === 'deep') base += 1;
-    if (caseInput.previously_lasered === true) base -= 1;
-    if (caseInput.life_smoker === 'daily_heavy') base += 1;
-    else if (caseInput.life_smoker === 'daily_light') base = Math.min(4, base + 0.5);
-    if (caseInput.life_activity === 'high') base -= 1;
-    if (caseInput.life_aftercare_commitment === 'low') base += 1;
-    base = Math.max(1, Math.min(4, Math.round(base)));
+const calcPmuSessions = (caseInput = {}, sessionPrediction = {}) => {
+    const result = estimatePmuSessionsFromConfig(caseInput, sessionPrediction);
     return {
-        min: Math.max(1, base - 1),
-        max: Math.min(4, base + 1),
-        base,
+        ...result,
         confidence_pct: 100,
     };
 };
@@ -309,9 +268,11 @@ const calcPmuSessions = (caseInput = {}) => {
  * Full intake preview — price + sessions for single tattoo, zone mode, or PMU.
  */
 const calculateCasePreview = (caseInput, pricingOverrides = {}) => {
+    const { sessionPrediction } = splitOverrides(pricingOverrides);
+
     if (caseInput.type === CASE_TYPE.PMU) {
         const price = calculatePriceForInput(caseInput, pricingOverrides);
-        const sessions = calcPmuSessions(caseInput);
+        const sessions = calcPmuSessions(caseInput, sessionPrediction);
 
         return {
             ...formatStudioPricing(price),
@@ -334,7 +295,7 @@ const calculateCasePreview = (caseInput, pricingOverrides = {}) => {
             };
             const dichteMult = ZONE_DICHTE_MULT[zone.dichte] ?? 1;
             const price = calculatePriceForInput(zoneInput, pricingOverrides, { dichteMult });
-            const sessions = estimateSessions(zoneInput);
+            const sessions = estimateSessions(zoneInput, sessionPrediction);
 
             return {
                 label: zone.bezeichnung || 'Zone',
@@ -370,7 +331,7 @@ const calculateCasePreview = (caseInput, pricingOverrides = {}) => {
     }
 
     const price = calculatePriceForInput(caseInput, pricingOverrides);
-    const sessions = estimateSessions(caseInput);
+    const sessions = estimateSessions(caseInput, sessionPrediction);
 
     return {
         ...formatStudioPricing(price),
@@ -388,7 +349,8 @@ const calculatePrice = (caseInput, pricingOverrides = {}) =>
     calculatePriceForInput(caseInput, pricingOverrides);
 
 const calculateGroupPricing = (cases, pricingOverrides = {}) => {
-    const config = mergePricingConfig(pricingOverrides);
+    const { pricingOverrides: pricingOnly } = splitOverrides(pricingOverrides);
+    const config = mergePricingConfig(pricingOnly);
     const einzel = cases.map((caseDoc) => {
         const result = calculatePrice(caseDoc, config);
         return {

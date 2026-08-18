@@ -1,5 +1,6 @@
 const mongoose = require('mongoose');
 const { PLATFORM_CONFIG_DEFAULTS } = require('../config/platformDefaults');
+const { DEFAULT_SESSION_PREDICTION } = require('../config/sessionPredictionDefaults');
 
 const gruppenGroessenSchema = new mongoose.Schema(
     {
@@ -50,6 +51,11 @@ const platformConfigSchema = new mongoose.Schema(
         feature_global: {
             type: mongoose.Schema.Types.Mixed,
             default: {},
+        },
+        /** Admin-only Sitzungsprognose parameters (Master Excel). Studio may view, not edit. */
+        session_prediction: {
+            type: mongoose.Schema.Types.Mixed,
+            default: () => JSON.parse(JSON.stringify(DEFAULT_SESSION_PREDICTION)),
         },
     },
     {

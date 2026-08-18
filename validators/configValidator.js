@@ -23,6 +23,30 @@ const patchPlatformConfigSchema = z
         gruppen_groessen: gruppenGroessenSchema,
         subscription_plans: z.record(z.string(), z.array(z.string())).optional(),
         feature_global: z.record(z.string(), z.boolean()).optional(),
+        session_prediction: z
+            .object({
+                base_sessions: z.number().min(1).max(40).optional(),
+                min_sessions: z.number().min(1).max(40).optional(),
+                max_sessions: z.number().min(1).max(40).optional(),
+                range_minus: z.number().min(0).max(15).optional(),
+                range_plus: z.number().min(0).max(15).optional(),
+                tattoo_deltas: z.record(z.string(), z.record(z.string(), z.number())).optional(),
+                lifestyle_scores: z.record(z.string(), z.record(z.string(), z.number())).optional(),
+                lifestyle_bands: z
+                    .array(
+                        z
+                            .object({
+                                max_avg: z.number(),
+                                score: z.number(),
+                                multiplier: z.number().min(0).max(5),
+                            })
+                            .strict()
+                    )
+                    .optional(),
+                aftercare_extra_max: z.record(z.string(), z.number()).optional(),
+            })
+            .strict()
+            .optional(),
     })
     .strict();
 

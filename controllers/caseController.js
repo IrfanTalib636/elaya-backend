@@ -1,6 +1,9 @@
 const Case = require('../models/caseModel');
 const CaseZone = require('../models/caseZoneModel');
 const Customer = require('../models/customerModel');
+const Session = require('../models/sessionModel');
+const Appointment = require('../models/appointmentModel');
+const Anamnesis = require('../models/anamnesisModel');
 const ApiError = require('../utils/ApiError');
 const asyncHandler = require('../utils/asyncHandler');
 const { generateCaseId } = require('../utils/generateCaseId');
@@ -329,8 +332,15 @@ const ESTIMATE_RELEVANT_FIELDS = [
     'skin_fitzpatrick_type',
     'skin_sun_zone',
     'life_smoker',
+    'life_alcohol',
+    'life_sleep_hours',
+    'life_sleep_quality',
+    'life_stress',
     'life_activity',
+    'life_hydration',
+    'life_nutrition',
     'life_aftercare_commitment',
+    'tc_saturation',
     'goal_target',
     'zonen_aktiv',
     'zonen',
@@ -697,19 +707,30 @@ const deleteIncompleteCase = asyncHandler(async (req, res) => {
 
     await assertCaseWriteAccess(req.user, caseDoc);
 
-    if (caseDoc.unterschrift?.zeitstempel) {
-        throw new ApiError(400, 'Signed cases cannot be deleted from the app');
-    }
+    const studioTestDeleteEnabled = process.env.TEST_CASE_DELETE_ENABLED !== 'false';
+    const studioHardDeleteAllowed =
+        studioTestDeleteEnabled &&
+        (req.user.role === USER_ROLES.STUDIO_ADMIN ||
+            req.user.role === USER_ROLES.STUDIO_STAFF);
 
-    const deletable =
-        caseDoc.status === CASE_STATUS.DRAFT ||
-        caseDoc.status === CASE_STATUS.PENDING;
+    if (!studioHardDeleteAllowed) {
+        if (caseDoc.unterschrift?.zeitstempel) {
+            throw new ApiError(400, 'Signed cases cannot be deleted from the app');
+        }
 
-    if (!deletable) {
-        throw new ApiError(400, 'Only incomplete draft/pending cases can be deleted');
+        const deletable =
+            caseDoc.status === CASE_STATUS.DRAFT ||
+            caseDoc.status === CASE_STATUS.PENDING;
+
+        if (!deletable) {
+            throw new ApiError(400, 'Only incomplete draft/pending cases can be deleted');
+        }
     }
 
     await CaseZone.deleteMany({ case: caseDoc._id });
+    await Session.deleteMany({ case: caseDoc._id });
+    await Appointment.deleteMany({ case: caseDoc._id });
+    await Anamnesis.deleteMany({ case: caseDoc._id });
     await Case.deleteOne({ _id: caseDoc._id });
 
     res.status(200).json({

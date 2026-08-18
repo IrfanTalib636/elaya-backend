@@ -3,6 +3,7 @@ const Studio = require('../models/studioModel');
 const ApiError = require('./ApiError');
 const { PLATFORM_CONFIG_DEFAULTS, PLATFORM_GROUP_KEYS } = require('../config/platformDefaults');
 const { DEFAULT_PRICING_CONFIG } = require('../config/pricingDefaults');
+const { mergeSessionPrediction } = require('../config/sessionPredictionDefaults');
 const { ELAYCOIN_SITUATIONS } = require('../config/elaycoinConfig');
 
 const mergePlatformConfig = (doc) => {
@@ -33,6 +34,7 @@ const mergePlatformConfig = (doc) => {
             ...(merged.subscription_plans || {}),
         },
         feature_global: merged.feature_global || {},
+        session_prediction: mergeSessionPrediction(merged.session_prediction),
     };
 };
 
@@ -47,6 +49,70 @@ const ensurePlatformConfig = async () => {
         doc = await PlatformConfig.create({ key: 'platform' });
     }
     return mergePlatformConfig(doc);
+};
+
+const assertFiniteNumber = (value, path) => {
+    if (typeof value !== 'number' || !Number.isFinite(value)) {
+        throw new ApiError(400, `${path} must be a number`);
+    }
+};
+
+const validateNumberMap = (map, path) => {
+    if (map === undefined) return;
+    if (typeof map !== 'object' || Array.isArray(map) || map == null) {
+        throw new ApiError(400, `${path} must be an object`);
+    }
+    for (const [key, value] of Object.entries(map)) {
+        if (value !== undefined) assertFiniteNumber(value, `${path}.${key}`);
+    }
+};
+
+const validateSessionPredictionPatch = (patch) => {
+    if (patch === undefined) return;
+    if (typeof patch !== 'object' || Array.isArray(patch) || patch == null) {
+        throw new ApiError(400, 'session_prediction must be an object');
+    }
+
+    const numeric = ['base_sessions', 'min_sessions', 'max_sessions', 'range_minus', 'range_plus'];
+    for (const field of numeric) {
+        if (patch[field] !== undefined) assertFiniteNumber(patch[field], `session_prediction.${field}`);
+    }
+
+    if (patch.tattoo_deltas) {
+        if (typeof patch.tattoo_deltas !== 'object' || Array.isArray(patch.tattoo_deltas)) {
+            throw new ApiError(400, 'session_prediction.tattoo_deltas must be an object');
+        }
+        for (const [group, map] of Object.entries(patch.tattoo_deltas)) {
+            validateNumberMap(map, `session_prediction.tattoo_deltas.${group}`);
+        }
+    }
+
+    if (patch.lifestyle_scores) {
+        if (typeof patch.lifestyle_scores !== 'object' || Array.isArray(patch.lifestyle_scores)) {
+            throw new ApiError(400, 'session_prediction.lifestyle_scores must be an object');
+        }
+        for (const [group, map] of Object.entries(patch.lifestyle_scores)) {
+            validateNumberMap(map, `session_prediction.lifestyle_scores.${group}`);
+        }
+    }
+
+    if (patch.aftercare_extra_max) {
+        validateNumberMap(patch.aftercare_extra_max, 'session_prediction.aftercare_extra_max');
+    }
+
+    if (patch.lifestyle_bands !== undefined) {
+        if (!Array.isArray(patch.lifestyle_bands) || patch.lifestyle_bands.length === 0) {
+            throw new ApiError(400, 'session_prediction.lifestyle_bands must be a non-empty array');
+        }
+        patch.lifestyle_bands.forEach((band, i) => {
+            if (typeof band !== 'object' || band == null) {
+                throw new ApiError(400, `session_prediction.lifestyle_bands[${i}] must be an object`);
+            }
+            assertFiniteNumber(band.max_avg, `session_prediction.lifestyle_bands[${i}].max_avg`);
+            assertFiniteNumber(band.score, `session_prediction.lifestyle_bands[${i}].score`);
+            assertFiniteNumber(band.multiplier, `session_prediction.lifestyle_bands[${i}].multiplier`);
+        });
+    }
 };
 
 const validatePlatformPatch = (patch, current = PLATFORM_CONFIG_DEFAULTS) => {
@@ -98,6 +164,29 @@ const validatePlatformPatch = (patch, current = PLATFORM_CONFIG_DEFAULTS) => {
     if (merged.coinWert < merged.minWert || merged.coinWert > merged.maxWert) {
         throw new ApiError(400, 'coinWert must be within minWert and maxWert');
     }
+
+    if (patch.session_prediction) {
+        validateSessionPredictionPatch(patch.session_prediction);
+        const mergedSessions = mergeSessionPrediction({
+            ...current.session_prediction,
+            ...patch.session_prediction,
+            tattoo_deltas: {
+                ...(current.session_prediction?.tattoo_deltas || {}),
+                ...(patch.session_prediction.tattoo_deltas || {}),
+            },
+            lifestyle_scores: {
+                ...(current.session_prediction?.lifestyle_scores || {}),
+                ...(patch.session_prediction.lifestyle_scores || {}),
+            },
+            aftercare_extra_max: {
+                ...(current.session_prediction?.aftercare_extra_max || {}),
+                ...(patch.session_prediction.aftercare_extra_max || {}),
+            },
+        });
+        if (mergedSessions.min_sessions > mergedSessions.max_sessions) {
+            throw new ApiError(400, 'min_sessions must not exceed max_sessions');
+        }
+    }
 };
 
 const updatePlatformConfig = async (patch) => {
@@ -110,6 +199,24 @@ const updatePlatformConfig = async (patch) => {
             setFields[`gruppen_groessen.${k}`] = v;
         }
         delete setFields.gruppen_groessen;
+    }
+    if (patch.session_prediction) {
+        setFields.session_prediction = mergeSessionPrediction({
+            ...current.session_prediction,
+            ...patch.session_prediction,
+            tattoo_deltas: {
+                ...(current.session_prediction?.tattoo_deltas || {}),
+                ...(patch.session_prediction.tattoo_deltas || {}),
+            },
+            lifestyle_scores: {
+                ...(current.session_prediction?.lifestyle_scores || {}),
+                ...(patch.session_prediction.lifestyle_scores || {}),
+            },
+            aftercare_extra_max: {
+                ...(current.session_prediction?.aftercare_extra_max || {}),
+                ...(patch.session_prediction.aftercare_extra_max || {}),
+            },
+        });
     }
 
     const doc = await PlatformConfig.findOneAndUpdate(
@@ -196,13 +303,17 @@ const getEffectivePricingOverrides = async (studioId) => {
     const groupOverrides = platform.gruppen_groessen || {};
 
     if (!studioId) {
-        return { ...groupOverrides };
+        return {
+            ...groupOverrides,
+            session_prediction: platform.session_prediction,
+        };
     }
 
     const studio = await Studio.findById(studioId).select('studio_pricing').lean();
     return {
         ...pickStudioPricing(studio?.studio_pricing || {}),
         ...groupOverrides,
+        session_prediction: platform.session_prediction,
     };
 };
 
@@ -240,6 +351,7 @@ const formatStudioConfig = (studio, platform) => {
             verfallMonate: platform.verfallMonate,
             shop_provision_prozent: platform.shop_provision_prozent,
         },
+        session_prediction: platform.session_prediction,
     };
 };
 
