@@ -12,6 +12,8 @@ const Studio = require('../models/studioModel');
 const ApiError = require('../utils/ApiError');
 const asyncHandler = require('../utils/asyncHandler');
 const mongoose = require('mongoose');
+const { runExcelPlausibilityCheck } = require('../utils/plausibilityCheck');
+const { DOMAIN_SOURCE_OF_TRUTH } = require('../config/domainSourceOfTruth');
 
 const assertValidStudioId = (studioId) => {
     if (
@@ -31,7 +33,13 @@ const getPlatform = asyncHandler(async (_req, res) => {
 
     res.status(200).json({
         success: true,
-        data: { platform_config: config },
+        data: {
+            platform_config: config,
+            excel_plausibility: runExcelPlausibilityCheck({
+                session_prediction: config.session_prediction,
+            }),
+            domain_source_of_truth: DOMAIN_SOURCE_OF_TRUTH,
+        },
     });
 });
 
@@ -41,7 +49,12 @@ const patchPlatform = asyncHandler(async (req, res) => {
     res.status(200).json({
         success: true,
         message: 'Platform config updated',
-        data: { platform_config: config },
+        data: {
+            platform_config: config,
+            excel_plausibility: runExcelPlausibilityCheck({
+                session_prediction: config.session_prediction,
+            }),
+        },
     });
 });
 

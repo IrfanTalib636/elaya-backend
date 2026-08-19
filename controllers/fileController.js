@@ -27,6 +27,7 @@ const {
     formatFileAsset,
 } = require('../services/fileAccessService');
 const { USER_ROLES } = require('../config/constants');
+const { evaluateAndApplySessionLightening } = require('../utils/lighteningSessionService');
 
 const uploadRoles = [
     USER_ROLES.CUSTOMER,
@@ -198,6 +199,12 @@ const uploadSessionProgress = asyncHandler(async (req, res) => {
     sessionDoc.fortschritt_foto_file_id = fileAsset._id;
     if (!sessionDoc.fortschritt_foto_data) {
         sessionDoc.fortschritt_foto_data = fileAsset._id.toString();
+    }
+    const caseDoc = await Case.findById(sessionDoc.case);
+    if (caseDoc) {
+        await evaluateAndApplySessionLightening(sessionDoc, caseDoc, {
+            follow_up_photo_id: String(fileAsset._id),
+        });
     }
     await sessionDoc.save();
 

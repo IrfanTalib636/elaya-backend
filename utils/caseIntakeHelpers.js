@@ -40,6 +40,7 @@ const CUSTOMER_INTAKE_FIELDS = [
     'life_cig_per_day',
     'life_alcohol',
     'life_activity',
+    'life_sport_freq',
     'life_sleep_hours',
     'life_sleep_quality',
     'life_stress',

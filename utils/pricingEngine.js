@@ -4,6 +4,7 @@ const {
     DEFAULT_PRICING_CONFIG,
     SIZE_MIDPOINTS,
     DIFFICULT_COLORS,
+    BLACK_FAMILY_COLORS,
     BODY_LOCATION_KEYS,
 } = require('../config/pricingDefaults');
 const { mergeSessionPrediction } = require('../config/sessionPredictionDefaults');
@@ -11,6 +12,7 @@ const {
     estimateSessionsFromConfig,
     estimatePmuSessionsFromConfig,
 } = require('./sessionPredictionEngine');
+const { attachEstimateReview } = require('./engineReview');
 
 const roundToNearest5 = (value) => Math.round(value / 5) * 5;
 
@@ -59,18 +61,11 @@ const resolveAgeMultKey = (caseInput) => {
     }
 
     const years = Number(tcAgeYears);
-    if (years < 1) {
-        return 'age_under1';
-    }
-    if (years <= 3) {
-        return 'age_1to3';
-    }
-    if (years <= 7) {
-        return 'age_3to5';
-    }
-    if (years <= 15) {
-        return 'age_5to10';
-    }
+    // Price bands from Multipliers + Examples: 3 years = ×1.05 (3–5), 8 years = ×1.0 (5–10), 2 years = ×1.1 (1–3).
+    if (years < 1) return 'age_under1';
+    if (years < 3) return 'age_1to3';
+    if (years < 5) return 'age_3to5';
+    if (years <= 10) return 'age_5to10';
     return 'age_over10';
 };
 
@@ -96,28 +91,70 @@ const resolveBodyLocation = (caseInput) => {
     return 'arm';
 };
 
-const resolveMultipliers = (caseInput, config) => {
-    const colors = caseInput.tc_colors_present || [];
-    let colorM = config.color_black;
+const resolveColorMultiplier = (colors, config) => {
+    const list = Array.isArray(colors) ? colors.filter(Boolean) : [];
+    // Excel Multiplikatoren: Weiss/Gelb/Hautfarbe dominates.
+    if (list.some((color) => DIFFICULT_COLORS.includes(color))) {
+        return config.color_difficult;
+    }
+    // Nur Schwarz (grey counts as black). Extra chromatic inks: +1–2 → 1.2, 3+ → 1.4.
+    const extra = list.filter((color) => !BLACK_FAMILY_COLORS.includes(color));
+    if (extra.length === 0) return config.color_black;
+    if (extra.length <= 2) return config.color_mixed;
+    return config.color_multi;
+};
 
-    if (colors.some((color) => DIFFICULT_COLORS.includes(color))) {
-        colorM = config.color_difficult;
-    } else if (colors.length <= 1) {
-        colorM = config.color_black;
-    } else if (colors.length <= 3) {
-        colorM = config.color_mixed;
-    } else {
-        colorM = config.color_multi;
+const resolveDepthMultiplier = (caseInput, config) => {
+    const explicit =
+        caseInput.tc_depth ||
+        caseInput.stichtiefe ||
+        caseInput.depth ||
+        (caseInput.type !== CASE_TYPE.PMU ? caseInput.stitch_depth : null);
+
+    const depthMap = {
+        shallow: config.depth_shallow,
+        surface: config.depth_shallow,
+        oberflaechlich: config.depth_shallow,
+        amateur: config.depth_shallow,
+        normal: config.depth_normal,
+        medium: config.depth_normal,
+        tief: config.depth_deep,
+        deep: config.depth_deep,
+        professional: config.depth_deep,
+        very_deep: config.depth_very_deep,
+        sehr_tief: config.depth_very_deep,
+        coverup: config.depth_very_deep,
+        unknown: config.depth_normal,
+        weiss_nicht: config.depth_normal,
+    };
+    if (explicit && depthMap[String(explicit).toLowerCase()] != null) {
+        return depthMap[String(explicit).toLowerCase()];
     }
 
-    let depthM = config.depth_normal;
+    // Excel: Very deep / Cover-up = 1.3 (example 3 uses both layering ×1.4 and depth ×1.3).
+    if (
+        caseInput.tc_coverup === TC_COVERUP.ONCE ||
+        caseInput.tc_coverup === TC_COVERUP.MULTIPLE
+    ) {
+        return config.depth_very_deep;
+    }
+
+    // Excel: Oberflächlich/Amateur=0.9, Normal=1.0, Tief (professionell)=1.1, Cover-Up=1.3.
     if ([TC_TYPE.AMATEUR, TC_TYPE.COSMETIC].includes(caseInput.tc_type)) {
-        depthM = config.depth_shallow;
-    } else if (caseInput.tc_type === TC_TYPE.PROFESSIONAL) {
-        depthM = config.depth_deep;
-    } else if (caseInput.tc_type === TC_TYPE.COVERUP) {
-        depthM = config.depth_very_deep;
+        return config.depth_shallow;
     }
+    if (caseInput.tc_type === TC_TYPE.PROFESSIONAL) {
+        return config.depth_deep;
+    }
+    if (caseInput.tc_type === TC_TYPE.COVERUP) {
+        return config.depth_very_deep;
+    }
+    return config.depth_normal;
+};
+
+const resolveMultipliers = (caseInput, config) => {
+    const colorM = resolveColorMultiplier(caseInput.tc_colors_present, config);
+    const depthM = resolveDepthMultiplier(caseInput, config);
 
     const ageM = config[resolveAgeMultKey(caseInput)] ?? 1.0;
 
@@ -198,7 +235,7 @@ const estimateSessions = (caseInput, sessionPrediction = {}) => {
     const result = estimateSessionsFromConfig(caseInput, sessionPrediction);
     return {
         ...result,
-        confidence_pct: computeConfidence(caseInput),
+        confidence_pct: result.confidence_score ?? computeConfidence(caseInput),
     };
 };
 
@@ -219,6 +256,9 @@ const calculatePriceForInput = (caseInput, pricingOverrides = {}, options = {}) 
 
     const area = Math.round(resolveArea(caseInput) * 10) / 10;
     const multipliers = resolveMultipliers(caseInput, config);
+    // Excel Preisformel:
+    // Rohpreis = Fläche × Basis × Farbe × Tiefe × Alter × Haut × Stelle × CoverUp × Ziel
+    // Preis/Sitzung = MAX(Mindestpreis, Rohpreis auf nächste 5 CHF aufgerundet)
     const product =
         area *
         (config.basePricePerCm2 ?? 3) *
@@ -231,12 +271,14 @@ const calculatePriceForInput = (caseInput, pricingOverrides = {}, options = {}) 
         multipliers.goalM *
         dichteMult;
 
-    const pricePerSession = Math.max(config.minPrice ?? 90, roundSessionPrice(product));
+    const rounded = roundSessionPrice(product);
+    const pricePerSession = Math.max(config.minPrice ?? 90, rounded);
 
     return {
         type: CASE_TYPE.TATTOO,
         area,
         pricePerSession,
+        rawPrice: Math.round(product * 100) / 100,
         confidence_pct: computeConfidence(caseInput),
         multipliers: {
             color: multipliers.colorM,
@@ -274,13 +316,16 @@ const calculateCasePreview = (caseInput, pricingOverrides = {}) => {
         const price = calculatePriceForInput(caseInput, pricingOverrides);
         const sessions = calcPmuSessions(caseInput, sessionPrediction);
 
-        return {
-            ...formatStudioPricing(price),
-            sessions,
-            totalMin: price.pricePerSession * sessions.min,
-            totalMax: price.pricePerSession * sessions.max,
-            zonen: null,
-        };
+        return attachEstimateReview(
+            {
+                ...formatStudioPricing(price),
+                sessions,
+                totalMin: price.pricePerSession * sessions.min,
+                totalMax: price.pricePerSession * sessions.max,
+                zonen: null,
+            },
+            caseInput
+        );
     }
 
     if (caseInput.zonen_aktiv && Array.isArray(caseInput.zonen) && caseInput.zonen.length > 0) {
@@ -310,40 +355,54 @@ const calculateCasePreview = (caseInput, pricingOverrides = {}) => {
         const sessionsMax = Math.max(0, ...zoneRows.map((row) => row.sessions.max));
         const totalArea = zoneRows.reduce((sum, row) => sum + (row.area || 0), 0);
         const confidence_pct = Math.min(...zoneRows.map((row) => row.sessions.confidence_pct));
+        const review_triggers = [
+            ...new Set(zoneRows.flatMap((row) => row.sessions.review_triggers || [])),
+        ];
 
-        return {
-            type: CASE_TYPE.TATTOO,
-            area: Math.round(totalArea * 10) / 10,
-            pricePerSession,
-            confidence_pct,
-            sessions: {
-                min: sessionsMin,
-                max: sessionsMax,
-                base: sessionsMax,
+        return attachEstimateReview(
+            {
+                type: CASE_TYPE.TATTOO,
+                area: Math.round(totalArea * 10) / 10,
+                pricePerSession,
                 confidence_pct,
+                sessions: {
+                    min: sessionsMin,
+                    max: sessionsMax,
+                    base: sessionsMax,
+                    confidence_pct,
+                    needs_human_review: zoneRows.some((row) => row.sessions.needs_human_review),
+                    review_triggers,
+                },
+                zonen: zoneRows,
+                totalMin: pricePerSession * sessionsMin,
+                totalMax: pricePerSession * sessionsMax,
+                currency: 'CHF',
+                multipliers: null,
+                review_triggers,
+                needs_human_review: zoneRows.some((row) => row.sessions.needs_human_review),
             },
-            zonen: zoneRows,
-            totalMin: pricePerSession * sessionsMin,
-            totalMax: pricePerSession * sessionsMax,
-            currency: 'CHF',
-            multipliers: null,
-        };
+            caseInput
+        );
     }
 
     const price = calculatePriceForInput(caseInput, pricingOverrides);
     const sessions = estimateSessions(caseInput, sessionPrediction);
 
-    return {
-        ...formatStudioPricing(price),
-        sessions,
-        totalMin: price.pricePerSession * sessions.min,
-        totalMax: price.pricePerSession * sessions.max,
-        zonen: null,
-    };
+    return attachEstimateReview(
+        {
+            ...formatStudioPricing(price),
+            sessions,
+            totalMin: price.pricePerSession * sessions.min,
+            totalMax: price.pricePerSession * sessions.max,
+            zonen: null,
+        },
+        caseInput
+    );
 };
 
 /**
- * 7-factor session price (client §5d). Internal studio formula — customer sees estimate only.
+ * 7-factor session price (Excel PriceFormula + Examples).
+ * Plausibility: scripts/verifyExcelExamples.js / IT_Clarifications §7.
  */
 const calculatePrice = (caseInput, pricingOverrides = {}) =>
     calculatePriceForInput(caseInput, pricingOverrides);

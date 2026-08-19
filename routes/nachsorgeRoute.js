@@ -7,11 +7,13 @@ const {
     createCheck,
     listChecks,
     getCheck,
+    reviewCheck,
 } = require('../controllers/nachsorgeController');
 const {
     nachsorgePhotoCheckSchema,
     nachsorgeCheckSchema,
     listNachsorgeQuerySchema,
+    nachsorgeReviewSchema,
 } = require('../validators/nachsorgeValidator');
 const { USER_ROLES } = require('../config/constants');
 
@@ -23,6 +25,14 @@ const CUSTOMER_AND_STUDIO = [
     USER_ROLES.STUDIO_STAFF,
     USER_ROLES.ADMIN,
     USER_ROLES.SUPER_ADMIN,
+];
+
+const STUDIO_AND_ADMIN = [
+    USER_ROLES.STUDIO_ADMIN,
+    USER_ROLES.STUDIO_STAFF,
+    USER_ROLES.ADMIN,
+    USER_ROLES.SUPER_ADMIN,
+    USER_ROLES.DEVELOPER,
 ];
 
 /**
@@ -140,6 +150,23 @@ router.get(
     authorize(...CUSTOMER_AND_STUDIO),
     validateMiddleware(listNachsorgeQuerySchema, 'query'),
     listChecks
+);
+
+/**
+ * @swagger
+ * /nachsorge/{id}/review:
+ *   patch:
+ *     summary: Studio confirms or corrects a healing assessment
+ *     tags: [Nachsorge]
+ *     security:
+ *       - bearerAuth: []
+ */
+router.patch(
+    '/:id/review',
+    protect,
+    authorize(...STUDIO_AND_ADMIN),
+    validateMiddleware(nachsorgeReviewSchema),
+    reviewCheck
 );
 
 /**

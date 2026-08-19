@@ -13,11 +13,8 @@ const {
     parsePreSessionCheck,
 } = require('../utils/lockoutEngine');
 const {
-    calculatePrice,
     calculateCasePreview,
-    formatCustomerEstimate,
     formatCustomerPreview,
-    formatStudioPricing,
 } = require('../utils/pricingEngine');
 const { getEffectivePricingOverrides } = require('../utils/configService');
 const {
@@ -64,6 +61,7 @@ const INTAKE_RESPONSE_FIELDS = [
     'life_cig_per_day',
     'life_alcohol',
     'life_activity',
+    'life_sport_freq',
     'life_sleep_hours',
     'life_sleep_quality',
     'life_stress',
@@ -194,6 +192,8 @@ const formatCase = (caseDoc, zones, role, options = {}) => {
     payload.estimate_confirmation = formatEstimateConfirmation(doc.estimate_confirmation, role);
 
     if (!isCustomer(role)) {
+        payload.estimate_needs_review = !!doc.estimate_needs_review;
+        payload.estimate_review_triggers = doc.estimate_review_triggers || [];
         payload.uvBlockDate = doc.uvBlockDate;
         payload.medicationBlockDate = doc.medicationBlockDate;
         payload.sperrfrist_deaktiviert = doc.sperrfrist_deaktiviert;
@@ -333,14 +333,19 @@ const ESTIMATE_RELEVANT_FIELDS = [
     'skin_sun_zone',
     'life_smoker',
     'life_alcohol',
+    'life_cig_per_day',
     'life_sleep_hours',
     'life_sleep_quality',
     'life_stress',
     'life_activity',
+    'life_sport_freq',
+    'life_height_cm',
+    'life_weight_kg',
     'life_hydration',
     'life_nutrition',
     'life_aftercare_commitment',
     'tc_saturation',
+    'skin_keloid_risk',
     'goal_target',
     'zonen_aktiv',
     'zonen',
@@ -348,6 +353,10 @@ const ESTIMATE_RELEVANT_FIELDS = [
     'pigment_type',
     'stitch_depth',
     'previously_lasered',
+    'photo_intake_main',
+    'photo_intake_detail',
+    'photo_marker',
+    'photo_std_intake',
 ];
 
 /** Server-computed estimate fields — clients may not force these directly. */
@@ -368,6 +377,8 @@ const applyCalculatedPreview = (caseDoc, preview) => {
     caseDoc.calculated_pricePerSession = price;
     caseDoc.calculated_sessionsMin = min;
     caseDoc.calculated_sessionsMax = max;
+    caseDoc.estimate_needs_review = Boolean(preview.needs_human_review);
+    caseDoc.estimate_review_triggers = preview.review_triggers || [];
 
     if (!isEstimateConfirmed(caseDoc)) {
         caseDoc.pricePerSession = price;
@@ -783,26 +794,10 @@ const getCasePricing = asyncHandler(async (req, res) => {
     }
 
     const pricingOverrides = await getEffectivePricingOverrides(caseDoc.studio);
-    const result = caseDoc.zonen_aktiv && pricingInput.zonen?.length
-        ? calculateCasePreview(pricingInput, pricingOverrides)
-        : calculatePrice(pricingInput, pricingOverrides);
+    const result = calculateCasePreview(pricingInput, pricingOverrides);
     const payload = isCustomer(req.user.role)
-        ? formatCustomerEstimate(
-              result.sessions
-                  ? result
-                  : {
-                        ...result,
-                        sessions: {
-                            min: caseDoc.sessionsMin,
-                            max: caseDoc.sessionsMax,
-                        },
-                        totalMin: result.pricePerSession * (caseDoc.sessionsMin || 0),
-                        totalMax: result.pricePerSession * (caseDoc.sessionsMax || 0),
-                    }
-          )
-        : result.sessions
-          ? result
-          : formatStudioPricing(result);
+        ? formatCustomerPreview(result)
+        : result;
 
     payload.estimate_confirmation = formatEstimateConfirmation(
         caseDoc.estimate_confirmation,

@@ -24,9 +24,15 @@ const syncCaseSessionStats = async (caseId) => {
         {
             $addFields: {
                 fading_pct: {
-                    $max: [
-                        { $ifNull: ['$removal_pct', 0] },
-                        { $ifNull: ['$verblassung_prozent', 0] },
+                    $cond: [
+                        { $eq: ['$comparison_eligible', false] },
+                        0,
+                        {
+                            $max: [
+                                { $ifNull: ['$removal_pct', 0] },
+                                { $ifNull: ['$verblassung_prozent', 0] },
+                            ],
+                        },
                     ],
                 },
             },
@@ -41,6 +47,8 @@ const syncCaseSessionStats = async (caseId) => {
         },
     ]);
 
+    // Flow_Mapping session_completed: lastSessionDate is the healing baseline
+    // for the next aftercare window (days since last treatment).
     const update = {
         sessionsDone: stats?.sessionsDone ?? 0,
         lastSessionDate: stats?.lastSessionDate ?? null,

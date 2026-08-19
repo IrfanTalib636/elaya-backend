@@ -1,6 +1,7 @@
 const { FITZ_TYPE_TO_INT } = require('../config/caseIntakeEnums');
-const { BODY_LOCATION_KEYS } = require('../config/pricingDefaults');
+const { BODY_LOCATION_KEYS, BLACK_FAMILY_COLORS, DIFFICULT_COLORS } = require('../config/pricingDefaults');
 const { mergeSessionPrediction } = require('../config/sessionPredictionDefaults');
+const { computeLifestyleComposite } = require('./lifestyleCompositeEngine');
 
 const INT_TO_FITZ = {
     1: 'I',
@@ -10,6 +11,9 @@ const INT_TO_FITZ = {
     5: 'V',
     6: 'VI',
 };
+
+const REVIEW_COLORS = new Set(DIFFICULT_COLORS);
+const REVIEW_LOCATIONS = new Set(['hand', 'foot', 'face']);
 
 const lookup = (map, key, fallback = 0) => {
     if (key == null || map == null) return fallback;
@@ -42,9 +46,16 @@ const resolveBodyLocation = (caseInput) => {
     return 'arm';
 };
 
-const hardestColorDelta = (colors, colorMap) => {
-    if (!Array.isArray(colors) || colors.length === 0) return 0;
-    return Math.max(0, ...colors.map((color) => lookup(colorMap, color, 0)));
+/** SessionLogic_Master age bands — not the price-multiplier buckets. */
+const resolveSessionAgeBand = (caseInput) => {
+    if (caseInput.tc_age_bucket) return caseInput.tc_age_bucket;
+    const years = Number(caseInput.tc_age_years);
+    if (!Number.isFinite(years)) return 'unknown';
+    if (years < 1) return 'under_1';
+    if (years <= 3) return 'age_1_3';
+    if (years <= 7) return 'age_4_7';
+    if (years <= 15) return 'age_8_15';
+    return 'over_15';
 };
 
 const resolvePriorBand = (caseInput) => {
@@ -61,96 +72,172 @@ const resolveGoalKey = (goal) => {
     return goal;
 };
 
-const collectLifestyleScores = (caseInput, scores = {}) => {
-    const items = [];
-    const push = (map, key) => {
-        if (key == null || key === '') return;
-        if (!map || map[key] == null) return;
-        const n = Number(map[key]);
-        if (Number.isFinite(n)) items.push(n);
-    };
-
-    push(scores.smoker, caseInput.life_smoker);
-    push(scores.alcohol, caseInput.life_alcohol);
-    push(scores.stress, caseInput.life_stress);
-    push(scores.activity, caseInput.life_activity);
-    push(scores.hydration, caseInput.life_hydration);
-    push(scores.nutrition, caseInput.life_nutrition);
-
-    const sleepHours = lookup(scores.sleep_hours, caseInput.life_sleep_hours, null);
-    const sleepQuality = lookup(scores.sleep_quality, caseInput.life_sleep_quality, null);
-    if (sleepHours != null && sleepQuality != null) {
-        items.push((sleepHours + sleepQuality) / 2);
-    } else if (sleepHours != null) {
-        items.push(sleepHours);
-    } else if (sleepQuality != null) {
-        items.push(sleepQuality);
-    }
-
-    return items;
+const resolveColorCountBand = (colors = []) => {
+    const extras = colors.filter(
+        (color) => color && !BLACK_FAMILY_COLORS.includes(color)
+    );
+    if (extras.length === 0) return 'none';
+    if (extras.length <= 2) return 'one_two';
+    return 'three_plus';
 };
 
-const resolveLifestyleBand = (average, bands) => {
-    const sorted = [...(bands || [])].sort((a, b) => a.max_avg - b.max_avg);
-    if (!sorted.length) {
-        return { score: 3, multiplier: 1 };
-    }
-    const match = sorted.find((band) => average <= band.max_avg) || sorted[sorted.length - 1];
-    return {
-        score: Number(match.score) || 3,
-        multiplier: Number(match.multiplier) || 1,
-    };
-};
-
-const computeTattooDelta = (caseInput, deltas = {}) => {
-    let delta = 0;
-    delta += lookup(deltas.fitzpatrick, resolveFitzKey(caseInput), 0);
-    delta += lookup(deltas.location, resolveBodyLocation(caseInput), 0);
-    delta += hardestColorDelta(caseInput.tc_colors_present, deltas.color);
-    delta += lookup(deltas.density, caseInput.tc_density, 0);
-    delta += lookup(deltas.saturation, caseInput.tc_saturation, 0);
-    delta += lookup(deltas.coverup, caseInput.tc_coverup, 0);
-    delta += lookup(deltas.age, caseInput.tc_age_bucket, 0);
-    delta += lookup(deltas.prior_treatment, resolvePriorBand(caseInput), 0);
-    delta += lookup(deltas.type, caseInput.tc_type, 0);
-    delta += lookup(deltas.goal, resolveGoalKey(caseInput.goal_target), 0);
-    return delta;
+const hardestColor = (colors = []) => {
+    if (!colors.length) return null;
+    const ranked = ['skin_tone', 'white', 'yellow', 'green', 'purple', 'red', 'orange', 'blue', 'grey', 'black'];
+    return ranked.find((color) => colors.includes(color)) || colors[0];
 };
 
 const resolveLifestyle = (caseInput, cfg) => {
-    const scores = collectLifestyleScores(caseInput, cfg.lifestyle_scores);
-    if (!scores.length) {
-        return { score: 3, multiplier: 1, average: null, factors: 0 };
-    }
-    const average = scores.reduce((sum, n) => sum + n, 0) / scores.length;
+    const result = computeLifestyleComposite(caseInput, cfg);
     return {
-        ...resolveLifestyleBand(average, cfg.lifestyle_bands),
-        average: Math.round(average * 100) / 100,
-        factors: scores.length,
+        ...result,
+        factors: result.factor_count,
+        factor_scores: result.factors,
     };
 };
 
+const factor = (id, label, delta, review = false) => {
+    const n = Number(delta) || 0;
+    if (n === 0 && !review) return null;
+    return { id, label, delta: n, review };
+};
+
+const resolveLighteningRate = (caseInput) => {
+    if (caseInput.lightening_rate) return caseInput.lightening_rate;
+    const pct = Number(caseInput.removal ?? caseInput.verblassung_prozent);
+    const done = Number(caseInput.sessionsDone);
+    if (!Number.isFinite(pct) || !Number.isFinite(done) || done < 2) return null;
+    if (pct >= 40) return 'fast';
+    if (pct >= 20) return 'expected';
+    if (pct >= 8) return 'slow';
+    return 'stagnant';
+};
+
+const collectTattooFactors = (caseInput, deltas = {}) => {
+    const colors = Array.isArray(caseInput.tc_colors_present)
+        ? caseInput.tc_colors_present.filter(Boolean)
+        : [];
+    const location = resolveBodyLocation(caseInput);
+    const fitz = resolveFitzKey(caseInput);
+    const ageBand = resolveSessionAgeBand(caseInput);
+    const coverup = caseInput.tc_coverup || 'none';
+    const prior = resolvePriorBand(caseInput);
+    const colorKey = hardestColor(colors);
+    const countBand = resolveColorCountBand(colors);
+    const colorDelta = Math.max(
+        lookup(deltas.color, colorKey, 0),
+        lookup(deltas.color_count, countBand, 0)
+    );
+
+    const factors = [
+        factor('sit_skin_type', 'Fitzpatrick', lookup(deltas.fitzpatrick, fitz, 0), ['V', 'VI', 'unsicher'].includes(fitz)),
+        factor('sit_body_location', 'Körperstelle', lookup(deltas.location, location, 0), REVIEW_LOCATIONS.has(location)),
+        factor(
+            'sit_colors',
+            'Farben',
+            colorDelta,
+            colors.some((c) => REVIEW_COLORS.has(c))
+        ),
+        factor('sit_density', 'Dichte', lookup(deltas.density, caseInput.tc_density, 0), caseInput.tc_density === 'very_high'),
+        factor(
+            'sit_saturation',
+            'Sättigung',
+            lookup(deltas.saturation, caseInput.tc_saturation, 0),
+            ['high', 'very_high'].includes(caseInput.tc_saturation)
+        ),
+        factor(
+            'sit_coverup',
+            'Cover-up',
+            lookup(deltas.coverup, coverup, 0),
+            coverup === 'multiple' || coverup === 'unknown'
+        ),
+        factor('sit_age', 'Tattoo-Alter', lookup(deltas.age, ageBand, 0), ageBand === 'under_1'),
+        factor('sit_prior_treatment', 'Vorbehandlung', lookup(deltas.prior_treatment, prior, 0), prior === 'many'),
+        factor(
+            'sit_scarring',
+            'Narbenrisiko',
+            lookup(deltas.scarring, caseInput.skin_keloid_risk, 0),
+            caseInput.skin_keloid_risk === 'high'
+        ),
+        factor('sit_type', 'Tattoo-Art', lookup(deltas.type, caseInput.tc_type, 0), false),
+        factor('sit_goal', 'Ziel', lookup(deltas.goal, resolveGoalKey(caseInput.goal_target), 0), false),
+        factor(
+            'sit_laser_profile',
+            'Laserprofil',
+            lookup(deltas.laser_profile, caseInput.laser_profile_level, 0),
+            caseInput.laser_profile_level === 'basic'
+        ),
+        factor(
+            'sit_healing_history',
+            'Heilungsverlauf',
+            lookup(deltas.healing_history, caseInput.healing_history, 0),
+            caseInput.healing_history === 'problematic'
+        ),
+        factor(
+            'sit_lightening_rate',
+            'Hellungsrate',
+            lookup(deltas.lightening_rate, resolveLighteningRate(caseInput), 0),
+            ['slow', 'stagnant'].includes(resolveLighteningRate(caseInput))
+        ),
+    ].filter(Boolean);
+
+    return factors;
+};
+
+const computeTattooDelta = (caseInput, deltas = {}) =>
+    collectTattooFactors(caseInput, deltas).reduce((sum, item) => sum + item.delta, 0);
+
 const estimateSessionsFromConfig = (caseInput = {}, sessionPrediction = {}) => {
     const cfg = mergeSessionPrediction(sessionPrediction);
-    const delta = computeTattooDelta(caseInput, cfg.tattoo_deltas);
+    const factors = collectTattooFactors(caseInput, cfg.tattoo_deltas);
+    const tattooDelta = factors.reduce((sum, item) => sum + item.delta, 0);
     const lifestyle = resolveLifestyle(caseInput, cfg);
-    const mid = (Number(cfg.base_sessions) + delta) * lifestyle.multiplier;
+    const mid = (Number(cfg.base_sessions) + tattooDelta) * lifestyle.multiplier;
     const extraMax = lookup(cfg.aftercare_extra_max, caseInput.life_aftercare_commitment, 0);
 
-    const rawMin = Math.round(mid - Number(cfg.range_minus || 0));
-    const rawMax = Math.round(mid + Number(cfg.range_plus || 0) + extraMax);
+    // Simple tattoos (Excel example 1 → 6–8): ±1. Complex (examples 2–3): ±2.
+    const spreadLow = tattooDelta <= 0 ? 1 : Number(cfg.range_minus || 2);
+    const spreadHigh = tattooDelta <= 0 ? 1 : Number(cfg.range_plus || 2);
+
+    const rawMin = Math.round(mid - spreadLow);
+    const rawMax = Math.round(mid + spreadHigh + extraMax);
     const min = clamp(Math.min(rawMin, rawMax), cfg.min_sessions, cfg.max_sessions);
     const max = clamp(Math.max(rawMin, rawMax), cfg.min_sessions, cfg.max_sessions);
     const base = clamp(Math.round(mid), cfg.min_sessions, cfg.max_sessions);
+
+    const topFactors = [...factors]
+        .sort((a, b) => Math.abs(b.delta) - Math.abs(a.delta))
+        .slice(0, 4)
+        .map((item) => ({ id: item.id, label: item.label, delta: item.delta }));
+
+    const reviewTriggers = factors.filter((item) => item.review).map((item) => item.id);
+    const missingTriggers = [
+        !caseInput.tc_colors_present?.length && 'missing_colors',
+        !(caseInput.skin_fitzpatrick_type || caseInput.skin_fitzpatrick) && 'missing_fitzpatrick',
+        !(caseInput.tc_body_location_main || caseInput.tc_body_location) && 'missing_location',
+        !caseInput.tc_age_bucket && caseInput.tc_age_years == null && 'missing_age',
+    ].filter(Boolean);
+    const uncertainty_score = Math.min(
+        100,
+        reviewTriggers.length * 15 + missingTriggers.length * 20
+    );
+    const allTriggers = [...new Set([...reviewTriggers, ...missingTriggers])];
 
     return {
         base,
         min,
         max,
-        tattoo_delta: delta,
+        tattoo_delta: tattooDelta,
         lifestyle_score: lifestyle.score,
         lifestyle_multiplier: lifestyle.multiplier,
         lifestyle_average: lifestyle.average,
+        lifestyle_factors: lifestyle.factor_scores,
+        lifestyle_bmi: lifestyle.bmi,
+        top_factors: topFactors,
+        needs_human_review: allTriggers.length > 0,
+        review_triggers: allTriggers,
+        uncertainty_score,
+        confidence_score: Math.max(40, 100 - uncertainty_score),
     };
 };
 
@@ -171,6 +258,13 @@ const estimatePmuSessionsFromConfig = (caseInput = {}, sessionPrediction = {}) =
         lifestyle_score: lifestyle.score,
         lifestyle_multiplier: lifestyle.multiplier,
         lifestyle_average: lifestyle.average,
+        lifestyle_factors: lifestyle.factor_scores,
+        lifestyle_bmi: lifestyle.bmi,
+        top_factors: [],
+        needs_human_review: false,
+        review_triggers: [],
+        uncertainty_score: 0,
+        confidence_score: 100,
     };
 };
 

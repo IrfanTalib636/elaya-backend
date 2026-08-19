@@ -23,28 +23,56 @@ const {
 } = require('../utils/elaycoinEngine');
 const { parsePagination, buildPaginationMeta } = require('../utils/pagination');
 const { APPOINTMENT_STATUS, APPOINTMENT_TYPE } = require('../config/constants');
+const { evaluateAndApplySessionLightening } = require('../utils/lighteningSessionService');
 
 const CUSTOMER_SESSION_SELECT =
-    'case customer studio session_number treatment_date treatment_time removal_pct verblassung_prozent verblassung_ki fortschritt_foto_file_id is_draft is_no_show zonen_id createdAt updatedAt';
+    'case customer studio session_number treatment_date treatment_time removal_pct verblassung_prozent comparison_eligible uncertainty_level progress_direction lightening_confidence verblassung_ki fortschritt_foto_file_id is_draft is_no_show zonen_id createdAt updatedAt';
 
-const formatVerblassungKiForRole = (ki, role) => {
+const customerLighteningNote = (sessionDoc = {}) => {
+    if (sessionDoc.comparison_eligible !== false) return null;
+    return (sessionDoc.comparison_reasons || []).includes('too_early')
+        ? 'too_early'
+        : 'no_reliable_comparison';
+};
+
+const formatVerblassungKiForRole = (ki, role, sessionDoc = {}) => {
     if (!ki) return null;
+    const noteKey = customerLighteningNote(sessionDoc);
+    const eligible = sessionDoc.comparison_eligible !== false;
     const customerSafe = {
         status: ki.status || '',
         beurteilung: ki.beurteilung || '',
-        fortschritt: ki.fortschritt || '',
+        fortschritt: eligible ? ki.fortschritt || '' : '',
         lifestyle_tipps: ki.lifestyle_tipps || '',
         empfehlung_kunde: ki.empfehlung_kunde || '',
         wichtiger_hinweis: ki.wichtiger_hinweis || '',
-        farben_analyse: ki.farben_analyse || null,
+        farben_analyse: eligible ? ki.farben_analyse || null : null,
         analysed_at: ki.analysed_at || null,
+        comparison_eligible: sessionDoc.comparison_eligible ?? ki.comparison_eligible ?? null,
+        uncertainty_level: sessionDoc.uncertainty_level || ki.uncertainty_level || null,
+        progress_direction: eligible
+            ? sessionDoc.progress_direction || ki.progress_direction || null
+            : 'unclear',
+        percent_estimate: eligible ? sessionDoc.verblassung_prozent ?? ki.percent_estimate ?? null : null,
+        lightening_note_key: noteKey,
     };
+    if (isCustomer(role) && sessionDoc.comparison_eligible === false) {
+        customerSafe.beurteilung =
+            noteKey === 'too_early'
+                ? 'Ein Vergleich ist noch zu früh (unter 14 Tagen). Ein zuverlässiger Verblassungsfortschritt kann noch nicht angezeigt werden.'
+                : 'Kein zuverlässiger Bildvergleich möglich. Ein Fortschrittswert wird deshalb nicht als sicheres Ergebnis angezeigt.';
+    }
     if (isCustomer(role)) return customerSafe;
     return {
         ...customerSafe,
         empfehlung_studio: ki.empfehlung_studio || '',
         foto_vorher_file_id: ki.foto_vorher_file_id || '',
         foto_aktuell_file_id: ki.foto_aktuell_file_id || '',
+        comparison_reasons: sessionDoc.comparison_reasons || [],
+        lightening_internal_pct: sessionDoc.lightening_internal_pct ?? null,
+        lightening_score: sessionDoc.lightening_score ?? ki.lightening_score ?? null,
+        needs_human_review: sessionDoc.needs_human_review ?? ki.needs_human_review ?? null,
+        lightening_confidence: sessionDoc.lightening_confidence || null,
     };
 };
 
@@ -58,12 +86,22 @@ const formatSession = (doc, role, options = {}) => {
         session_number: s.session_number,
         treatment_date: s.treatment_date,
         treatment_time: s.treatment_time,
-        removal_pct: s.removal_pct,
-        verblassung_prozent: s.verblassung_prozent,
+        removal_pct: isCustomer(role) && s.comparison_eligible === false ? null : s.removal_pct,
+        verblassung_prozent:
+            isCustomer(role) && s.comparison_eligible === false ? null : s.verblassung_prozent,
+        percent_estimate:
+            isCustomer(role) && s.comparison_eligible === false ? null : s.verblassung_prozent ?? null,
+        comparison_eligible: s.comparison_eligible ?? null,
+        uncertainty_level: s.uncertainty_level ?? null,
+        progress_direction:
+            isCustomer(role) && s.comparison_eligible === false
+                ? 'unclear'
+                : s.progress_direction ?? null,
+        lightening_note_key: customerLighteningNote(s),
         verblassung_ki:
             Number(s.session_number) < 2
                 ? null
-                : formatVerblassungKiForRole(s.verblassung_ki, role),
+                : formatVerblassungKiForRole(s.verblassung_ki, role, s),
         ki_analysis_available: Number(s.session_number) >= 2,
         fortschritt_foto_file_id: s.fortschritt_foto_file_id
             ? String(s.fortschritt_foto_file_id)
@@ -110,6 +148,19 @@ const formatSession = (doc, role, options = {}) => {
         adverse_event_type: s.adverse_event_type,
         special_notes: s.special_notes,
         fortschritt_foto_data: s.fortschritt_foto_data,
+        lightening_internal_pct: s.lightening_internal_pct ?? null,
+        lightening_score: s.lightening_score ?? null,
+        lightening_confidence: s.lightening_confidence ?? null,
+        needs_human_review: s.needs_human_review ?? null,
+        lightening_factors: s.lightening_factors || null,
+        lightening_studio_pct: s.lightening_studio_pct ?? null,
+        lightening_studio_notes: s.lightening_studio_notes || '',
+        lightening_studio_reviewed_at: s.lightening_studio_reviewed_at || null,
+        comparison_reasons: s.comparison_reasons || [],
+        image_quality_ok: s.image_quality_ok ?? null,
+        photo_same_angle: s.photo_same_angle ?? null,
+        photo_same_distance: s.photo_same_distance ?? null,
+        photo_comparable_light: s.photo_comparable_light ?? null,
         zahlung: s.zahlung,
     };
 };
@@ -225,6 +276,12 @@ const createSession = asyncHandler(async (req, res) => {
         appointment: linkedAppointment,
         ...(zahlung ? { zahlung } : {}),
     });
+
+    const enteredFade = fields.verblassung_prozent ?? fields.removal_pct;
+    await evaluateAndApplySessionLightening(session, caseDoc, {
+        visual_fade_pct: Number(enteredFade) > 0 ? Number(enteredFade) : null,
+    });
+    if (session.isModified()) await session.save();
 
     if (!session.is_draft && !session.is_no_show) {
         await syncCaseSessionStats(caseDoc._id);
@@ -382,6 +439,24 @@ const updateSession = asyncHandler(async (req, res) => {
         session.zahlung = { ...(session.zahlung || {}), ...zahlung };
     }
 
+    if (fields.lightening_studio_pct != null || fields.lightening_studio_notes) {
+        session.lightening_studio_reviewed_at = new Date();
+    }
+
+    const caseDoc = await Case.findById(session.case);
+    if (caseDoc) {
+        const enteredFade = fields.verblassung_prozent ?? fields.removal_pct;
+        await evaluateAndApplySessionLightening(session, caseDoc, {
+            visual_fade_pct:
+                enteredFade === undefined
+                    ? undefined
+                    : Number(enteredFade) > 0
+                      ? Number(enteredFade)
+                      : null,
+            studio_review_pct: session.lightening_studio_pct,
+        });
+    }
+
     await session.save();
     await syncCaseSessionStats(session.case);
     await syncCustomerPipeline(session.customer);
@@ -390,7 +465,6 @@ const updateSession = asyncHandler(async (req, res) => {
         await markAppointmentCompletedForSession(session);
     }
 
-    const caseDoc = await Case.findById(session.case);
     if (caseDoc) {
         try {
             if (wasDraft && !session.is_draft) {

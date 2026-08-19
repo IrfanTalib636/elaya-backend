@@ -57,6 +57,42 @@ const nachsorgeCheckSchema = new mongoose.Schema(
         studio_kontakt: { type: Boolean, default: false },
         naechster_check_tage: { type: Number, default: 7 },
         hinweis: { type: String, default: '' },
+        healing_status: {
+            type: String,
+            enum: ['normal', 'monitor', 'conspicuous', 'delayed', null],
+            default: null,
+        },
+        healing_phase: {
+            type: String,
+            enum: ['early', 'healing', 'consolidation', 'unknown', null],
+            default: null,
+        },
+        healing_severity_score: { type: Number, default: null },
+        healing_red_flag: { type: Boolean, default: false },
+        healing_red_flags: { type: [String], default: [] },
+        healing_needs_review: { type: Boolean, default: false },
+        healing_customer_summary: { type: String, default: '' },
+        healing_progress_score: { type: Number, min: 0, max: 100, default: null },
+        healing_recommended_action: {
+            type: String,
+            enum: ['continue_aftercare', 'continue_monitoring', 'photo_again', 'check_studio', null],
+            default: null,
+        },
+        healing_symptoms: { type: mongoose.Schema.Types.Mixed, default: null },
+        healing_behavior: { type: mongoose.Schema.Types.Mixed, default: null },
+        progress_direction_self: {
+            type: String,
+            enum: ['better', 'same', 'worse', 'unclear', null],
+            default: null,
+        },
+        studio_review_notes: { type: String, trim: true, default: '' },
+        healing_status_calculated: {
+            type: String,
+            enum: ['normal', 'monitor', 'conspicuous', 'delayed', null],
+            default: null,
+        },
+        healing_studio_reviewed_at: { type: Date, default: null },
+        healing_studio_reviewed_by: { type: String, trim: true, default: '' },
         /** Full model payload for audit — never return wholesale to clients */
         raw_ai: { type: mongoose.Schema.Types.Mixed, default: null },
         erstellt_von: {

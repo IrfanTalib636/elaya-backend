@@ -176,7 +176,7 @@ const exportMe = asyncHandler(async (req, res) => {
         await Promise.all([
             Session.find({ customer: customerId })
                 .select(
-                    'case session_number treatment_date treatment_time removal_pct verblassung_prozent is_draft is_no_show standort_name createdAt'
+                    'case session_number treatment_date treatment_time removal_pct verblassung_prozent comparison_eligible uncertainty_level progress_direction is_draft is_no_show standort_name createdAt'
                 )
                 .sort({ treatment_date: -1 })
                 .lean(),
@@ -305,8 +305,11 @@ const exportMe = asyncHandler(async (req, res) => {
             treatment_date: s.treatment_date,
             treatment_time: s.treatment_time,
             standort_name: s.standort_name ?? '',
-            removal_pct: s.removal_pct,
-            verblassung_prozent: s.verblassung_prozent,
+            removal_pct: s.comparison_eligible === false ? null : s.removal_pct,
+            verblassung_prozent: s.comparison_eligible === false ? null : s.verblassung_prozent,
+            comparison_eligible: s.comparison_eligible ?? null,
+            uncertainty_level: s.uncertainty_level ?? null,
+            progress_direction: s.comparison_eligible === false ? 'unclear' : s.progress_direction ?? null,
             is_no_show: !!s.is_no_show,
             is_draft: !!s.is_draft,
         })),

@@ -49,7 +49,7 @@ const buildCustomerChatContext = async (customerId, focusCaseId = null, options 
             is_no_show: false,
         })
             .select(
-                'case session_number treatment_date verblassung_prozent verblassung_ki.beurteilung'
+                'case session_number treatment_date verblassung_prozent comparison_eligible verblassung_ki.beurteilung'
             )
             .sort({ treatment_date: -1 })
             .lean(),
@@ -120,11 +120,13 @@ const buildCustomerChatContext = async (customerId, focusCaseId = null, options 
         if (caseSessions.length) {
             const last = caseSessions[0];
             ctx += `Letzte Sitzung: S.${last.session_number || '?'} am ${formatDeDate(last.treatment_date)}`;
-            if (last.verblassung_prozent != null) {
+            if (last.comparison_eligible !== false && last.verblassung_prozent != null) {
                 ctx += `, ${last.verblassung_prozent}% verblasst`;
+            } else if (last.comparison_eligible === false) {
+                ctx += ', noch kein zuverlässiger Bildvergleich';
             }
             ctx += '\n';
-            const kiT = last.verblassung_ki?.beurteilung;
+            const kiT = last.comparison_eligible === false ? null : last.verblassung_ki?.beurteilung;
             if (kiT) ctx += `KI-Analyse: ${String(kiT).slice(0, 180)}\n`;
         }
 

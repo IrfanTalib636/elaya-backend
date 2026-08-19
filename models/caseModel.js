@@ -23,6 +23,7 @@ const {
     LIFE_SMOKER,
     LIFE_ALCOHOL,
     LIFE_ACTIVITY,
+    LIFE_SPORT_FREQ,
     LIFE_SLEEP_HOURS,
     LIFE_SLEEP_QUALITY,
     LIFE_STRESS,
@@ -258,6 +259,11 @@ const caseSchema = new mongoose.Schema(
             enum: [...LIFE_ACTIVITY, null],
             default: null,
         },
+        life_sport_freq: {
+            type: String,
+            enum: [...LIFE_SPORT_FREQ, null],
+            default: null,
+        },
         life_sleep_hours: {
             type: String,
             enum: [...LIFE_SLEEP_HOURS, null],
@@ -391,6 +397,9 @@ const caseSchema = new mongoose.Schema(
             default: () => ({}),
         },
         lastSessionDate: { type: Date, default: null },
+        /** Engine flag — empty/unclear fields still calculate, but studio should review. */
+        estimate_needs_review: { type: Boolean, default: false },
+        estimate_review_triggers: { type: [String], default: [] },
         /** Effective price per session (CHF) — AI estimate until studio confirms, then confirmed value. */
         pricePerSession: { type: Number, default: 0, min: 0 },
         /** Immutable-from-studio AI snapshot; always updated by the pricing engine. */

@@ -1,11 +1,11 @@
 # Elaya Backend API
 
-Shared REST API for the Elaya platform — Customer Web Portal, Studio Web Dashboard, Admin Dashboard, and future mobile apps.
+Shared REST API for the Elaya platform — customer mobile app, Studio Web Dashboard, and Admin Dashboard.
 
 **Stack:** Node.js · Express 5 · MongoDB · Mongoose · JWT · Zod  
 **API base path:** `/api/v1`  
 **Planned production host:** [Railway](https://railway.app)  
-**Last updated:** 2026-07-20
+**Last updated:** 2026-08-19
 
 ---
 
@@ -36,7 +36,7 @@ Shared REST API for the Elaya platform — Customer Web Portal, Studio Web Dashb
 | Appointment API | ✅ Done | POST/GET/PATCH `/appointments` — group booking supported |
 | Session API | ✅ Done | POST/GET/PATCH `/sessions` — studio/admin write, customer read |
 | Lockout engine | ✅ Done | `berechneAlleSperren` — 49/28-day, UV/meds, customer booking validation |
-| Pricing engine | ✅ Done | 7-factor formula — GET `/cases/:id/pricing` (role-scoped) |
+| Pricing engine | ✅ Done | Excel PriceFormula + Multipliers — GET `/cases/:id/pricing` (role-scoped; customers never see multipliers) |
 | Elaycoin engine | ✅ Done | Tested — rewards, milestones, no-show, kurzfristige stornierung, expiry |
 | **Week 2.5** | ✅ **100%** | |
 | Feature flags / platform config | ✅ Done | Tested — admin, customer, studio; `platform_config` + `studio_pricing` / `elaycoin_studio_cfg` |
@@ -181,6 +181,8 @@ Optional `SOCKET_IO_PATH` (default `/socket.io`).
 | **History** | ✅ Done | `GET /nachsorge`, `GET /nachsorge/:id` |
 | **Swagger Files** | ✅ Done | `POST /files/staging` documented under **Files** tag |
 | **E2E smoke** | ✅ Verified | 2026-07-23 — upload → photo-check → check (+50 coins) → list/detail (`ai_available: true`) |
+| **Healing logic (§9)** | ✅ Done | `healingLogicEngine.js` — phases 1–7 / 8–21 / >21; status `normal \| monitor \| conspicuous \| delayed`; delayed is never date-only |
+| **Studio review** | ✅ Done | `PATCH /nachsorge/:id/review` — confirm or correct healing status + notes |
 | **Verblassung AI** | ✅ Done | `POST /verblassung` — before/after fading % on session; syncs case `removal` |
 | **Elaya FAB chat** | ✅ Done | `POST /chat` — customer + studio context; `erster_elaya_chat` coins |
 
@@ -195,10 +197,11 @@ Optional `SOCKET_IO_PATH` (default `/socket.io`).
 | **Analyze** | ✅ Done | `POST /verblassung` `{ session_id, foto_vorher_file_id?, foto_aktuell_file_id?, persist? }` — studio/admin only |
 | **Photos** | ✅ Done | Defaults: aktuell = session progress file; vorher = prior session progress or case intake main |
 | **Persist** | ✅ Done | Writes `verblassung_prozent`, `removal_pct`, `verblassung_ki`; syncs case `removal` |
-| **Customer read** | ✅ Done | `GET /sessions` includes `%` + customer-safe KI text (no `empfehlung_studio` / raw AI) |
+| **Customer read** | ✅ Done | `GET /sessions` includes `%` only when `comparison_eligible`; otherwise `too_early` / `no_reliable_comparison` (no invented %) |
 | **Progress upload** | ✅ Done | `POST /files/sessions/:id/progress` sets `fortschritt_foto_file_id` |
 | **E2E smoke** | ✅ Verified | 2026-07-23 — progress upload → `/verblassung` (`ai_available: true`, persisted); empty optional photo ids accepted |
-| **Studio UI** | ⏳ Later | Session “KI-Verblassung” button |
+| **First-session skip** | ✅ Done | Session 1 has no KI fading analysis (`ki_analysis_available: false`) |
+| **Studio UI** | ✅ Done | Session detail — studio % override, photo flags, internal estimate |
 
 **Disk path:** `uploads/{studioId}/sessions/{sessionId}/progress.jpg` (not under `staging/`).
 
@@ -211,7 +214,28 @@ Optional `SOCKET_IO_PATH` (default `/socket.io`).
 | **Coins** | ✅ Done | Customer `erster_elaya_chat` (+30, einmalig) |
 | **Escalation** | ✅ Done | Parses `[ESKALATION|…]` → `data.eskalation` (stripped from reply) |
 | **Suggested actions** | ✅ Done | Heuristic tags e.g. `termin_buchen`, `nachsorge` (customer) |
-| **Mobile / studio FAB UI** | ⏳ Later | Wire floating button to this API |
+| **Mobile / studio FAB UI** | ✅ Done | Studio `/studio/elaya`; mobile Chat tab |
+
+### Master Excel domain engines (IT_Clarifications · 2026-08-19)
+
+Leading domain source: [`../masterExcelFile_EN.xlsx`](../masterExcelFile_EN.xlsx) (German original: `../masterExcelFile.xlsx`). CSV exports are technical imports only — if they differ, **Master Excel + IT_Clarifications win**.
+
+**Source of truth if unclear:** 1) IT_Clarifications → 2) README_ClaudeCode → 3) PriceFormula / Multipliers / PriceCalculator / Examples → 4) `*_Master` sheets → 5) questionnaire / progress sheets. Returned on `GET /config/platform` as `domain_source_of_truth`.
+
+| Area | Status | Notes |
+|---|---|---|
+| **Price formula + multipliers** | ✅ Done | `pricingEngine.js` — Fläche × Basis × Farbe × Tiefe × Alter × Haut × Stelle × CoverUp × Ziel; `MAX(Mindestpreis, round-up 5 CHF)` |
+| **Session forecast** | ✅ Done | `sessionPredictionEngine.js` + `lifestyleCompositeEngine.js` — SessionForecast + SessionLogic_Master |
+| **Excel examples (§7)** | ✅ Done | `npm run verify:examples` — three Master Excel cases (age 3y = ×1.05; cover-up infers very-deep) |
+| **Lightening (§8)** | ✅ Done | `lighteningLogicEngine.js` + `lighteningComparisonEngine.js` — customer % only if `comparison_eligible` |
+| **Healing (§9)** | ✅ Done | `healingLogicEngine.js` — window + symptoms + progress; red flags override the window |
+| **Implementation rules (§10)** | ✅ Done | Empty fields still calculate, raise uncertainty, set `needs_human_review`. Studio must confirm/correct price, sessions, lightening, healing |
+| **Estimate confirmation** | ✅ Done | `PATCH /cases/:id/estimate-confirmation` — `offen` / `bestaetigt` / `angepasst` |
+| **Photo_Standards** | ✅ Done | Failed/missing intake flags → review triggers; do not block calculation |
+| **Customer vs studio** | ✅ Done | Customers never receive multipliers, weights, scores, or review-trigger internals |
+| **Flow_Mapping events** | ✅ Done | Recalc on case create/update (incl. photos), aftercare submit, studio review, session complete (`lastSessionDate` = healing baseline) |
+
+**Verify:** `npm run verify:examples` · `verify:lightening` · `verify:healing` · `verify:implementation`
 
 ### Changelog
 
@@ -259,6 +283,10 @@ Optional `SOCKET_IO_PATH` (default `/socket.io`).
 [2026-07-23] — Verblassung E2E verified; optional empty photo ids in Swagger; progress files under uploads/{studio}/sessions/
 [2026-07-24] — AI Elaya FAB chat: POST /chat with server context, escalation parse, erster_elaya_chat coins
 [2026-08-05] — Studio ↔ customer live chat: Socket.io + REST `/messaging` (Conversation/Message models)
+[2026-08-19] — Master Excel engines: PriceFormula/Multipliers, session forecast + lifestyle composite, lightening + healing logic
+[2026-08-19] — Human-in-the-loop: PATCH /cases/:id/estimate-confirmation, PATCH /nachsorge/:id/review, session lightening studio override
+[2026-08-19] — Role-aware outputs: no customer multipliers; fading % only when comparison_eligible; skip KI on session 1
+[2026-08-19] — Verifiers: npm run verify:examples | verify:lightening | verify:healing | verify:implementation
 ```
 
 ---
@@ -270,6 +298,7 @@ backend/
 ├── config/
 │   ├── constants.js       # Enums (roles, case status, appointment status, etc.)
 │   ├── db.js              # MongoDB connection
+│   ├── domainSourceOfTruth.js # IT_Clarifications §10 precedence + review principle
 │   ├── fieldReference.js  # Developer cheat sheet (local only, gitignored)
 │   ├── pricingDefaults.js # 7-factor pricing multipliers (client §5d)
 │   ├── elaycoinConfig.js  # Elaycoin situations + platform limits (client §7)
@@ -320,7 +349,11 @@ backend/
 ├── scripts/
 │   ├── bootstrapAdmin.js  # One-time production super admin (guarded)
 │   ├── seedDemo.js        # Financier demo — #TRI-001 + #HAN-001 (local; VPS with SEED_DEMO_ALLOW_PRODUCTION=1)
-│   └── seedDev.js         # Local dev fixtures only — blocked in production
+│   ├── seedDev.js         # Local dev fixtures only — blocked in production
+│   ├── verifyExcelExamples.js
+│   ├── verifyLighteningLogic.js
+│   ├── verifyHealingLogic.js
+│   └── verifyImplementationRules.js
 ├── validators/
 │   ├── anamnesisValidator.js
 │   ├── appointmentValidator.js
@@ -348,7 +381,16 @@ backend/
 │   ├── pagination.js            # page/limit parsing for list endpoints
 │   ├── elaycoinEngine.js        # vergebeElaycoins, zieheElaycoinsAb, expiry
 │   ├── configService.js         # platform_config + studio_pricing helpers
-│   ├── pricingEngine.js         # 7-factor session price (internal)
+│   ├── pricingEngine.js         # Excel PriceFormula + multipliers (internal)
+│   ├── sessionPredictionEngine.js
+│   ├── lifestyleCompositeEngine.js
+│   ├── lighteningLogicEngine.js
+│   ├── lighteningComparisonEngine.js
+│   ├── lighteningSessionService.js
+│   ├── healingLogicEngine.js
+│   ├── photoStandards.js        # Photo_Standards intake flags
+│   ├── engineReview.js          # needs_human_review envelope
+│   ├── plausibilityCheck.js     # Excel §7 examples
 │   └── sessionHelpers.js        # session_number + case stats sync
 ├── server.js
 ├── .env.example
@@ -377,6 +419,8 @@ npm run dev                 # development with nodemon
 
 Server: `http://localhost:4000`  
 Swagger: `http://localhost:4000/api/v1/docs`
+
+Studio web (`elaya-frontend`) and customer app (`elaya-mobile`) both talk to this API at `/api/v1`. See those READMEs for local `VITE_API_URL` / `EXPO_PUBLIC_BASE_URL`.
 
 ### Environment variables
 
@@ -482,7 +526,9 @@ Only studios with status **`aktiv`** appear in the public list. Pending (`ausste
 | `GET` | `/api/v1/cases/:id` | Bearer | Get case + zones |
 | `PATCH` | `/api/v1/cases/:id` | Bearer | Update case (intake vs studio fields by role) |
 | `GET` | `/api/v1/cases/:id/availability` | Bearer | Booking calendar — blocked days + `fruehestes` |
-| `GET` | `/api/v1/cases/:id/pricing` | Bearer | Price estimate — customer AB only; studio sees breakdown |
+| `POST` | `/api/v1/cases/pricing/preview` | Bearer | Price + session preview from intake (no case id) — customer sees AB only |
+| `GET` | `/api/v1/cases/:id/pricing` | Bearer | Price estimate — customer AB only; studio sees breakdown + `needs_human_review` |
+| `PATCH` | `/api/v1/cases/:id/estimate-confirmation` | Studio / Admin | Confirm (`bestaetigt`), adjust (`angepasst`), or re-open (`offen`) the estimate |
 
 ### Appointments
 
@@ -525,7 +571,17 @@ Case fields `photo_intake_main`, `photo_intake_detail`, `photo_marker`, and zone
 **Case `status` values (English):** `pending` · `active` · `completed` · `loeschantrag_ausstehend`  
 (User/studio account status uses German: `ausstehend` · `aktiv` · `gesperrt`.)
 
-**Pricing:** `pricePerSession` is hidden from customer API responses (internal studio field per client spec).
+**Pricing:** Customers see displayed price/session range only (no multipliers, weights, or review triggers). Until the studio confirms (`estimate_confirmation`), the engine snapshot is shown; after confirm/adjust, confirmed values win. Studio still sees the calculated snapshot.
+
+### Nachsorge (aftercare)
+
+| Method | Path | Auth | Description |
+|---|---|---|---|
+| `POST` | `/api/v1/nachsorge/photo-check` | Bearer | Stage 1 — photo-only AI ampel |
+| `POST` | `/api/v1/nachsorge/check` | Bearer | Stage 2 — persist healing assessment; also runs lightening on latest session |
+| `GET` | `/api/v1/nachsorge` | Bearer | List checks (customer = own; studio = studio-scoped) |
+| `GET` | `/api/v1/nachsorge/:id` | Bearer | Check detail (role-scoped fields) |
+| `PATCH` | `/api/v1/nachsorge/:id/review` | Studio / Admin | Confirm or correct `healing_status` + notes |
 
 ### Pagination (list endpoints)
 
@@ -777,6 +833,10 @@ Industry pattern: **never auto-create admins on server start**. Run a guarded on
 | `npm start` | Production start |
 | `npm run seed:dev` | Local dev only — admin + studio admin + pilot studio INKFREE (blocked in production) |
 | `npm run bootstrap:admin` | One-time production super admin (guarded) |
+| `npm run verify:examples` | Master Excel §7 price/session fixtures |
+| `npm run verify:lightening` | LighteningLogic_Master + §8 fixtures |
+| `npm run verify:healing` | HealingLogic_Master + §9 fixtures |
+| `npm run verify:implementation` | §10 source-of-truth / review / customer-hide checks |
 
 ---
 
@@ -792,8 +852,11 @@ Industry pattern: **never auto-create admins on server start**. Run a guarded on
 
 ## Related docs
 
+- `../elaya-frontend/README.md` — Studio / admin web
+- `../elaya-mobile/README.md` — Customer app
 - `../DEVELOPER-HANDOFF-EN.md` — Full platform spec and field definitions
 - `../ELAYA-DOCS-FOR-CLIENT.pdf` — Milestones and architecture
+- `../masterExcelFile_EN.xlsx` — Leading domain reference (IT_Clarifications, engines, Photo_Standards, Flow_Mapping)
 - `config/fieldReference.js` — Developer field name cheat sheet (local only, not in git)
 
 ---
