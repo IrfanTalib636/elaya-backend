@@ -557,15 +557,17 @@ const computeAvailability = async ({
     });
 
     let blockedDates = buildBlockedDates(from, to, sperren, fruehestes);
+    let studio_schedule = null;
     if (from && to && activeCase?.studio) {
         const Studio = require('../models/studioModel');
-        const { collectClosedDates } = require('./studioHours');
+        const { collectClosedDates, buildStudioScheduleSnapshot } = require('./studioHours');
         const studio = await Studio.findById(activeCase.studio)
-            .select('oeffnungszeiten oeffnungs_ausnahmen')
+            .select('oeffnungszeiten oeffnungs_ausnahmen pufferzeit_minuten')
             .lean();
         if (studio) {
             const closed = collectClosedDates(studio, from, to);
             blockedDates = [...new Set([...blockedDates, ...closed])].sort();
+            studio_schedule = buildStudioScheduleSnapshot(studio);
         }
     }
 
@@ -577,6 +579,7 @@ const computeAvailability = async ({
         sperren: sperren.map(serializeSperre),
         frei_fenster: frei_fenster.map(serializeFreeWindow),
         blocked_dates: blockedDates,
+        studio_schedule,
     };
 };
 

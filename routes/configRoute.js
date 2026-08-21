@@ -5,18 +5,20 @@ const validate = require('../middleware/validateMiddleware');
 const {
     patchPlatformConfigSchema,
     patchStudioConfigSchema,
+    sessionPredictionPreviewSchema,
 } = require('../validators/configValidator');
 const { USER_ROLES } = require('../config/constants');
 
 const router = express.Router();
 
-const adminRoles = [USER_ROLES.ADMIN, USER_ROLES.SUPER_ADMIN];
+const adminRoles = [USER_ROLES.ADMIN, USER_ROLES.SUPER_ADMIN, USER_ROLES.DEVELOPER];
 const studioRoles = [USER_ROLES.STUDIO_ADMIN, USER_ROLES.STUDIO_STAFF];
 const allAuthenticatedRoles = [
     USER_ROLES.CUSTOMER,
     ...studioRoles,
     ...adminRoles,
 ];
+const studioAndAdminRoles = [...studioRoles, ...adminRoles];
 
 /**
  * @swagger
@@ -44,6 +46,26 @@ const allAuthenticatedRoles = [
  *         description: Not authorized
  */
 router.get('/public', protect, authorize(...allAuthenticatedRoles), configController.getPublic);
+
+/**
+ * @swagger
+ * /config/session-prediction/preview:
+ *   post:
+ *     summary: Live Sitzungsprognose calculator (no persist)
+ *     description: |
+ *       **Auth:** Bearer · studio + admin.
+ *       Runs the real sessionPredictionEngine against draft parameters and a sample case.
+ *     tags: [Config]
+ *     security:
+ *       - bearerAuth: []
+ */
+router.post(
+    '/session-prediction/preview',
+    protect,
+    authorize(...studioAndAdminRoles),
+    validate(sessionPredictionPreviewSchema),
+    configController.previewSessionPredictionHandler
+);
 
 /**
  * @swagger

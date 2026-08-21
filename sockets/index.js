@@ -1,7 +1,12 @@
 const { Server } = require('socket.io');
 const { socketAuthMiddleware } = require('./auth');
 const { registerChatHandlers } = require('./chatHandler');
+const { PLATFORM_CONFIG_ROOM } = require('./configEmit');
+const { availabilityStudioRoom } = require('./studioScheduleEmit');
 const { setIO } = require('./io');
+const { isCustomer, isStudio, refId } = require('../utils/accessHelpers');
+const Customer = require('../models/customerModel');
+const Case = require('../models/caseModel');
 
 const buildCorsOriginChecker = () => {
     const configured = (process.env.CORS_ORIGINS || '')
@@ -36,6 +41,34 @@ const buildCorsOriginChecker = () => {
     };
 };
 
+const joinAvailabilityRooms = async (socket) => {
+    const user = socket.user;
+    if (!user) return;
+
+    if (isStudio(user.role) && user.studio_id) {
+        socket.join(availabilityStudioRoom(refId(user.studio_id)));
+        return;
+    }
+
+    if (isCustomer(user.role) && user.customer_id) {
+        const customerId = refId(user.customer_id);
+        const [customer, caseStudios] = await Promise.all([
+            Customer.findById(customerId).select('aktuelle_firma_id').lean(),
+            Case.distinct('studio', { customer: customerId }),
+        ]);
+        const studioIds = new Set();
+        const aktuelle = refId(customer?.aktuelle_firma_id);
+        if (aktuelle) studioIds.add(aktuelle);
+        for (const sid of caseStudios) {
+            const id = refId(sid);
+            if (id) studioIds.add(id);
+        }
+        for (const studioId of studioIds) {
+            socket.join(availabilityStudioRoom(studioId));
+        }
+    }
+};
+
 /**
  * Attach Socket.io to the HTTP server for studio ↔ customer live chat.
  * Path: `/socket.io` (default). Auth: handshake.auth.token = access JWT.
@@ -55,7 +88,13 @@ const initSocket = (httpServer) => {
     io.use(socketAuthMiddleware);
 
     io.on('connection', (socket) => {
+        // All authenticated clients receive platform session-prediction updates
+        socket.join(PLATFORM_CONFIG_ROOM);
         registerChatHandlers(io, socket);
+
+        void joinAvailabilityRooms(socket).catch(() => {
+            // booking refresh still works via pull/refetch
+        });
 
         socket.on('disconnect', () => {
             // rooms cleaned automatically

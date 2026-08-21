@@ -77,10 +77,70 @@ const collectClosedDates = (studio, from, to) => {
     return closed;
 };
 
+const timeToMinutes = (value) => {
+    const match = /^(\d{1,2}):(\d{2})$/.exec(String(value || '').trim());
+    if (!match) return null;
+    const h = Number(match[1]);
+    const m = Number(match[2]);
+    if (h > 23 || m > 59) return null;
+    return h * 60 + m;
+};
+
+const minutesToTime = (total) => {
+    const h = Math.floor(total / 60);
+    const m = total % 60;
+    return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+};
+
+/**
+ * Build bookable start times between von (inclusive) and bis (exclusive).
+ * Default interval 60 minutes (matches mobile booking UX).
+ */
+const buildTimeSlots = (von, bis, intervalMinutes = 60) => {
+    const start = timeToMinutes(von);
+    const end = timeToMinutes(bis);
+    const step = Math.max(15, Number(intervalMinutes) || 60);
+    if (start == null || end == null || end <= start) return [];
+
+    const slots = [];
+    for (let cursor = start; cursor < end; cursor += step) {
+        slots.push(minutesToTime(cursor));
+    }
+    return slots;
+};
+
+const buildStudioScheduleSnapshot = (studio) => {
+    if (!studio) return null;
+    const weekly = mergeOeffnungszeiten(studio.oeffnungszeiten);
+    const exceptions = normalizeAusnahmen(studio.oeffnungs_ausnahmen);
+    const slotInterval = 60;
+    return {
+        weekly,
+        exceptions,
+        pufferzeit_minuten: studio.pufferzeit_minuten ?? 10,
+        slot_interval_minuten: slotInterval,
+    };
+};
+
+const slotsForStudioDate = (studio, isoDate, intervalMinutes = 60) => {
+    const ausnahmen = normalizeAusnahmen(studio?.oeffnungs_ausnahmen);
+    const hours = resolveHoursForDate(studio?.oeffnungszeiten, ausnahmen, isoDate);
+    if (!hours.offen) return { offen: false, von: hours.von, bis: hours.bis, time_slots: [] };
+    return {
+        offen: true,
+        von: hours.von,
+        bis: hours.bis,
+        time_slots: buildTimeSlots(hours.von, hours.bis, intervalMinutes),
+    };
+};
+
 module.exports = {
     toDateKey,
     normalizeAusnahmen,
     resolveHoursForDate,
     collectClosedDates,
     weekdayKeyForDate,
+    buildTimeSlots,
+    buildStudioScheduleSnapshot,
+    slotsForStudioDate,
 };

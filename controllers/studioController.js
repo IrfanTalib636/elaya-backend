@@ -6,8 +6,9 @@ const User = require('../models/userModel');
 const { USER_ROLES, USER_STATUS, STUDIO_STATUS } = require('../config/constants');
 const { isAdmin, isStudio } = require('../utils/accessHelpers');
 const { mergeOeffnungszeiten } = require('../config/studioDefaults');
-const { normalizeAusnahmen } = require('../utils/studioHours');
+const { normalizeAusnahmen, buildStudioScheduleSnapshot } = require('../utils/studioHours');
 const { parsePagination, buildPaginationMeta } = require('../utils/pagination');
+const { emitStudioScheduleUpdated } = require('../sockets/studioScheduleEmit');
 
 const PROFILE_FIELDS = ['firma', 'telefon', 'strasse', 'plz', 'ort', 'land', 'notizen'];
 
@@ -201,7 +202,18 @@ const patchStudioSettings = asyncHandler(async (req, res) => {
         studio.pufferzeit_minuten = pufferzeit_minuten;
     }
 
+    const scheduleTouched =
+        oeffnungszeiten !== undefined ||
+        oeffnungs_ausnahmen !== undefined ||
+        pufferzeit_minuten !== undefined;
+
     await studio.save();
+
+    if (scheduleTouched) {
+        emitStudioScheduleUpdated(studio._id, {
+            schedule: buildStudioScheduleSnapshot(studio),
+        });
+    }
 
     res.status(200).json({
         success: true,
