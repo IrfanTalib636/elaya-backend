@@ -98,6 +98,7 @@ const patchStudioConfigSchema = z
         elaycoin_studio_cfg: elaycoinStudioCfgSchema.optional(),
         subscription_plan: z.enum(['basic', 'professional', 'enterprise']).optional(),
         feature_overrides: z.record(z.string(), z.boolean()).optional(),
+        gruppen_groessen: gruppenGroessenSchema,
     })
     .strict();
 

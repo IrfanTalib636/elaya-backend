@@ -224,23 +224,56 @@ const createAppointment = asyncHandler(async (req, res) => {
 
     assertCaseAccess(req.user, primaryCase);
 
-    const isGroup = body.gruppen_termin && gruppen_cases.length > 0;
+    const extraGroupIds = Array.isArray(gruppen_cases) ? gruppen_cases : [];
+    const isGroup = Boolean(body.gruppen_termin) && extraGroupIds.length > 0;
     const groupCases = isGroup
-        ? await loadCasesForGroup(primaryCase, gruppen_cases, req.user)
+        ? await loadCasesForGroup(primaryCase, extraGroupIds, req.user)
         : [primaryCase];
+
+    if (isGroup) {
+        const CaseZone = require('../models/caseZoneModel');
+        const { getEffectiveGruppenGroessen, getEffectivePricingOverrides } = require('../utils/configService');
+        const { validateGroupSelection, calcGroupPricingFromPrices } = require('../utils/groupBooking');
+        const { calculatePrice } = require('../utils/pricingEngine');
+
+        const gg = await getEffectiveGruppenGroessen(primaryCase.studio);
+        const items = [];
+        for (const caseDoc of groupCases) {
+            const zones = caseDoc.zonen_aktiv
+                ? await CaseZone.find({ case: caseDoc._id }).lean()
+                : [];
+            items.push({ caseDoc, zones });
+        }
+        const check = validateGroupSelection(items, gg);
+        if (!check.ok) {
+            throw new ApiError(400, check.message);
+        }
+
+        const prices = [];
+        for (const caseDoc of groupCases) {
+            const pricingInput = caseDoc.toObject ? caseDoc.toObject() : { ...caseDoc };
+            if (caseDoc.zonen_aktiv) {
+                pricingInput.zonen = await CaseZone.find({ case: caseDoc._id }).lean();
+            }
+            const overrides = await getEffectivePricingOverrides(caseDoc.studio);
+            prices.push(calculatePrice(pricingInput, overrides).pricePerSession || 0);
+        }
+        const priced = calcGroupPricingFromPrices(prices, gg);
+        body.gruppen_rabatt = gg.gruppen_rabatt;
+        body.gruppen_preis_total = priced.gesamt;
+    }
 
     const preSessionCheck = await resolvePreSessionForCustomerBooking(primaryCase, body, req.user);
 
-    if (isTreatmentBooking(body)) {
-        for (const caseDoc of groupCases) {
-            await assertBookingDateAllowed({
-                caseId: caseDoc._id,
-                customerId: caseDoc.customer,
-                date: body.date,
-                consultationOnly: false,
-                preSessionCheck,
-            });
-        }
+    for (const caseDoc of groupCases) {
+        await assertBookingDateAllowed({
+            caseId: caseDoc._id,
+            customerId: caseDoc.customer,
+            date: body.date,
+            time: body.time,
+            consultationOnly: !isTreatmentBooking(body),
+            preSessionCheck: isTreatmentBooking(body) ? preSessionCheck : {},
+        });
     }
 
     const gruppen_id = isGroup ? crypto.randomUUID() : null;
@@ -374,6 +407,7 @@ const updateAppointment = asyncHandler(async (req, res) => {
                 caseId: caseDoc._id,
                 customerId: caseDoc.customer,
                 date: req.body.date,
+                time: req.body.time,
                 consultationOnly: false,
                 preSessionCheck,
             });

@@ -71,8 +71,16 @@ const patchPlatform = asyncHandler(async (req, res) => {
     });
 });
 
-const getPublic = asyncHandler(async (_req, res) => {
-    const config = await getPublicConfig();
+const getPublic = asyncHandler(async (req, res) => {
+    let studioId = req.user?.studio_id || null;
+    if (!studioId && req.user?.role === USER_ROLES.CUSTOMER && req.user.customer_id) {
+        const Customer = require('../models/customerModel');
+        const customer = await Customer.findById(req.user.customer_id)
+            .select('aktuelle_firma_id')
+            .lean();
+        studioId = customer?.aktuelle_firma_id || null;
+    }
+    const config = await getPublicConfig(studioId);
 
     res.status(200).json({
         success: true,

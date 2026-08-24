@@ -558,16 +558,35 @@ const computeAvailability = async ({
 
     let blockedDates = buildBlockedDates(from, to, sperren, fruehestes);
     let studio_schedule = null;
+    let occupied_times = {};
     if (from && to && activeCase?.studio) {
         const Studio = require('../models/studioModel');
-        const { collectClosedDates, buildStudioScheduleSnapshot } = require('./studioHours');
+        const Appointment = require('../models/appointmentModel');
+        const { APPOINTMENT_STATUS } = require('../config/constants');
+        const {
+            collectClosedDates,
+            buildStudioScheduleSnapshot,
+            collectOccupiedTimes,
+        } = require('./studioHours');
         const studio = await Studio.findById(activeCase.studio)
-            .select('oeffnungszeiten oeffnungs_ausnahmen pufferzeit_minuten')
+            .select('oeffnungszeiten oeffnungs_ausnahmen pufferzeit_minuten slot_interval_minuten')
             .lean();
         if (studio) {
             const closed = collectClosedDates(studio, from, to);
             blockedDates = [...new Set([...blockedDates, ...closed])].sort();
             studio_schedule = buildStudioScheduleSnapshot(studio);
+            const booked = await Appointment.find({
+                studio: activeCase.studio,
+                status: APPOINTMENT_STATUS.GEBUCHT,
+                date: { $gte: new Date(from), $lte: new Date(to) },
+            })
+                .select('date time dauer_minuten')
+                .lean();
+            occupied_times = collectOccupiedTimes(
+                booked,
+                studio_schedule.slot_interval_minuten,
+                studio_schedule.pufferzeit_minuten
+            );
         }
     }
 
@@ -580,6 +599,7 @@ const computeAvailability = async ({
         frei_fenster: frei_fenster.map(serializeFreeWindow),
         blocked_dates: blockedDates,
         studio_schedule,
+        occupied_times,
     };
 };
 
@@ -609,39 +629,55 @@ const assertBookingDateAllowed = async ({
     caseId,
     customerId,
     date,
+    time = null,
     consultationOnly = false,
     preSessionCheck = {},
 }) => {
-    if (consultationOnly) {
-        const availability = await computeAvailability({
-            activeCaseId: caseId,
-            customerId,
-            consultationOnly: true,
-            preSessionCheck: {},
-            from: date,
-            to: date,
-        });
-        const dayKey = toDateKey(date);
-        if (availability.blocked_dates.includes(dayKey)) {
-            const ApiError = require('./ApiError');
-            throw new ApiError(400, 'Das Studio ist an diesem Tag geschlossen.');
-        }
-        return;
-    }
-
     const availability = await computeAvailability({
         activeCaseId: caseId,
         customerId,
-        consultationOnly: false,
-        preSessionCheck,
+        consultationOnly,
+        preSessionCheck: consultationOnly ? {} : preSessionCheck,
         from: date,
         to: date,
     });
-
-    const result = isBookingDateAllowed(date, availability);
-    if (!result.allowed) {
+    const dayKey = toDateKey(date);
+    if (availability.blocked_dates.includes(dayKey)) {
         const ApiError = require('./ApiError');
-        throw new ApiError(400, result.message, { fruehestes: result.fruehestes });
+        throw new ApiError(400, 'Das Studio ist an diesem Tag geschlossen.');
+    }
+
+    if (!consultationOnly) {
+        const result = isBookingDateAllowed(date, availability);
+        if (!result.allowed) {
+            const ApiError = require('./ApiError');
+            throw new ApiError(400, result.message, { fruehestes: result.fruehestes });
+        }
+    }
+
+    if (time) {
+        const { isSlotOccupied, slotsForStudioDate } = require('./studioHours');
+        const Studio = require('../models/studioModel');
+        const Case = require('../models/caseModel');
+        const caseDoc = await Case.findById(caseId).select('studio').lean();
+        if (caseDoc?.studio) {
+            const studio = await Studio.findById(caseDoc.studio)
+                .select('oeffnungszeiten oeffnungs_ausnahmen slot_interval_minuten')
+                .lean();
+            if (studio) {
+                const interval = Number(studio.slot_interval_minuten) || 60;
+                const generated = slotsForStudioDate(studio, dayKey, interval);
+                const hhmm = String(time).slice(0, 5);
+                if (!generated.time_slots.includes(hhmm)) {
+                    const ApiError = require('./ApiError');
+                    throw new ApiError(400, 'This time is outside studio opening hours.');
+                }
+            }
+        }
+        if (isSlotOccupied(availability.occupied_times, dayKey, time)) {
+            const ApiError = require('./ApiError');
+            throw new ApiError(400, 'This time slot is already booked.');
+        }
     }
 };
 

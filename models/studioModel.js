@@ -130,6 +130,14 @@ const studioSchema = new mongoose.Schema(
             type: mongoose.Schema.Types.Mixed,
             default: {},
         },
+        /**
+         * Group-booking size points + discount for this studio.
+         * Empty/partial object inherits missing keys from platform defaults.
+         */
+        gruppen_groessen: {
+            type: mongoose.Schema.Types.Mixed,
+            default: {},
+        },
         /** Weekly opening hours — keys mo–so, each { offen, von, bis } */
         oeffnungszeiten: {
             type: mongoose.Schema.Types.Mixed,
@@ -164,6 +172,13 @@ const studioSchema = new mongoose.Schema(
             type: Number,
             default: 10,
             min: 0,
+        },
+        /** Booking slot interval in minutes (15 / 30 / 45 / 60) */
+        slot_interval_minuten: {
+            type: Number,
+            default: 60,
+            min: 15,
+            max: 60,
         },
         /** Subscription package: basic | professional | enterprise */
         subscription_plan: {

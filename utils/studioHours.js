@@ -113,13 +113,43 @@ const buildStudioScheduleSnapshot = (studio) => {
     if (!studio) return null;
     const weekly = mergeOeffnungszeiten(studio.oeffnungszeiten);
     const exceptions = normalizeAusnahmen(studio.oeffnungs_ausnahmen);
-    const slotInterval = 60;
+    const slotInterval = Number(studio.slot_interval_minuten) || 60;
     return {
         weekly,
         exceptions,
         pufferzeit_minuten: studio.pufferzeit_minuten ?? 10,
         slot_interval_minuten: slotInterval,
     };
+};
+
+const slotOverlapsWindow = (slotStart, slotInterval, windowStart, windowEnd) => {
+    const slotEnd = slotStart + slotInterval;
+    return slotStart < windowEnd && slotEnd > windowStart;
+};
+
+const collectOccupiedTimes = (appointments, intervalMinutes = 60, bufferMinutes = 0) => {
+    const interval = Math.max(15, Number(intervalMinutes) || 60);
+    const buffer = Math.max(0, Number(bufferMinutes) || 0);
+    const byDate = {};
+    for (const appointment of appointments || []) {
+        const dateKey = toDateKey(appointment.date);
+        const start = timeToMinutes(appointment.time);
+        if (!dateKey || start == null) continue;
+        const duration = Number(appointment.dauer_minuten) > 0 ? Number(appointment.dauer_minuten) : interval;
+        const windowEnd = start + duration + buffer;
+        if (!byDate[dateKey]) byDate[dateKey] = new Set();
+        for (let cursor = start; cursor < windowEnd; cursor += interval) {
+            byDate[dateKey].add(minutesToTime(cursor));
+        }
+    }
+    return Object.fromEntries(
+        Object.entries(byDate).map(([key, set]) => [key, [...set].sort()])
+    );
+};
+
+const isSlotOccupied = (occupiedTimes, isoDate, time) => {
+    const list = occupiedTimes?.[String(isoDate).slice(0, 10)] || [];
+    return list.includes(String(time || '').slice(0, 5));
 };
 
 const slotsForStudioDate = (studio, isoDate, intervalMinutes = 60) => {
@@ -143,4 +173,7 @@ module.exports = {
     buildTimeSlots,
     buildStudioScheduleSnapshot,
     slotsForStudioDate,
+    collectOccupiedTimes,
+    isSlotOccupied,
+    slotOverlapsWindow,
 };
