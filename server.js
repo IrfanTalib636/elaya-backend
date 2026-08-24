@@ -172,7 +172,7 @@ const startServer = async () => {
 
         initSocket(httpServer);
 
-        httpServer.listen(port, () => {
+        httpServer.listen(port, '0.0.0.0', () => {
             console.log(`Server is running on http://localhost:${port}`);
             if (isSwaggerEnabled()) {
                 console.log(`API docs: http://localhost:${port}/api/v1/docs`);
