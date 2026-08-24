@@ -205,10 +205,16 @@ const estimateSessionsFromConfig = (caseInput = {}, sessionPrediction = {}) => {
     const max = clamp(Math.max(rawMin, rawMax), cfg.min_sessions, cfg.max_sessions);
     const base = clamp(Math.round(mid), cfg.min_sessions, cfg.max_sessions);
 
-    const topFactors = [...factors]
+    const factorRows = factors.map((item) => ({
+        id: item.id,
+        label: item.label,
+        delta: item.delta,
+        review: Boolean(item.review),
+    }));
+    const topFactors = [...factorRows]
         .sort((a, b) => Math.abs(b.delta) - Math.abs(a.delta))
         .slice(0, 4)
-        .map((item) => ({ id: item.id, label: item.label, delta: item.delta }));
+        .map(({ id, label, delta }) => ({ id, label, delta }));
 
     const reviewTriggers = factors.filter((item) => item.review).map((item) => item.id);
     const missingTriggers = [
@@ -234,10 +240,56 @@ const estimateSessionsFromConfig = (caseInput = {}, sessionPrediction = {}) => {
         lifestyle_factors: lifestyle.factor_scores,
         lifestyle_bmi: lifestyle.bmi,
         top_factors: topFactors,
+        factors: factorRows,
+        formula: {
+            base_sessions: Number(cfg.base_sessions),
+            tattoo_delta: tattooDelta,
+            sum_before_lifestyle: Number(cfg.base_sessions) + tattooDelta,
+            lifestyle_multiplier: lifestyle.multiplier,
+            mid: Math.round(mid * 100) / 100,
+            spread_low: spreadLow,
+            spread_high: spreadHigh,
+            aftercare_extra_max: extraMax,
+            raw_min: rawMin,
+            raw_max: rawMax,
+            min_sessions: Number(cfg.min_sessions),
+            max_sessions: Number(cfg.max_sessions),
+        },
         needs_human_review: allTriggers.length > 0,
         review_triggers: allTriggers,
         uncertainty_score,
         confidence_score: Math.max(40, 100 - uncertainty_score),
+    };
+};
+
+/**
+ * Live calculator preview — same engine as case create, with optional baseline compare.
+ * Does not persist anything. Used by admin/studio settings.
+ */
+const previewSessionPrediction = (caseInput = {}, draftPrediction = {}, options = {}) => {
+    const live = estimateSessionsFromConfig(caseInput, draftPrediction);
+    const baselineConfig = options.baselinePrediction;
+    const baseline =
+        baselineConfig != null
+            ? estimateSessionsFromConfig(caseInput, baselineConfig)
+            : null;
+
+    return {
+        case_input: caseInput,
+        live,
+        baseline,
+        delta: baseline
+            ? {
+                  sessions_min: live.min - baseline.min,
+                  sessions_max: live.max - baseline.max,
+                  base: live.base - baseline.base,
+                  tattoo_delta: live.tattoo_delta - baseline.tattoo_delta,
+                  lifestyle_multiplier:
+                      Math.round(
+                          (live.lifestyle_multiplier - baseline.lifestyle_multiplier) * 1000
+                      ) / 1000,
+              }
+            : null,
     };
 };
 
@@ -271,6 +323,7 @@ const estimatePmuSessionsFromConfig = (caseInput = {}, sessionPrediction = {}) =
 module.exports = {
     estimateSessionsFromConfig,
     estimatePmuSessionsFromConfig,
+    previewSessionPrediction,
     resolveLifestyle,
     computeTattooDelta,
 };

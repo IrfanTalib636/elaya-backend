@@ -6,8 +6,9 @@ const User = require('../models/userModel');
 const { USER_ROLES, USER_STATUS, STUDIO_STATUS } = require('../config/constants');
 const { isAdmin, isStudio } = require('../utils/accessHelpers');
 const { mergeOeffnungszeiten } = require('../config/studioDefaults');
-const { normalizeAusnahmen } = require('../utils/studioHours');
+const { normalizeAusnahmen, buildStudioScheduleSnapshot } = require('../utils/studioHours');
 const { parsePagination, buildPaginationMeta } = require('../utils/pagination');
+const { emitStudioScheduleUpdated } = require('../sockets/studioScheduleEmit');
 
 const PROFILE_FIELDS = ['firma', 'telefon', 'strasse', 'plz', 'ort', 'land', 'notizen'];
 
@@ -58,6 +59,7 @@ const formatStudioSettings = (studio) => {
         behandlungsraeume: (doc.behandlungsraeume ?? []).map(formatRaum),
         mitarbeiter: (doc.mitarbeiter ?? []).map(formatMitarbeiter),
         pufferzeit_minuten: doc.pufferzeit_minuten ?? 10,
+        slot_interval_minuten: doc.slot_interval_minuten ?? 60,
         stripe: {
             account_id: doc.stripe_account_id || null,
             onboarding_complete: Boolean(doc.stripe_onboarding_complete),
@@ -166,6 +168,7 @@ const patchStudioSettings = asyncHandler(async (req, res) => {
         behandlungsraeume,
         mitarbeiter,
         pufferzeit_minuten,
+        slot_interval_minuten,
     } = req.body;
 
     if (profile) {
@@ -201,7 +204,23 @@ const patchStudioSettings = asyncHandler(async (req, res) => {
         studio.pufferzeit_minuten = pufferzeit_minuten;
     }
 
+    if (slot_interval_minuten !== undefined) {
+        studio.slot_interval_minuten = slot_interval_minuten;
+    }
+
+    const scheduleTouched =
+        oeffnungszeiten !== undefined ||
+        oeffnungs_ausnahmen !== undefined ||
+        pufferzeit_minuten !== undefined ||
+        slot_interval_minuten !== undefined;
+
     await studio.save();
+
+    if (scheduleTouched) {
+        emitStudioScheduleUpdated(studio._id, {
+            schedule: buildStudioScheduleSnapshot(studio),
+        });
+    }
 
     res.status(200).json({
         success: true,

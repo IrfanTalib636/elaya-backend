@@ -50,6 +50,37 @@ const patchPlatformConfigSchema = z
     })
     .strict();
 
+const sessionPredictionPreviewSchema = z
+    .object({
+        preset_id: z.enum(['example_1', 'example_2', 'example_3']).optional(),
+        case_input: z.record(z.string(), z.any()).optional(),
+        session_prediction: z
+            .object({
+                base_sessions: z.number().min(1).max(40).optional(),
+                min_sessions: z.number().min(1).max(40).optional(),
+                max_sessions: z.number().min(1).max(40).optional(),
+                range_minus: z.number().min(0).max(15).optional(),
+                range_plus: z.number().min(0).max(15).optional(),
+                tattoo_deltas: z.record(z.string(), z.record(z.string(), z.number())).optional(),
+                lifestyle_scores: z.record(z.string(), z.record(z.string(), z.number())).optional(),
+                lifestyle_bands: z
+                    .array(
+                        z
+                            .object({
+                                max_avg: z.number(),
+                                score: z.number(),
+                                multiplier: z.number().min(0).max(5),
+                            })
+                            .strict()
+                    )
+                    .optional(),
+                aftercare_extra_max: z.record(z.string(), z.number()).optional(),
+            })
+            .strict()
+            .optional(),
+    })
+    .strict();
+
 const elaycoinStudioCfgSchema = z.record(
     z.string(),
     z
@@ -67,10 +98,12 @@ const patchStudioConfigSchema = z
         elaycoin_studio_cfg: elaycoinStudioCfgSchema.optional(),
         subscription_plan: z.enum(['basic', 'professional', 'enterprise']).optional(),
         feature_overrides: z.record(z.string(), z.boolean()).optional(),
+        gruppen_groessen: gruppenGroessenSchema,
     })
     .strict();
 
 module.exports = {
     patchPlatformConfigSchema,
     patchStudioConfigSchema,
+    sessionPredictionPreviewSchema,
 };

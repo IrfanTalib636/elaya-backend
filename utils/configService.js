@@ -228,10 +228,28 @@ const updatePlatformConfig = async (patch) => {
     return mergePlatformConfig(doc);
 };
 
-const getPublicConfig = async () => {
+const mergeGruppenGroessen = (platform, studioDoc) => ({
+    ...PLATFORM_CONFIG_DEFAULTS.gruppen_groessen,
+    ...(platform?.gruppen_groessen || {}),
+    ...(studioDoc?.gruppen_groessen || {}),
+});
+
+const getEffectiveGruppenGroessen = async (studioId) => {
     const platform = await getPlatformConfig();
+    if (!studioId) {
+        return mergeGruppenGroessen(platform, null);
+    }
+    const studio = await Studio.findById(studioId).select('gruppen_groessen').lean();
+    return mergeGruppenGroessen(platform, studio);
+};
+
+const getPublicConfig = async (studioId = null) => {
+    const platform = await getPlatformConfig();
+    const gruppen_groessen = studioId
+        ? await getEffectiveGruppenGroessen(studioId)
+        : mergeGruppenGroessen(platform, null);
     return {
-        gruppen_groessen: platform.gruppen_groessen,
+        gruppen_groessen,
         elaycoin: {
             coinWert: platform.coinWert,
             minWert: platform.minWert,
@@ -352,6 +370,8 @@ const formatStudioConfig = (studio, platform) => {
             shop_provision_prozent: platform.shop_provision_prozent,
         },
         session_prediction: platform.session_prediction,
+        gruppen_groessen: mergeGruppenGroessen(platform, doc),
+        gruppen_groessen_defaults: mergeGruppenGroessen(platform, null),
     };
 };
 
@@ -387,6 +407,34 @@ const updateStudioConfig = async (studioId, patch) => {
         studio.subscription_plan = patch.subscription_plan;
     }
 
+    if (patch.gruppen_groessen !== undefined) {
+        if (typeof patch.gruppen_groessen !== 'object' || Array.isArray(patch.gruppen_groessen)) {
+            throw new ApiError(400, 'gruppen_groessen must be an object');
+        }
+        const allowed = ['klein_max_cm2', 'mittelgross_max_cm2', 'max_punkte', 'gruppen_rabatt'];
+        const next = { ...(studio.gruppen_groessen || {}) };
+        for (const [key, value] of Object.entries(patch.gruppen_groessen)) {
+            if (!allowed.includes(key)) {
+                throw new ApiError(400, `Unknown gruppen_groessen field: ${key}`);
+            }
+            if (typeof value !== 'number' || value < 0) {
+                throw new ApiError(400, `gruppen_groessen.${key} must be a non-negative number`);
+            }
+            next[key] = value;
+        }
+        if (
+            (next.klein_max_cm2 ?? PLATFORM_CONFIG_DEFAULTS.gruppen_groessen.klein_max_cm2) >
+            (next.mittelgross_max_cm2 ?? PLATFORM_CONFIG_DEFAULTS.gruppen_groessen.mittelgross_max_cm2)
+        ) {
+            throw new ApiError(400, 'klein_max_cm2 must be <= mittelgross_max_cm2');
+        }
+        if (next.gruppen_rabatt != null && next.gruppen_rabatt > 1) {
+            throw new ApiError(400, 'gruppen_rabatt must be between 0 and 1');
+        }
+        studio.gruppen_groessen = next;
+        studio.markModified('gruppen_groessen');
+    }
+
     if (patch.feature_overrides !== undefined) {
         if (typeof patch.feature_overrides !== 'object' || Array.isArray(patch.feature_overrides)) {
             throw new ApiError(400, 'feature_overrides must be an object');
@@ -405,6 +453,8 @@ module.exports = {
     ensurePlatformConfig,
     updatePlatformConfig,
     getPublicConfig,
+    getEffectiveGruppenGroessen,
+    mergeGruppenGroessen,
     getEffectivePricingOverrides,
     resolveEffectiveCoinWert,
     formatStudioConfig,

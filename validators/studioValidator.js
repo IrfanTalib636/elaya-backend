@@ -89,6 +89,7 @@ const patchStudioSettingsSchema = z
         behandlungsraeume: z.array(behandlungsraumSchema).optional(),
         mitarbeiter: z.array(mitarbeiterSchema).optional(),
         pufferzeit_minuten: z.number().int().min(0).max(120).optional(),
+        slot_interval_minuten: z.union([z.literal(15), z.literal(30), z.literal(45), z.literal(60)]).optional(),
     })
     .strict()
     .refine(
@@ -98,7 +99,8 @@ const patchStudioSettingsSchema = z
             body.oeffnungs_ausnahmen !== undefined ||
             body.behandlungsraeume !== undefined ||
             body.mitarbeiter !== undefined ||
-            body.pufferzeit_minuten !== undefined,
+            body.pufferzeit_minuten !== undefined ||
+            body.slot_interval_minuten !== undefined,
         { message: 'At least one settings section is required' }
     );
 
