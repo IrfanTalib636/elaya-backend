@@ -199,6 +199,7 @@ const applyBookingPrecheckToCase = async (caseDoc, bookingPrecheck, options = {}
         wiederholungen
     );
 
+    const { getEffectiveSperrfristen } = require('./configService');
     const validation = validateBookingPrecheck({
         caseDoc,
         anamnesis,
@@ -208,6 +209,7 @@ const applyBookingPrecheckToCase = async (caseDoc, bookingPrecheck, options = {}
         wiederholungen,
         wiederholungenConfirmed,
         koSignature,
+        sperrfristen: await getEffectiveSperrfristen(caseDoc.studio),
     });
 
     if (!validation.can_proceed) {

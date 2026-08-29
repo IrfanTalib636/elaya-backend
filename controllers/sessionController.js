@@ -1,5 +1,6 @@
 const Session = require('../models/sessionModel');
 const Case = require('../models/caseModel');
+const CaseZone = require('../models/caseZoneModel');
 const Appointment = require('../models/appointmentModel');
 const ApiError = require('../utils/ApiError');
 const asyncHandler = require('../utils/asyncHandler');
@@ -24,6 +25,7 @@ const {
 const { parsePagination, buildPaginationMeta } = require('../utils/pagination');
 const { APPOINTMENT_STATUS, APPOINTMENT_TYPE } = require('../config/constants');
 const { evaluateAndApplySessionLightening } = require('../utils/lighteningSessionService');
+const { emitAvailabilityChanged } = require('../sockets/availabilityEmit');
 
 const CUSTOMER_SESSION_SELECT =
     'case customer studio session_number treatment_date treatment_time removal_pct verblassung_prozent comparison_eligible uncertainty_level progress_direction lightening_confidence verblassung_ki fortschritt_foto_file_id is_draft is_no_show zonen_id createdAt updatedAt';
@@ -183,6 +185,41 @@ const validateLinkedAppointment = async (appointmentId, caseDoc) => {
     return appointmentId;
 };
 
+/**
+ * Resolve which zone a session belongs to.
+ *
+ * Zone cases must name a zone, because the session log, fading series and
+ * progress are all tracked per zone — an unassigned treatment could not be
+ * compared against anything. Single-tattoo cases must not name one.
+ */
+const resolveSessionZone = async (caseDoc, zonenId) => {
+    const requested = typeof zonenId === 'string' ? zonenId.trim() : null;
+
+    if (!caseDoc.zonen_aktiv) {
+        if (requested) {
+            throw new ApiError(400, 'zonen_id is only valid for cases split into zones');
+        }
+        return null;
+    }
+
+    if (!requested) {
+        throw new ApiError(
+            400,
+            'zonen_id is required for a zone case — each zone keeps its own session log'
+        );
+    }
+
+    const zone = await CaseZone.findOne({ case: caseDoc._id, zonen_id: requested })
+        .select('_id')
+        .lean();
+
+    if (!zone) {
+        throw new ApiError(400, `zonen_id "${requested}" does not belong to this case`);
+    }
+
+    return requested;
+};
+
 const startOfDay = (date) => {
     const d = new Date(date);
     d.setHours(0, 0, 0, 0);
@@ -264,15 +301,19 @@ const createSession = asyncHandler(async (req, res) => {
         }
     }
 
-    const session_number = await getNextSessionNumber(caseDoc._id);
+    const zonenId = await resolveSessionZone(caseDoc, fields.zonen_id);
+    const session_number = await getNextSessionNumber(caseDoc._id, zonenId);
 
     const session = await Session.create({
         ...fields,
         case: caseDoc._id,
         customer: caseDoc.customer,
         studio: caseDoc.studio,
+        zonen_id: zonenId,
         session_number,
-        session_id: `s${session_number}-${caseDoc._id.toString().slice(-6)}`,
+        session_id: zonenId
+            ? `s${session_number}-${zonenId}-${caseDoc._id.toString().slice(-6)}`
+            : `s${session_number}-${caseDoc._id.toString().slice(-6)}`,
         appointment: linkedAppointment,
         ...(zahlung ? { zahlung } : {}),
     });
@@ -299,6 +340,14 @@ const createSession = asyncHandler(async (req, res) => {
             console.error('[ELAYCOIN] createSession:', err.message);
         }
     }
+
+    // A documented treatment starts the same-case interval and the cross-case
+    // blocking period for the customer's other tattoos.
+    emitAvailabilityChanged({
+        customerId: caseDoc.customer,
+        studioId: caseDoc.studio,
+        reason: 'session_created',
+    });
 
     res.status(201).json({
         success: true,
@@ -337,6 +386,10 @@ const listSessions = asyncHandler(async (req, res) => {
 
     if (req.query.case_id) {
         filter.case = req.query.case_id;
+    }
+    // Lets a client show the session log of one zone on its own.
+    if (req.query.zonen_id) {
+        filter.zonen_id = req.query.zonen_id;
     }
     if (req.query.is_draft === 'true') {
         filter.is_draft = true;
@@ -426,11 +479,23 @@ const updateSession = asyncHandler(async (req, res) => {
     const wasDraft = session.is_draft;
     const wasNoShow = session.is_no_show;
 
-    const { appointment_id, zahlung, ...fields } = req.body;
+    const { appointment_id, zahlung, zonen_id, ...fields } = req.body;
 
     if (appointment_id !== undefined) {
         const caseDoc = await Case.findById(session.case);
         session.appointment = await validateLinkedAppointment(appointment_id, caseDoc);
+    }
+
+    // Reassigning a session to another zone would invalidate both zones' session
+    // numbering and fading series, so it is refused rather than silently allowed.
+    if (zonen_id !== undefined) {
+        const requested = typeof zonen_id === 'string' ? zonen_id.trim() : null;
+        if ((requested || null) !== (session.zonen_id || null)) {
+            throw new ApiError(
+                400,
+                'A session cannot be moved to a different zone — delete it and log it on the intended zone'
+            );
+        }
     }
 
     Object.assign(session, fields);
@@ -476,6 +541,12 @@ const updateSession = asyncHandler(async (req, res) => {
             console.error('[ELAYCOIN] updateSession:', err.message);
         }
     }
+
+    emitAvailabilityChanged({
+        customerId: session.customer,
+        studioId: session.studio,
+        reason: 'session_updated',
+    });
 
     res.status(200).json({
         success: true,

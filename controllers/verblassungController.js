@@ -27,6 +27,7 @@ const {
     evaluateAndApplySessionLightening,
     resolvePreviousTreatment,
     resolveProgressFileIdForSession,
+    resolveZoneBaselinePhotoId,
 } = require('../utils/lighteningSessionService');
 
 const clampPercent = (value) => {
@@ -192,7 +193,12 @@ const analyzeVerblassung = asyncHandler(async (req, res) => {
     }
 
     const previous = await resolvePreviousTreatment(sessionDoc);
-    const vorherId = req.body.foto_vorher_file_id || previous.photoId;
+    // For a zone, its intake photo is a valid baseline when the previous session
+    // of that zone has no progress photo of its own.
+    const vorherId =
+        req.body.foto_vorher_file_id ||
+        previous.photoId ||
+        (await resolveZoneBaselinePhotoId(sessionDoc));
     if (!vorherId) {
         throw new ApiError(400, FIRST_SESSION_AI_MESSAGE);
     }

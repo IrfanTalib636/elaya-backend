@@ -326,19 +326,21 @@ const collectNachsorge = async (scope, dateFilter) => {
     if (dateFilter) filter.createdAt = dateFilter;
 
     const rows = await NachsorgeCheck.find(filter)
-        .select('customer case titel ampel createdAt')
+        .select('customer case zonen_id titel ampel createdAt')
         .sort({ createdAt: -1 })
         .limit(FETCH_CAP)
         .lean();
 
     return rows.flatMap((row) => {
         const ampel = row.ampel ? ` · ${row.ampel}` : '';
+        // Name the zone, otherwise several checks on one tattoo look identical.
+        const zone = row.zonen_id ? ` (${row.zonen_id})` : '';
         const entry = eventBase({
             source_key: `nachsorge:${row._id}`,
             ts: row.createdAt,
             category: ACTIVITY_CATEGORY.MEDICAL,
             type: 'aftercare',
-            title: `Nachsorge-Check${row.titel ? `: ${row.titel}` : ''}${ampel}`,
+            title: `Nachsorge-Check${zone}${row.titel ? `: ${row.titel}` : ''}${ampel}`,
             customer_id: row.customer,
             case_id: row.case,
             actor_role: 'customer',

@@ -36,7 +36,6 @@ const {
     PMU_STITCH_DEPTH,
     PMU_COLOR_DENSITY,
     PMU_COLOR_SATURATION,
-    ZONE_FLAECHE_TEMPLATE,
 } = require('../config/caseIntakeEnums');
 const { paginationQueryFields } = require('./paginationValidator');
 const { normalizeGoalTarget } = require('../utils/caseIntakeHelpers');
@@ -84,14 +83,18 @@ const unterschriftSchema = z
 
 const caseZoneInputSchema = z.object({
     zonen_id: optionalTrimmedString,
-    bezeichnung: optionalTrimmedString.default(''),
+    // Required: the name is how customer and studio tell the zones apart in the
+    // session log and pricing breakdown, so an unnamed zone is not useful.
+    bezeichnung: z.string().trim().min(1, 'Zone name is required'),
     koerperstelle: optionalTrimmedString.default(''),
     farben: z.array(z.string().trim()).optional().default([]),
     dichte: optionalTrimmedString.nullable().optional(),
+    // Required: the customer measures each zone, and the area the price and
+    // session range are built on is derived from these two numbers.
+    laenge_cm: z.number().positive('Zone length is required'),
+    breite_cm: z.number().positive('Zone width is required'),
+    // Derived server-side from laenge_cm x breite_cm; accepted but ignored.
     flaeche_cm2: z.number().min(0).nullable().optional(),
-    flaeche_template: z.enum(ZONE_FLAECHE_TEMPLATE).nullable().optional(),
-    flaeche_modus: z.enum(['template', 'manuell']).nullable().optional(),
-    flaeche_manuell: z.number().min(0).nullable().optional(),
     foto_url: optionalTrimmedString.default(''),
     preis: z.number().min(0).optional().default(0),
     sitzungen_geschaetzt_min: z.number().min(0).optional().default(0),
@@ -230,6 +233,8 @@ const availabilityQuerySchema = z.object({
         .transform((value) => value === true || value === 'true'),
     from: z.coerce.date().optional(),
     to: z.coerce.date().optional(),
+    /** Scope hours, slot interval and occupancy to one studio location. */
+    standort_id: z.string().trim().optional(),
     uv_level: z.enum(['none', 'moderate', 'intense']).optional(),
     uv_exposition: z.enum(['keine', 'leicht', 'mittel', 'intensiv']).optional(),
     medikamente: z

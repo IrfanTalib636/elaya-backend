@@ -1,4 +1,5 @@
 const Case = require('../models/caseModel');
+const CaseZone = require('../models/caseZoneModel');
 const Session = require('../models/sessionModel');
 const FileAsset = require('../models/fileAssetModel');
 const NachsorgeCheck = require('../models/nachsorgeCheckModel');
@@ -50,6 +51,41 @@ const loadOwnedCase = async (user, caseId) => {
     if (!caseDoc) throw new ApiError(404, 'Case not found');
     await assertCaseAccess(user, caseDoc);
     return caseDoc;
+};
+
+/**
+ * Resolve which zone an aftercare check documents.
+ *
+ * Zone cases must name a zone: each zone heals on its own timeline and is
+ * photographed separately, so an unassigned check could not be compared with
+ * the zone's own history. Single-tattoo cases must not name one.
+ */
+const resolveCheckZone = async (caseDoc, zonenId) => {
+    const requested = typeof zonenId === 'string' ? zonenId.trim() : null;
+
+    if (!caseDoc.zonen_aktiv) {
+        if (requested) {
+            throw new ApiError(400, 'zonen_id is only valid for cases split into zones');
+        }
+        return null;
+    }
+
+    if (!requested) {
+        throw new ApiError(
+            400,
+            'zonen_id is required for a zone case — aftercare is documented per zone'
+        );
+    }
+
+    const zone = await CaseZone.findOne({ case: caseDoc._id, zonen_id: requested })
+        .select('_id')
+        .lean();
+
+    if (!zone) {
+        throw new ApiError(400, `zonen_id "${requested}" does not belong to this case`);
+    }
+
+    return requested;
 };
 
 const loadPhotoForAi = async (user, fotoFileId, caseDoc, req) => {
@@ -196,6 +232,7 @@ const formatCheck = (doc, role = 'studio') => {
         id: String(d._id),
         case_id: String(caseRef ? caseRef._id : d.case),
         case_display_id: caseRef?.caseId ?? null,
+        zonen_id: d.zonen_id ?? null,
         customer_id: String(customerRef ? customerRef._id : d.customer),
         studio_id: String(d.studio),
         foto_file_id: d.foto_file_id ? String(d.foto_file_id) : null,
@@ -263,6 +300,9 @@ const formatCheck = (doc, role = 'studio') => {
 // ── POST /nachsorge/photo-check ───────────────────────────────────────────
 const photoCheck = asyncHandler(async (req, res) => {
     const caseDoc = await loadOwnedCase(req.user, req.body.case_id);
+    // Validated here too, so the customer is told about a missing zone before
+    // spending an AI call rather than after it.
+    await resolveCheckZone(caseDoc, req.body.zonen_id);
     const tage = resolveTageNachSitzung(req.body.sitzungs_datum, caseDoc);
     const { buffer, mimeType } = await loadPhotoForAi(
         req.user,
@@ -321,6 +361,7 @@ Antworte nur als reines JSON ohne Markdown.`,
 // ── POST /nachsorge/check ─────────────────────────────────────────────────
 const createCheck = asyncHandler(async (req, res) => {
     const caseDoc = await loadOwnedCase(req.user, req.body.case_id);
+    const zonenId = await resolveCheckZone(caseDoc, req.body.zonen_id);
     const sitzungsDatum = req.body.sitzungs_datum
         ? new Date(req.body.sitzungs_datum)
         : caseDoc.lastSessionDate || null;
@@ -445,6 +486,7 @@ Auffälligkeiten: ${(photoStage.foto_auffaelligkeiten || []).join(', ') || 'kein
     const check = await NachsorgeCheck.create({
         customer: caseDoc.customer,
         case: caseDoc._id,
+        zonen_id: zonenId,
         studio: studioId,
         foto_file_id: fileAsset._id,
         symptome,
@@ -562,6 +604,11 @@ const listChecks = asyncHandler(async (req, res) => {
         if (isCustomer(req.user.role) || isStudio(req.user.role)) {
             await loadOwnedCase(req.user, req.query.case_id);
         }
+    }
+
+    // Lets a client show one zone's healing history on its own.
+    if (req.query.zonen_id) {
+        filter.zonen_id = req.query.zonen_id;
     }
 
     const [rows, total] = await Promise.all([

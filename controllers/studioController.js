@@ -12,6 +12,23 @@ const { emitStudioScheduleUpdated } = require('../sockets/studioScheduleEmit');
 
 const PROFILE_FIELDS = ['firma', 'telefon', 'strasse', 'plz', 'ort', 'land', 'notizen'];
 
+const formatStandort = (doc) => {
+    const s = doc.toObject ? doc.toObject() : doc;
+    return {
+        id: String(s._id),
+        name: s.name,
+        strasse: s.strasse ?? '',
+        plz: s.plz ?? '',
+        ort: s.ort ?? '',
+        land: s.land ?? 'Schweiz',
+        aktiv: s.aktiv !== false,
+        oeffnungszeiten: s.oeffnungszeiten ?? null,
+        oeffnungs_ausnahmen: normalizeAusnahmen(s.oeffnungs_ausnahmen),
+        pufferzeit_minuten: s.pufferzeit_minuten ?? null,
+        slot_interval_minuten: s.slot_interval_minuten ?? null,
+    };
+};
+
 const formatRaum = (doc) => {
     const r = doc.toObject ? doc.toObject() : doc;
     return {
@@ -21,6 +38,7 @@ const formatRaum = (doc) => {
         aktiv: r.aktiv !== false,
         laser_brand: r.laser_brand ?? '',
         laser_model: r.laser_model ?? '',
+        standort_id: r.standort_id ?? '',
     };
 };
 
@@ -32,6 +50,7 @@ const formatMitarbeiter = (doc) => {
         nachname: m.nachname,
         rolle: m.rolle ?? 'Laser-Therapeutin',
         raum_id: m.raum_id ?? '',
+        standort_id: m.standort_id ?? '',
         aktiv: m.aktiv !== false,
         user_id: m.user_id ?? null,
     };
@@ -56,6 +75,7 @@ const formatStudioSettings = (studio) => {
         },
         oeffnungszeiten: mergeOeffnungszeiten(doc.oeffnungszeiten),
         oeffnungs_ausnahmen: normalizeAusnahmen(doc.oeffnungs_ausnahmen),
+        standorte: (doc.standorte ?? []).map(formatStandort),
         behandlungsraeume: (doc.behandlungsraeume ?? []).map(formatRaum),
         mitarbeiter: (doc.mitarbeiter ?? []).map(formatMitarbeiter),
         pufferzeit_minuten: doc.pufferzeit_minuten ?? 10,
@@ -115,6 +135,21 @@ const applyOeffnungszeitenPatch = (studio, patch = {}) => {
     studio.markModified('oeffnungszeiten');
 };
 
+const mapStandorteInput = (standorte = []) =>
+    standorte.map((s) => ({
+        ...(s.id && mongoose.Types.ObjectId.isValid(s.id) ? { _id: s.id } : {}),
+        name: s.name,
+        strasse: s.strasse ?? '',
+        plz: s.plz ?? '',
+        ort: s.ort ?? '',
+        land: s.land ?? 'Schweiz',
+        aktiv: s.aktiv !== false,
+        oeffnungszeiten: s.oeffnungszeiten ?? null,
+        oeffnungs_ausnahmen: normalizeAusnahmen(s.oeffnungs_ausnahmen ?? []),
+        pufferzeit_minuten: s.pufferzeit_minuten ?? null,
+        slot_interval_minuten: s.slot_interval_minuten ?? null,
+    }));
+
 const mapRoomsInput = (rooms = []) =>
     rooms.map((r) => ({
         ...(r.id && mongoose.Types.ObjectId.isValid(r.id) ? { _id: r.id } : {}),
@@ -123,6 +158,7 @@ const mapRoomsInput = (rooms = []) =>
         aktiv: r.aktiv !== false,
         laser_brand: r.laser_brand ?? '',
         laser_model: r.laser_model ?? '',
+        standort_id: r.standort_id ?? '',
     }));
 
 const mapStaffInput = (staff = []) =>
@@ -132,6 +168,7 @@ const mapStaffInput = (staff = []) =>
         nachname: m.nachname,
         rolle: m.rolle ?? 'Laser-Therapeutin',
         raum_id: m.raum_id ?? '',
+        standort_id: m.standort_id ?? '',
         aktiv: m.aktiv !== false,
     }));
 
@@ -141,6 +178,23 @@ const validateStaffRoomRefs = (rooms, staff) => {
         const raumId = member.raum_id?.trim();
         if (raumId && !roomIds.has(raumId)) {
             throw new ApiError(400, `mitarbeiter references unknown raum_id: ${raumId}`);
+        }
+    }
+};
+
+/** Rooms and staff may only point at locations that exist on this studio. */
+const validateStandortRefs = (standorte, rooms = [], staff = []) => {
+    const ids = new Set(standorte.map((s) => String(s._id ?? s.id)));
+    for (const room of rooms) {
+        const id = room.standort_id?.trim();
+        if (id && !ids.has(id)) {
+            throw new ApiError(400, `behandlungsraeume references unknown standort_id: ${id}`);
+        }
+    }
+    for (const member of staff) {
+        const id = member.standort_id?.trim();
+        if (id && !ids.has(id)) {
+            throw new ApiError(400, `mitarbeiter references unknown standort_id: ${id}`);
         }
     }
 };
@@ -165,6 +219,7 @@ const patchStudioSettings = asyncHandler(async (req, res) => {
         profile,
         oeffnungszeiten,
         oeffnungs_ausnahmen,
+        standorte,
         behandlungsraeume,
         mitarbeiter,
         pufferzeit_minuten,
@@ -184,6 +239,11 @@ const patchStudioSettings = asyncHandler(async (req, res) => {
         studio.markModified('oeffnungs_ausnahmen');
     }
 
+    if (standorte !== undefined) {
+        studio.standorte = mapStandorteInput(standorte);
+        studio.markModified('standorte');
+    }
+
     if (behandlungsraeume !== undefined) {
         studio.behandlungsraeume = mapRoomsInput(behandlungsraeume);
     }
@@ -199,6 +259,12 @@ const patchStudioSettings = asyncHandler(async (req, res) => {
         );
         studio.mitarbeiter = staff;
     }
+
+    validateStandortRefs(
+        (studio.standorte ?? []).map((s) => ({ id: String(s._id) })),
+        studio.behandlungsraeume ?? [],
+        studio.mitarbeiter ?? []
+    );
 
     if (pufferzeit_minuten !== undefined) {
         studio.pufferzeit_minuten = pufferzeit_minuten;
@@ -295,6 +361,7 @@ const listStudiosAdmin = asyncHandler(async (req, res) => {
 const formatPublicStandort = (standort) => {
     const doc = standort.toObject ? standort.toObject() : standort;
     return {
+        id: doc._id ? String(doc._id) : '',
         name: doc.name,
         strasse: doc.strasse ?? '',
         plz: doc.plz ?? '',
@@ -313,7 +380,9 @@ const formatPublicStudio = (studio) => {
         plz: doc.plz ?? '',
         ort: doc.ort ?? '',
         land: doc.land ?? 'Schweiz',
-        standorte: (doc.standorte ?? []).map(formatPublicStandort),
+        standorte: (doc.standorte ?? [])
+            .filter((s) => s.aktiv !== false)
+            .map(formatPublicStandort),
     };
 };
 

@@ -83,6 +83,35 @@ const CUSTOMER_INTAKE_FIELDS = [
     'pricePerSession',
 ];
 
+/**
+ * Person-level intake fields that stay valid across cases, so a returning
+ * customer can reuse them instead of re-answering. Each new case still stores
+ * its own copy, keeping the values that were true at creation time traceable.
+ *
+ * `skin_sun_zone` is deliberately excluded: it describes how exposed the
+ * treated body area is, which differs per tattoo.
+ */
+const CARRY_OVER_INTAKE_FIELDS = [
+    // TC_03 — skin & risk
+    'skin_fitzpatrick_type',
+    'skin_fitzpatrick',
+    'skin_hyperpig_risk',
+    'skin_keloid_risk',
+    // TC_04 — lifestyle & body
+    'life_smoker',
+    'life_cig_per_day',
+    'life_alcohol',
+    'life_activity',
+    'life_sport_freq',
+    'life_sleep_hours',
+    'life_sleep_quality',
+    'life_stress',
+    'life_height_cm',
+    'life_weight_kg',
+    'life_hydration',
+    'life_nutrition',
+];
+
 const normalizeGoalTarget = (value) => {
     if (value === GOAL_TARGET.FULL) {
         return GOAL_TARGET.FULL_REMOVAL;
@@ -121,7 +150,9 @@ const syncDerivedIntakeFields = (fields) => {
         next.lasered_notes = '';
     }
 
-    if (!['daily_light', 'daily_heavy'].includes(next.life_smoker)) {
+    // Only when the patch actually touches the smoker answer — otherwise an
+    // unrelated partial update would wipe a stored cigarette count.
+    if ('life_smoker' in next && !['daily_light', 'daily_heavy'].includes(next.life_smoker)) {
         next.life_cig_per_day = null;
     }
 
@@ -130,6 +161,7 @@ const syncDerivedIntakeFields = (fields) => {
 
 module.exports = {
     CUSTOMER_INTAKE_FIELDS,
+    CARRY_OVER_INTAKE_FIELDS,
     normalizeGoalTarget,
     syncDerivedIntakeFields,
 };

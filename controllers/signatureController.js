@@ -14,6 +14,7 @@ const {
     saveSignatureImage,
     migrateSignatureToDisk,
     readSignatureImage,
+    SIGNATURE_ANAMNESE_FILENAME,
 } = require('../utils/signatureStorage');
 
 const formatCustomerRef = (customer) => {
@@ -47,6 +48,7 @@ const getCaseMerkblatt = asyncHandler(async (req, res) => {
     const content = getMerkblattContent(locale);
     const customer = formatCustomerRef(caseDoc.customer);
     const signed = !!caseDoc.unterschrift?.zeitstempel;
+    const anamnesisSigned = !!caseDoc.unterschrift_anamnese?.zeitstempel;
 
     res.status(200).json({
         success: true,
@@ -63,8 +65,10 @@ const getCaseMerkblatt = asyncHandler(async (req, res) => {
             requirements: {
                 anamnesis_complete: caseDoc.anamnesis_complete === true,
                 signature_complete: signed,
+                anamnesis_signature_complete: anamnesisSigned,
             },
             signature_complete: signed,
+            anamnesis_signature_complete: anamnesisSigned,
         },
     });
 });
@@ -78,14 +82,20 @@ const getCaseSignatureImage = asyncHandler(async (req, res) => {
 
     await assertCaseAccess(req.user, caseDoc);
 
-    const stored = caseDoc.unterschrift?.unterschrift_data;
+    const variant = req.query.variant === 'anamnese' ? 'anamnese' : 'merkblatt';
+    const stored =
+        variant === 'anamnese'
+            ? caseDoc.unterschrift_anamnese?.unterschrift_data
+            : caseDoc.unterschrift?.unterschrift_data;
     if (!stored) {
         throw new ApiError(404, 'Signature image not found');
     }
 
     if (stored.startsWith('data:image/')) {
         const { buffer, mime } = parseSignatureImage(stored);
-        await migrateSignatureToDisk(caseDoc);
+        if (variant === 'merkblatt') {
+            await migrateSignatureToDisk(caseDoc);
+        }
         res.set('Content-Type', mime === 'image/jpg' ? 'image/jpeg' : mime);
         res.set('Cache-Control', 'private, no-store');
         return res.send(buffer);
@@ -126,8 +136,15 @@ const submitCaseSignature = asyncHandler(async (req, res) => {
     }
 
     const wasDraft = caseDoc.status === CASE_STATUS.DRAFT;
-    const { merkblatt_gelesen, bestaetigung_text, unterschrift_data, merkblatt_pdf } =
-        req.body;
+    const {
+        merkblatt_gelesen,
+        bestaetigung_text,
+        unterschrift_data,
+        merkblatt_pdf,
+        anamnese_bestaetigt,
+        anamnese_bestaetigung_text,
+        anamnese_unterschrift_data,
+    } = req.body;
 
     const { buffer } = parseSignatureImage(unterschrift_data);
     const storagePath = await saveSignatureImage(caseDoc.studio, caseDoc._id, buffer);
@@ -144,6 +161,27 @@ const submitCaseSignature = asyncHandler(async (req, res) => {
         bestaetigung_text: bestaetigungStr,
         unterschrift_data: storagePath,
     };
+
+    if (anamnese_unterschrift_data) {
+        const { buffer: anamneseBuffer } = parseSignatureImage(anamnese_unterschrift_data);
+        const anamneseStoragePath = await saveSignatureImage(
+            caseDoc.studio,
+            caseDoc._id,
+            anamneseBuffer,
+            SIGNATURE_ANAMNESE_FILENAME
+        );
+
+        caseDoc.unterschrift_anamnese = {
+            zeitstempel: now,
+            anamnese_bestaetigt: anamnese_bestaetigt === true,
+            bestaetigung_text:
+                typeof anamnese_bestaetigung_text === 'string'
+                    ? anamnese_bestaetigung_text
+                    : getMerkblattContent('de').labels.confirmation_anamnesis_extra,
+            unterschrift_data: anamneseStoragePath,
+        };
+        caseDoc.markModified('unterschrift_anamnese');
+    }
 
     if (merkblatt_pdf) {
         caseDoc.merkblatt_pdf = merkblatt_pdf;
@@ -169,6 +207,7 @@ const submitCaseSignature = asyncHandler(async (req, res) => {
         data: {
             case: formatCase(caseDoc, zones, req.user.role),
             signature_complete: true,
+            anamnesis_signature_complete: !!caseDoc.unterschrift_anamnese?.zeitstempel,
             finalized: wasDraft,
             signature_bytes: buffer.length,
         },

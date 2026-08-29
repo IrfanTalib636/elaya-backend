@@ -1,6 +1,7 @@
 const Customer = require('../models/customerModel');
 const User = require('../models/userModel');
 const Case = require('../models/caseModel');
+const CaseZone = require('../models/caseZoneModel');
 const Session = require('../models/sessionModel');
 const Appointment = require('../models/appointmentModel');
 const Anamnesis = require('../models/anamnesisModel');
@@ -152,7 +153,6 @@ const exportMe = asyncHandler(async (req, res) => {
                 'tc_type',
                 'tc_coverup',
                 'zonen_aktiv',
-                'zonen',
                 'pmu_type',
                 'pmu_side',
                 'pmu_age_range',
@@ -172,8 +172,15 @@ const exportMe = asyncHandler(async (req, res) => {
 
     const caseIds = cases.map((c) => c._id);
 
-    const [sessions, appointments, anamneses, shopOrders, transfers, firma_timeline] =
-        await Promise.all([
+    const [
+        sessions,
+        appointments,
+        anamneses,
+        zones,
+        shopOrders,
+        transfers,
+        firma_timeline,
+    ] = await Promise.all([
             Session.find({ customer: customerId })
                 .select(
                     'case session_number treatment_date treatment_time removal_pct verblassung_prozent comparison_eligible uncertainty_level progress_direction is_draft is_no_show standort_name createdAt'
@@ -189,6 +196,16 @@ const exportMe = asyncHandler(async (req, res) => {
             caseIds.length
                 ? Anamnesis.find({ case: { $in: caseIds } })
                       .select('case ampel_status orange_fragen rote_fragen antworten createdAt updatedAt')
+                      .lean()
+                : Promise.resolve([]),
+            // Zones live in their own collection, so they have to be fetched
+            // separately — selecting `zonen` off the Case yields nothing.
+            caseIds.length
+                ? CaseZone.find({ case: { $in: caseIds } })
+                      .select(
+                          'case zonen_id bezeichnung koerperstelle farben dichte laenge_cm breite_cm flaeche_cm2 foto_url preis sitzungen_geschaetzt_min sitzungen_geschaetzt_max fortschritt_prozent createdAt'
+                      )
+                      .sort({ zonen_id: 1 })
                       .lean()
                 : Promise.resolve([]),
             ShopOrder.find({ customer: customerId })
@@ -210,6 +227,11 @@ const exportMe = asyncHandler(async (req, res) => {
     const anamnesisByCase = Object.fromEntries(
         anamneses.map((a) => [String(a.case), a])
     );
+    const zonesByCase = zones.reduce((acc, zone) => {
+        const key = String(zone.case);
+        (acc[key] ??= []).push(zone);
+        return acc;
+    }, {});
 
     const exportData = {
         exportiert_am,
@@ -267,7 +289,7 @@ const exportMe = asyncHandler(async (req, res) => {
                     tc_type: c.tc_type ?? null,
                     tc_coverup: c.tc_coverup ?? null,
                     zonen_aktiv: c.zonen_aktiv ?? false,
-                    zonen: c.zonen ?? [],
+                    zonen: zonesByCase[String(c._id)] ?? [],
                     pmu_type: c.pmu_type ?? null,
                     pmu_side: c.pmu_side ?? null,
                     pmu_age_range: c.pmu_age_range ?? null,

@@ -59,6 +59,20 @@ const unterschriftSchema = new mongoose.Schema(
     { _id: false }
 );
 
+/**
+ * Second signature, kept separate from `unterschrift` because it confirms the
+ * correctness of the customer's medical anamnesis rather than the aftercare leaflet.
+ */
+const unterschriftAnamneseSchema = new mongoose.Schema(
+    {
+        zeitstempel: { type: Date, default: null },
+        anamnese_bestaetigt: { type: Boolean, default: false },
+        bestaetigung_text: { type: String, default: '' },
+        unterschrift_data: { type: String, default: '' },
+    },
+    { _id: false }
+);
+
 const activityLogSchema = new mongoose.Schema(
     {
         type: {
@@ -422,6 +436,10 @@ const caseSchema = new mongoose.Schema(
             type: unterschriftSchema,
             default: () => ({}),
         },
+        unterschrift_anamnese: {
+            type: unterschriftAnamneseSchema,
+            default: () => ({}),
+        },
         activityLog: { type: [activityLogSchema], default: [] },
         chat_nachrichten: { type: [chatNachrichtSchema], default: [] },
     },
@@ -433,6 +451,8 @@ const caseSchema = new mongoose.Schema(
 caseSchema.index({ studio: 1, caseId: 1 }, { unique: true });
 caseSchema.index({ studio: 1, medical_flag_level: 1 });
 caseSchema.index({ customer: 1, status: 1 });
+/** Recent cases per customer — intake prefill reads the newest answers. */
+caseSchema.index({ customer: 1, createdAt: -1 });
 
 const Case = mongoose.model('Case', caseSchema);
 

@@ -182,13 +182,24 @@ const swaggerDefinition = {
                     },
                     dichte: {
                         type: 'string',
-                        enum: ['leicht', 'mittel', 'dicht', 'sehr_dicht'],
+                        enum: ['low', 'medium', 'high', 'very_high'],
                     },
-                    flaeche_cm2: { type: 'number', example: 150 },
-                    flaeche_template: { type: 'string', nullable: true },
-                    flaeche_modus: { type: 'string', enum: ['template', 'manuell'], nullable: true },
-                    flaeche_manuell: { type: 'number', nullable: true },
-                    foto_url: { type: 'string', description: 'Zone photo URL — upload API TBD' },
+                    laenge_cm: { type: 'number', example: 12, description: 'Required — measured by the customer' },
+                    breite_cm: { type: 'number', example: 8, description: 'Required — measured by the customer' },
+                    flaeche_cm2: {
+                        type: 'number',
+                        readOnly: true,
+                        example: 96,
+                        description: 'Derived server-side from laenge_cm x breite_cm',
+                    },
+                    preis: { type: 'number', readOnly: true, description: 'Per-zone estimate' },
+                    sitzungen_geschaetzt_min: { type: 'number', readOnly: true },
+                    sitzungen_geschaetzt_max: { type: 'number', readOnly: true },
+                    foto_url: {
+                        type: 'string',
+                        description:
+                            'FileAsset id of the zone intake photo. Upload to POST /files/staging with slot=zone, then send the returned id here; the server links it to the case. Fetch via GET /files/{id}/content.',
+                    },
                 },
             },
             CaseIntakeFields: {

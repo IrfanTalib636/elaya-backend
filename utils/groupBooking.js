@@ -1,4 +1,4 @@
-const { PLATFORM_CONFIG_DEFAULTS } = require('../config/platformDefaults');
+const { PLATFORM_CONFIG_DEFAULTS, GRUPPEN_PUNKTE } = require('../config/platformDefaults');
 
 const DEFAULT_GRUPPEN = PLATFORM_CONFIG_DEFAULTS.gruppen_groessen || {
     klein_max_cm2: 50,
@@ -32,12 +32,12 @@ const caseGroesse = (caseDoc, zones = [], config = {}) => {
     const cfg = normalizeGruppenConfig({ ...DEFAULT_GRUPPEN, ...config });
     const cm2 = caseFlaecheCm2(caseDoc, zones);
     if (cm2 <= cfg.klein_max_cm2) {
-        return { kategorie: 'klein', punkte: 1, cm2 };
+        return { kategorie: 'klein', punkte: GRUPPEN_PUNKTE.klein, cm2 };
     }
     if (cm2 <= cfg.mittelgross_max_cm2) {
-        return { kategorie: 'mittelgross', punkte: 2, cm2 };
+        return { kategorie: 'mittelgross', punkte: GRUPPEN_PUNKTE.mittelgross, cm2 };
     }
-    return { kategorie: 'gross', punkte: 4, cm2 };
+    return { kategorie: 'gross', punkte: GRUPPEN_PUNKTE.gross, cm2 };
 };
 
 const totalPunkte = (items, config) =>
@@ -76,6 +76,7 @@ const calcGroupPricingFromPrices = (prices, config = {}) => {
 
 module.exports = {
     DEFAULT_GRUPPEN,
+    GRUPPEN_PUNKTE,
     normalizeGruppenConfig,
     caseFlaecheCm2,
     caseGroesse,

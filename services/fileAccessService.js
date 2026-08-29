@@ -164,10 +164,14 @@ const linkZonePhotoFiles = async (caseDoc, zones, user, req) => {
     if (!zones?.length) return zones;
 
     const updated = [];
-    for (const zone of zones) {
+    for (const [index, zone] of zones.entries()) {
         const fotoRef = zone.foto_url;
         if (fotoRef && mongoose.Types.ObjectId.isValid(fotoRef)) {
-            const fileId = await linkIntakeFileToCase(fotoRef, caseDoc, `zone-${zone.bezeichnung || updated.length}`, user, req);
+            // Slot becomes a filename, so it must come from the generated
+            // zonen_id ("Z001") rather than the customer-typed zone name, which
+            // could collide between zones or contain path separators.
+            const slot = `zone-${zone.zonen_id || `Z${String(index + 1).padStart(3, '0')}`}`;
+            const fileId = await linkIntakeFileToCase(fotoRef, caseDoc, slot, user, req);
             updated.push({ ...zone, foto_url: fileId });
         } else {
             updated.push(zone);

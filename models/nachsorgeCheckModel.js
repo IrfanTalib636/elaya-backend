@@ -20,6 +20,16 @@ const nachsorgeCheckSchema = new mongoose.Schema(
             required: true,
             index: true,
         },
+        /**
+         * Zone this check documents, matching `CaseZone.zonen_id` ("Z001").
+         * Required for zone cases so healing is tracked per zone; `null` for
+         * single-tattoo cases.
+         */
+        zonen_id: {
+            type: String,
+            trim: true,
+            default: null,
+        },
         foto_file_id: {
             type: mongoose.Schema.Types.ObjectId,
             ref: 'FileAsset',
@@ -106,6 +116,8 @@ const nachsorgeCheckSchema = new mongoose.Schema(
 
 nachsorgeCheckSchema.index({ customer: 1, createdAt: -1 });
 nachsorgeCheckSchema.index({ case: 1, createdAt: -1 });
+// Per-zone healing history for one case.
+nachsorgeCheckSchema.index({ case: 1, zonen_id: 1, createdAt: -1 });
 nachsorgeCheckSchema.index({ studio: 1, createdAt: -1 });
 
 module.exports = mongoose.model('NachsorgeCheck', nachsorgeCheckSchema);

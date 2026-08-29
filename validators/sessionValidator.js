@@ -112,6 +112,7 @@ const listSessionsQuerySchema = z.object({
     ...paginationQueryFields,
     case_id: z.string().trim().optional(),
     customer_id: z.string().trim().optional(),
+    zonen_id: z.string().trim().optional(),
     is_draft: z.enum(['true', 'false']).optional(),
     from: z.coerce.date().optional(),
     to: z.coerce.date().optional(),

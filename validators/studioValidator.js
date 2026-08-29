@@ -39,6 +39,26 @@ const oeffnungsAusnahmeSchema = z
     })
     .strict();
 
+const standortSchema = z
+    .object({
+        id: z.string().trim().optional(),
+        name: z.string().trim().min(1, 'Location name is required'),
+        strasse: z.string().trim().optional(),
+        plz: z.string().trim().optional(),
+        ort: z.string().trim().optional(),
+        land: z.string().trim().optional(),
+        aktiv: z.boolean().optional(),
+        /** Omit to inherit the studio-wide schedule. */
+        oeffnungszeiten: oeffnungszeitenSchema,
+        oeffnungs_ausnahmen: z.array(oeffnungsAusnahmeSchema).optional(),
+        pufferzeit_minuten: z.number().int().min(0).max(120).nullable().optional(),
+        slot_interval_minuten: z
+            .union([z.literal(15), z.literal(30), z.literal(45), z.literal(60)])
+            .nullable()
+            .optional(),
+    })
+    .strict();
+
 const behandlungsraumSchema = z
     .object({
         id: z.string().trim().optional(),
@@ -47,6 +67,8 @@ const behandlungsraumSchema = z
         aktiv: z.boolean().optional(),
         laser_brand: z.string().trim().optional(),
         laser_model: z.string().trim().optional(),
+        /** Empty means the room is used at every location. */
+        standort_id: z.string().trim().optional(),
     })
     .strict();
 
@@ -65,6 +87,8 @@ const mitarbeiterSchema = z
             )
             .optional(),
         raum_id: z.string().trim().optional(),
+        /** Empty means the staff member works at every location. */
+        standort_id: z.string().trim().optional(),
         aktiv: z.boolean().optional(),
     })
     .strict();
@@ -86,6 +110,7 @@ const patchStudioSettingsSchema = z
         profile: patchStudioProfileSchema.optional(),
         oeffnungszeiten: oeffnungszeitenSchema,
         oeffnungs_ausnahmen: z.array(oeffnungsAusnahmeSchema).optional(),
+        standorte: z.array(standortSchema).optional(),
         behandlungsraeume: z.array(behandlungsraumSchema).optional(),
         mitarbeiter: z.array(mitarbeiterSchema).optional(),
         pufferzeit_minuten: z.number().int().min(0).max(120).optional(),
@@ -97,6 +122,7 @@ const patchStudioSettingsSchema = z
             body.profile !== undefined ||
             body.oeffnungszeiten !== undefined ||
             body.oeffnungs_ausnahmen !== undefined ||
+            body.standorte !== undefined ||
             body.behandlungsraeume !== undefined ||
             body.mitarbeiter !== undefined ||
             body.pufferzeit_minuten !== undefined ||

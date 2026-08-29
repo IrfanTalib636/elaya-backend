@@ -1,0 +1,828 @@
+{
+  "generatedAt": "2026-08-29T16:46:41.649Z",
+  "durationMs": 12957,
+  "summary": {
+    "pass": 133,
+    "fail": 0,
+    "skip": 3,
+    "total": 136
+  },
+  "results": [
+    {
+      "suite": "Setup",
+      "name": "POST /auth/register/customer creates a fresh test customer",
+      "status": "pass",
+      "detail": "regression+1788021988692@elaya.test"
+    },
+    {
+      "suite": "Setup",
+      "name": "all three roles can log in",
+      "status": "pass",
+      "detail": ""
+    },
+    {
+      "suite": "Health & Discovery",
+      "name": "GET /health returns ok",
+      "status": "pass",
+      "detail": ""
+    },
+    {
+      "suite": "Health & Discovery",
+      "name": "GET /studios/public is reachable without auth",
+      "status": "pass",
+      "detail": "2 public studio(s)"
+    },
+    {
+      "suite": "Health & Discovery",
+      "name": "GET /config/public exposes sperrfristen + termin_einstellungen",
+      "status": "pass",
+      "detail": "horizon=365d"
+    },
+    {
+      "suite": "Health & Discovery",
+      "name": "GET /config/public requires authentication",
+      "status": "pass",
+      "detail": ""
+    },
+    {
+      "suite": "Authentication & Authorization",
+      "name": "GET /auth/me works for all three roles",
+      "status": "pass",
+      "detail": ""
+    },
+    {
+      "suite": "Authentication & Authorization",
+      "name": "protected route rejects a missing token with 401",
+      "status": "pass",
+      "detail": ""
+    },
+    {
+      "suite": "Authentication & Authorization",
+      "name": "protected route rejects a malformed token with 401",
+      "status": "pass",
+      "detail": ""
+    },
+    {
+      "suite": "Authentication & Authorization",
+      "name": "customer cannot reach admin platform config",
+      "status": "pass",
+      "detail": ""
+    },
+    {
+      "suite": "Authentication & Authorization",
+      "name": "studio cannot reach the admin studio list",
+      "status": "pass",
+      "detail": ""
+    },
+    {
+      "suite": "Authentication & Authorization",
+      "name": "POST /auth/refresh rotates the access token",
+      "status": "pass",
+      "detail": ""
+    },
+    {
+      "suite": "Authentication & Authorization",
+      "name": "login rejects a wrong password",
+      "status": "pass",
+      "detail": ""
+    },
+    {
+      "suite": "Configuration",
+      "name": "GET /config/platform as admin returns the numeric config blocks",
+      "status": "pass",
+      "detail": ""
+    },
+    {
+      "suite": "Configuration",
+      "name": "GET /config/studio as studio returns the effective config",
+      "status": "pass",
+      "detail": ""
+    },
+    {
+      "suite": "Configuration",
+      "name": "PATCH /config/studio round-trips a sperrfrist override",
+      "status": "pass",
+      "detail": "28 -> 30 -> 28"
+    },
+    {
+      "suite": "Configuration",
+      "name": "PATCH /config/studio rejects an out-of-range value",
+      "status": "pass",
+      "detail": ""
+    },
+    {
+      "suite": "Configuration",
+      "name": "PATCH /config/studio rejects an unknown key",
+      "status": "pass",
+      "detail": ""
+    },
+    {
+      "suite": "Configuration",
+      "name": "a customer cannot patch studio config",
+      "status": "pass",
+      "detail": ""
+    },
+    {
+      "suite": "Customers",
+      "name": "GET /customers as studio is paginated",
+      "status": "pass",
+      "detail": "5 customer(s)"
+    },
+    {
+      "suite": "Customers",
+      "name": "GET /customers is denied to a customer",
+      "status": "pass",
+      "detail": ""
+    },
+    {
+      "suite": "Customers",
+      "name": "PATCH /customers/me updates own profile",
+      "status": "pass",
+      "detail": ""
+    },
+    {
+      "suite": "Customers",
+      "name": "GET /customers/me/export returns the data export",
+      "status": "pass",
+      "detail": ""
+    },
+    {
+      "suite": "Customers",
+      "name": "GET /elaycoins/me returns a balance",
+      "status": "pass",
+      "detail": ""
+    },
+    {
+      "suite": "Tattoo Cases",
+      "name": "POST /cases creates a case for the customer",
+      "status": "pass",
+      "detail": "caseId=#REG-001"
+    },
+    {
+      "suite": "Tattoo Cases",
+      "name": "POST /cases creates a second case (for cross-case rules)",
+      "status": "pass",
+      "detail": ""
+    },
+    {
+      "suite": "Tattoo Cases",
+      "name": "GET /cases lists the customer's own cases",
+      "status": "pass",
+      "detail": "2 case(s)"
+    },
+    {
+      "suite": "Tattoo Cases",
+      "name": "GET /cases/{id} returns the case detail",
+      "status": "pass",
+      "detail": ""
+    },
+    {
+      "suite": "Tattoo Cases",
+      "name": "PATCH /cases/{id} saves intake answers",
+      "status": "pass",
+      "detail": ""
+    },
+    {
+      "suite": "Tattoo Cases",
+      "name": "PATCH /cases/{id} rejects an invalid enum value",
+      "status": "pass",
+      "detail": ""
+    },
+    {
+      "suite": "Tattoo Cases",
+      "name": "PATCH /cases/{id} requires a name on every tattoo zone",
+      "status": "pass",
+      "detail": "refused 3 unnamed variants, stored [\"Oberarm innen\",\"Wade\"]"
+    },
+    {
+      "suite": "Tattoo Cases",
+      "name": "a tattoo zone requires measurements and derives its own area",
+      "status": "pass",
+      "detail": "areas 50cm²/190CHF, 12cm²/90CHF"
+    },
+    {
+      "suite": "Tattoo Cases",
+      "name": "a client-supplied zone area cannot override the measurements",
+      "status": "pass",
+      "detail": "ignored client area, derived 50 cm²"
+    },
+    {
+      "suite": "Tattoo Cases",
+      "name": "a customer cannot read another customer's case",
+      "status": "pass",
+      "detail": ""
+    },
+    {
+      "suite": "Tattoo Cases",
+      "name": "GET /cases/intake/prefill reflects the earlier case",
+      "status": "pass",
+      "detail": "4 field(s) carried"
+    },
+    {
+      "suite": "Tattoo Cases",
+      "name": "prefill is empty for a customer with no prior case",
+      "status": "pass",
+      "detail": "available=false"
+    },
+    {
+      "suite": "Tattoo Cases",
+      "name": "POST /cases/pricing/preview responds to a preview request",
+      "status": "pass",
+      "detail": "status 200"
+    },
+    {
+      "suite": "Tattoo Cases",
+      "name": "POST /config/pricing/preview breaks the price down step by step",
+      "status": "pass",
+      "detail": "CHF 205 over 8 steps"
+    },
+    {
+      "suite": "Tattoo Cases",
+      "name": "POST /config/pricing/preview reflects unsaved values without saving them",
+      "status": "pass",
+      "detail": "205 -> 615, saved unchanged"
+    },
+    {
+      "suite": "Tattoo Cases",
+      "name": "POST /config/pricing/preview flags a multiplier of zero",
+      "status": "pass",
+      "detail": "1 issue(s)"
+    },
+    {
+      "suite": "Tattoo Cases",
+      "name": "POST /config/pricing/preview is closed to customers",
+      "status": "pass",
+      "detail": "status 403"
+    },
+    {
+      "suite": "Tattoo Cases",
+      "name": "GET /cases/{id}/standorte lists bookable locations with last-used flags",
+      "status": "pass",
+      "detail": "2 location(s), choice_required=true"
+    },
+    {
+      "suite": "Tattoo Cases",
+      "name": "GET /cases/{id}/anamnesis is reachable",
+      "status": "pass",
+      "detail": "status 200"
+    },
+    {
+      "suite": "Tattoo Cases",
+      "name": "GET /cases/{id}/merkblatt returns the leaflet",
+      "status": "pass",
+      "detail": "status 200"
+    },
+    {
+      "suite": "Availability & Blocking Periods",
+      "name": "GET /cases/{id}/availability returns the full lockout contract",
+      "status": "pass",
+      "detail": "earliest=2026-08-29, 0 lockout(s)"
+    },
+    {
+      "suite": "Availability & Blocking Periods",
+      "name": "every sperre carries the fields the clients localize on",
+      "status": "skip",
+      "detail": ""
+    },
+    {
+      "suite": "Availability & Blocking Periods",
+      "name": "earliest bookable date is never in the past",
+      "status": "pass",
+      "detail": "lead=0h"
+    },
+    {
+      "suite": "Availability & Blocking Periods",
+      "name": "latest bookable date matches the configured horizon",
+      "status": "pass",
+      "detail": "horizon=365d"
+    },
+    {
+      "suite": "Availability & Blocking Periods",
+      "name": "GET /cases/{id}/booking-precheck returns the questionnaire",
+      "status": "pass",
+      "detail": ""
+    },
+    {
+      "suite": "Availability & Blocking Periods",
+      "name": "POST booking-precheck/preview surfaces a UV lockout",
+      "status": "pass",
+      "detail": "hint earliest=2026-08-29"
+    },
+    {
+      "suite": "Anamnesis & Signatures",
+      "name": "a treatment booking is blocked before the anamnesis is complete",
+      "status": "pass",
+      "detail": "Bitte schliesse zuerst die medizinische Anamnese ab."
+    },
+    {
+      "suite": "Anamnesis & Signatures",
+      "name": "PUT /cases/{id}/anamnesis stores a complete anamnesis",
+      "status": "pass",
+      "detail": ""
+    },
+    {
+      "suite": "Anamnesis & Signatures",
+      "name": "PUT /cases/{id}/anamnesis rejects an incomplete anamnesis",
+      "status": "pass",
+      "detail": ""
+    },
+    {
+      "suite": "Anamnesis & Signatures",
+      "name": "signature is still required after the anamnesis",
+      "status": "pass",
+      "detail": "signature outstanding"
+    },
+    {
+      "suite": "Anamnesis & Signatures",
+      "name": "POST /cases/{id}/signature rejects an unread leaflet",
+      "status": "pass",
+      "detail": ""
+    },
+    {
+      "suite": "Anamnesis & Signatures",
+      "name": "POST /cases/{id}/signature stores BOTH signatures separately",
+      "status": "pass",
+      "detail": "both signatures stored (status 200)"
+    },
+    {
+      "suite": "Anamnesis & Signatures",
+      "name": "prerequisites now allow a treatment booking",
+      "status": "pass",
+      "detail": ""
+    },
+    {
+      "suite": "Appointments",
+      "name": "studio opening hours are available for slot selection",
+      "status": "pass",
+      "detail": "opens 10:00, closed on 0"
+    },
+    {
+      "suite": "Appointments",
+      "name": "POST /appointments books a valid slot at the chosen location",
+      "status": "pass",
+      "detail": "booked 2026-08-31 10:00 at Aesch BL"
+    },
+    {
+      "suite": "Appointments",
+      "name": "server fills dauer_minuten from studio config when omitted",
+      "status": "pass",
+      "detail": "dauer=30min"
+    },
+    {
+      "suite": "Appointments",
+      "name": "booking in the past is refused",
+      "status": "pass",
+      "detail": "refused with 400"
+    },
+    {
+      "suite": "Appointments",
+      "name": "booking beyond the horizon is refused",
+      "status": "pass",
+      "detail": "refused with 400"
+    },
+    {
+      "suite": "Appointments",
+      "name": "a booked appointment creates a cross-case lockout on the other case",
+      "status": "pass",
+      "detail": "cross-case until 2026-09-28"
+    },
+    {
+      "suite": "Appointments",
+      "name": "GET /appointments lists the booking",
+      "status": "pass",
+      "detail": "1 appointment(s)"
+    },
+    {
+      "suite": "Appointments",
+      "name": "GET /appointments/{id} returns the booking",
+      "status": "pass",
+      "detail": ""
+    },
+    {
+      "suite": "Appointments",
+      "name": "PATCH /appointments/{id} cancels the booking",
+      "status": "pass",
+      "detail": ""
+    },
+    {
+      "suite": "Appointments",
+      "name": "cancelling releases the cross-case lockout",
+      "status": "pass",
+      "detail": ""
+    },
+    {
+      "suite": "Group Booking",
+      "name": "studio config exposes the group booking parameters",
+      "status": "pass",
+      "detail": "{\"klein_max_cm2\":50,\"mittelgross_max_cm2\":150,\"max_punkte\":4,\"gruppen_rabatt\":0.15}"
+    },
+    {
+      "suite": "Group Booking",
+      "name": "studio config exposes the points for all three size tiers",
+      "status": "pass",
+      "detail": "{\"klein\":1,\"mittelgross\":2,\"gross\":4}"
+    },
+    {
+      "suite": "Group Booking",
+      "name": "PATCH /config/studio rejects thresholds that empty the medium tier",
+      "status": "pass",
+      "detail": "refused with 400"
+    },
+    {
+      "suite": "Group Booking",
+      "name": "POST /appointments with gruppen_cases validates the combination",
+      "status": "pass",
+      "detail": "grouped 2 case(s), discount=0.15"
+    },
+    {
+      "suite": "Group Booking",
+      "name": "gruppen_cases without the gruppen_termin flag is not silently dropped",
+      "status": "pass",
+      "detail": "refused with 400 (rule enforced)"
+    },
+    {
+      "suite": "Sessions",
+      "name": "the zones of the case under test can be resolved",
+      "status": "pass",
+      "detail": "zones Z001, Z002"
+    },
+    {
+      "suite": "Sessions",
+      "name": "POST /sessions logs a treatment as studio",
+      "status": "pass",
+      "detail": ""
+    },
+    {
+      "suite": "Sessions",
+      "name": "a zone case refuses a session that names no zone",
+      "status": "pass",
+      "detail": "status 400"
+    },
+    {
+      "suite": "Sessions",
+      "name": "a session cannot name a zone that is not on the case",
+      "status": "pass",
+      "detail": "status 400"
+    },
+    {
+      "suite": "Sessions",
+      "name": "each zone numbers its own sessions independently",
+      "status": "pass",
+      "detail": "Z002 #1"
+    },
+    {
+      "suite": "Sessions",
+      "name": "GET /sessions can be filtered to a single zone",
+      "status": "pass",
+      "detail": "1 row(s) for Z001"
+    },
+    {
+      "suite": "Sessions",
+      "name": "a logged session rolls progress up onto its own zone",
+      "status": "pass",
+      "detail": "Z001:1×/0%, Z002:1×/0%"
+    },
+    {
+      "suite": "Sessions",
+      "name": "a session cannot be moved to a different zone",
+      "status": "pass",
+      "detail": "status 400"
+    },
+    {
+      "suite": "Sessions",
+      "name": "a logged session creates a same-case treatment interval",
+      "status": "pass",
+      "detail": "blocked until 2026-10-16"
+    },
+    {
+      "suite": "Sessions",
+      "name": "GET /sessions lists sessions for the studio",
+      "status": "pass",
+      "detail": "6 session(s)"
+    },
+    {
+      "suite": "Sessions",
+      "name": "GET /sessions/{id} returns the session",
+      "status": "pass",
+      "detail": ""
+    },
+    {
+      "suite": "Sessions",
+      "name": "PATCH /sessions/{id} updates the session",
+      "status": "pass",
+      "detail": "status 400"
+    },
+    {
+      "suite": "Studio Dashboard",
+      "name": "GET /studio/settings (settings)",
+      "status": "pass",
+      "detail": ""
+    },
+    {
+      "suite": "Studio Dashboard",
+      "name": "GET /studio/activity (activity feed)",
+      "status": "pass",
+      "detail": ""
+    },
+    {
+      "suite": "Studio Dashboard",
+      "name": "GET /studio/analytics/summary (analytics summary)",
+      "status": "pass",
+      "detail": ""
+    },
+    {
+      "suite": "Studio Dashboard",
+      "name": "GET /studio/crm/pipeline (CRM pipeline)",
+      "status": "pass",
+      "detail": ""
+    },
+    {
+      "suite": "Studio Dashboard",
+      "name": "GET /studio/crm/tasks (CRM tasks)",
+      "status": "pass",
+      "detail": ""
+    },
+    {
+      "suite": "Studio Dashboard",
+      "name": "GET /studio/shop/orders (shop orders)",
+      "status": "pass",
+      "detail": ""
+    },
+    {
+      "suite": "Studio Dashboard",
+      "name": "GET /studio/crm/notes requires customer_id",
+      "status": "pass",
+      "detail": ""
+    },
+    {
+      "suite": "Studio Dashboard",
+      "name": "GET /studio/settings exposes standorte for multi-location",
+      "status": "pass",
+      "detail": "2 location(s)"
+    },
+    {
+      "suite": "Studio Dashboard",
+      "name": "studio CRM task create/update/delete round-trip",
+      "status": "pass",
+      "detail": ""
+    },
+    {
+      "suite": "Studio Dashboard",
+      "name": "studio endpoints are denied to a customer",
+      "status": "pass",
+      "detail": ""
+    },
+    {
+      "suite": "Admin Dashboard",
+      "name": "GET /studio/admin/studios as admin",
+      "status": "pass",
+      "detail": "2 studio(s)"
+    },
+    {
+      "suite": "Admin Dashboard",
+      "name": "admin can read a specific studio config",
+      "status": "pass",
+      "detail": ""
+    },
+    {
+      "suite": "Admin Dashboard",
+      "name": "admin can patch a studio config block",
+      "status": "pass",
+      "detail": "365 -> 200 -> 365"
+    },
+    {
+      "suite": "Admin Dashboard",
+      "name": "GET /elaycoins/studio/overview as studio",
+      "status": "pass",
+      "detail": ""
+    },
+    {
+      "suite": "Shop",
+      "name": "GET /shop/products lists products",
+      "status": "pass",
+      "detail": "5 product(s)"
+    },
+    {
+      "suite": "Shop",
+      "name": "GET /shop/products/{id} returns a product",
+      "status": "pass",
+      "detail": ""
+    },
+    {
+      "suite": "Shop",
+      "name": "GET /shop/shipping returns shipping options",
+      "status": "pass",
+      "detail": ""
+    },
+    {
+      "suite": "Shop",
+      "name": "GET /shop/orders lists own orders",
+      "status": "pass",
+      "detail": ""
+    },
+    {
+      "suite": "Shop",
+      "name": "POST /shop/orders rejects an empty cart",
+      "status": "pass",
+      "detail": ""
+    },
+    {
+      "suite": "Messaging",
+      "name": "GET /messaging/conversations lists conversations",
+      "status": "pass",
+      "detail": "0 conversation(s)"
+    },
+    {
+      "suite": "Messaging",
+      "name": "POST /messaging/conversations opens a conversation",
+      "status": "pass",
+      "detail": "status 200"
+    },
+    {
+      "suite": "Messaging",
+      "name": "messaging send + read round-trip",
+      "status": "pass",
+      "detail": ""
+    },
+    {
+      "suite": "Messaging",
+      "name": "customer cannot read a foreign conversation",
+      "status": "pass",
+      "detail": ""
+    },
+    {
+      "suite": "Aftercare & Fading",
+      "name": "GET /nachsorge lists aftercare records",
+      "status": "pass",
+      "detail": "status 200"
+    },
+    {
+      "suite": "Aftercare & Fading",
+      "name": "POST /nachsorge/check validates its input",
+      "status": "pass",
+      "detail": "status 400"
+    },
+    {
+      "suite": "Aftercare & Fading",
+      "name": "an aftercare check on a zone case must name a zone",
+      "status": "pass",
+      "detail": "status 400"
+    },
+    {
+      "suite": "Aftercare & Fading",
+      "name": "an aftercare check cannot name a zone outside the case",
+      "status": "pass",
+      "detail": "status 400"
+    },
+    {
+      "suite": "Aftercare & Fading",
+      "name": "GET /nachsorge accepts a zone filter",
+      "status": "pass",
+      "detail": "0 row(s)"
+    },
+    {
+      "suite": "Aftercare & Fading",
+      "name": "POST /verblassung validates its input",
+      "status": "pass",
+      "detail": "status 400"
+    },
+    {
+      "suite": "Files",
+      "name": "POST /files/staging rejects a request with no file",
+      "status": "pass",
+      "detail": ""
+    },
+    {
+      "suite": "Files",
+      "name": "GET /files/{id} rejects an unknown id",
+      "status": "pass",
+      "detail": ""
+    },
+    {
+      "suite": "Files",
+      "name": "GET /files/{id}/content requires authentication",
+      "status": "pass",
+      "detail": ""
+    },
+    {
+      "suite": "Studio Transfers",
+      "name": "GET /studio-transfers/me for the customer",
+      "status": "pass",
+      "detail": "status 200"
+    },
+    {
+      "suite": "Studio Transfers",
+      "name": "GET /studio-transfers for the studio",
+      "status": "pass",
+      "detail": "status 200"
+    },
+    {
+      "suite": "Elaya Chat",
+      "name": "POST /chat responds or reports AI unavailable",
+      "status": "pass",
+      "detail": "status 200"
+    },
+    {
+      "suite": "Input Validation & Hardening",
+      "name": "malformed ObjectId is rejected cleanly, not with a 500",
+      "status": "pass",
+      "detail": ""
+    },
+    {
+      "suite": "Input Validation & Hardening",
+      "name": "unknown route returns 404",
+      "status": "pass",
+      "detail": ""
+    },
+    {
+      "suite": "Input Validation & Hardening",
+      "name": "oversized pagination limit is clamped or rejected",
+      "status": "pass",
+      "detail": "status 400"
+    },
+    {
+      "suite": "Input Validation & Hardening",
+      "name": "invalid JSON body is rejected with 400, not 500",
+      "status": "pass",
+      "detail": ""
+    },
+    {
+      "suite": "Input Validation & Hardening",
+      "name": "POST /auth/reset-password (needs a real emailed token)",
+      "status": "skip",
+      "detail": "requires out-of-band token"
+    },
+    {
+      "suite": "Input Validation & Hardening",
+      "name": "Stripe payment capture",
+      "status": "skip",
+      "detail": "requires live Stripe credentials"
+    },
+    {
+      "suite": "Realtime — Connection",
+      "name": "customer socket connects with a valid token",
+      "status": "pass",
+      "detail": ""
+    },
+    {
+      "suite": "Realtime — Connection",
+      "name": "studio socket connects with a valid token",
+      "status": "pass",
+      "detail": ""
+    },
+    {
+      "suite": "Realtime — Connection",
+      "name": "socket rejects an invalid token",
+      "status": "pass",
+      "detail": ""
+    },
+    {
+      "suite": "Realtime — Availability Fan-out",
+      "name": "booking an appointment notifies BOTH customer and studio",
+      "status": "pass",
+      "detail": "reason=appointment_created"
+    },
+    {
+      "suite": "Realtime — Availability Fan-out",
+      "name": "cancelling an appointment notifies BOTH audiences",
+      "status": "pass",
+      "detail": "reason=appointment_cancelled"
+    },
+    {
+      "suite": "Realtime — Availability Fan-out",
+      "name": "logging a session notifies BOTH audiences",
+      "status": "pass",
+      "detail": "reason=session_created"
+    },
+    {
+      "suite": "Realtime — Availability Fan-out",
+      "name": "a customer does not receive another customer's availability events",
+      "status": "pass",
+      "detail": "no cross-customer leak"
+    },
+    {
+      "suite": "Realtime — Messaging",
+      "name": "messaging:connected is emitted on join",
+      "status": "pass",
+      "detail": "received"
+    },
+    {
+      "suite": "Realtime — Messaging",
+      "name": "studio room receives messaging:conversation_updated without joining",
+      "status": "pass",
+      "detail": "inbox notified"
+    },
+    {
+      "suite": "Realtime — Messaging",
+      "name": "a sent message reaches a joined recipient socket in realtime",
+      "status": "pass",
+      "detail": "delivered"
+    },
+    {
+      "suite": "Cleanup",
+      "name": "remove data created by this run",
+      "status": "pass",
+      "detail": "4 appointment(s), 4 session(s), 2 case(s), 1 customer profile(s), 1 user(s)"
+    }
+  ]
+}

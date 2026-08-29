@@ -15,6 +15,21 @@ const gruppenGroessenSchema = new mongoose.Schema(
     { _id: false }
 );
 
+/** Builds a strict numeric sub-schema from a defaults block. */
+const numericBlockSchema = (block, { min = 0 } = {}) =>
+    new mongoose.Schema(
+        Object.fromEntries(
+            Object.entries(PLATFORM_CONFIG_DEFAULTS[block]).map(([key, value]) => [
+                key,
+                { type: Number, default: value, min },
+            ])
+        ),
+        { _id: false }
+    );
+
+const sperrfristenSchema = numericBlockSchema('sperrfristen');
+const terminEinstellungenSchema = numericBlockSchema('termin_einstellungen');
+
 const platformConfigSchema = new mongoose.Schema(
     {
         /** Singleton key — only one document with `platform` */
@@ -41,6 +56,16 @@ const platformConfigSchema = new mongoose.Schema(
         gruppen_groessen: {
             type: gruppenGroessenSchema,
             default: () => ({ ...PLATFORM_CONFIG_DEFAULTS.gruppen_groessen }),
+        },
+        /** Blocking periods in days — studios may override each value. */
+        sperrfristen: {
+            type: sperrfristenSchema,
+            default: () => ({ ...PLATFORM_CONFIG_DEFAULTS.sperrfristen }),
+        },
+        /** Appointment durations, booking horizon and lead time. */
+        termin_einstellungen: {
+            type: terminEinstellungenSchema,
+            default: () => ({ ...PLATFORM_CONFIG_DEFAULTS.termin_einstellungen }),
         },
         /** Plan → feature key list */
         subscription_plans: {
