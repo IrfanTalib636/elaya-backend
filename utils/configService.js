@@ -1,23 +1,41 @@
 const PlatformConfig = require('../models/platformConfigModel');
 const Studio = require('../models/studioModel');
 const ApiError = require('./ApiError');
-const { PLATFORM_CONFIG_DEFAULTS, PLATFORM_GROUP_KEYS } = require('../config/platformDefaults');
+const {
+    PLATFORM_CONFIG_DEFAULTS,
+    GRUPPEN_PUNKTE,
+    PLATFORM_GROUP_KEYS,
+    NUMERIC_CONFIG_BLOCKS,
+    STUDIO_OVERRIDABLE_BLOCKS,
+    blockKeys,
+} = require('../config/platformDefaults');
 const { DEFAULT_PRICING_CONFIG } = require('../config/pricingDefaults');
 const { mergeSessionPrediction } = require('../config/sessionPredictionDefaults');
 const { ELAYCOIN_SITUATIONS } = require('../config/elaycoinConfig');
+
+/** Three-layer merge for one numeric settings block: defaults → platform → studio. */
+const mergeNumericBlock = (block, platform, studioDoc) => ({
+    ...PLATFORM_CONFIG_DEFAULTS[block],
+    ...(platform?.[block] || {}),
+    ...(studioDoc?.[block] || {}),
+});
 
 const mergePlatformConfig = (doc) => {
     const stored = doc?.toObject ? doc.toObject() : doc || {};
     const merged = {
         ...PLATFORM_CONFIG_DEFAULTS,
         ...stored,
-        gruppen_groessen: {
-            ...PLATFORM_CONFIG_DEFAULTS.gruppen_groessen,
-            ...(stored.gruppen_groessen || {}),
-        },
+        ...Object.fromEntries(
+            NUMERIC_CONFIG_BLOCKS.map((block) => [
+                block,
+                { ...PLATFORM_CONFIG_DEFAULTS[block], ...(stored[block] || {}) },
+            ])
+        ),
     };
 
     return {
+        sperrfristen: merged.sperrfristen,
+        termin_einstellungen: merged.termin_einstellungen,
         coinWert: merged.coinWert,
         minWert: merged.minWert,
         maxWert: merged.maxWert,
@@ -115,6 +133,61 @@ const validateSessionPredictionPatch = (patch) => {
     }
 };
 
+/**
+ * Every value in a numeric settings block must be a known key and a
+ * non-negative number. Shared by the platform and studio update paths so both
+ * reject the same input.
+ */
+const assertNumericBlockPatch = (block, patch) => {
+    if (patch === undefined) return;
+    if (typeof patch !== 'object' || Array.isArray(patch) || patch == null) {
+        throw new ApiError(400, `${block} must be an object`);
+    }
+    const allowed = blockKeys(block);
+    for (const [key, value] of Object.entries(patch)) {
+        if (!allowed.includes(key)) {
+            throw new ApiError(400, `Unknown ${block} field: ${key}`);
+        }
+        if (value !== undefined && (typeof value !== 'number' || value < 0)) {
+            throw new ApiError(400, `${block}.${key} must be a non-negative number`);
+        }
+    }
+};
+
+/** Cross-field rules that a single value cannot express on its own. */
+const assertBlockInvariants = (block, next) => {
+    if (block === 'gruppen_groessen') {
+        const defaults = PLATFORM_CONFIG_DEFAULTS.gruppen_groessen;
+        // Strict: equal thresholds would leave the medium tier unreachable,
+        // since a case is medium only when klein < area <= mittelgross.
+        if (
+            (next.klein_max_cm2 ?? defaults.klein_max_cm2) >=
+            (next.mittelgross_max_cm2 ?? defaults.mittelgross_max_cm2)
+        ) {
+            throw new ApiError(400, 'klein_max_cm2 must be less than mittelgross_max_cm2');
+        }
+        if (next.gruppen_rabatt != null && next.gruppen_rabatt > 1) {
+            throw new ApiError(400, 'gruppen_rabatt must be between 0 and 1');
+        }
+    }
+
+    if (block === 'sperrfristen') {
+        if (
+            next.uv_mittel_tage != null &&
+            next.uv_intensiv_tage != null &&
+            next.uv_mittel_tage > next.uv_intensiv_tage
+        ) {
+            throw new ApiError(400, 'uv_mittel_tage must not exceed uv_intensiv_tage');
+        }
+    }
+
+    if (block === 'termin_einstellungen') {
+        if (next.buchung_horizont_tage != null && next.buchung_horizont_tage < 1) {
+            throw new ApiError(400, 'buchung_horizont_tage must be at least 1');
+        }
+    }
+};
+
 const validatePlatformPatch = (patch, current = PLATFORM_CONFIG_DEFAULTS) => {
     const numericFields = [
         'coinWert',
@@ -133,29 +206,23 @@ const validatePlatformPatch = (patch, current = PLATFORM_CONFIG_DEFAULTS) => {
         }
     }
 
-    if (patch.gruppen_groessen) {
-        const gg = patch.gruppen_groessen;
-        const ggFields = ['klein_max_cm2', 'mittelgross_max_cm2', 'max_punkte', 'gruppen_rabatt'];
-        for (const field of ggFields) {
-            if (gg[field] !== undefined && (typeof gg[field] !== 'number' || gg[field] < 0)) {
-                throw new ApiError(400, `gruppen_groessen.${field} must be a non-negative number`);
-            }
-        }
+    for (const block of NUMERIC_CONFIG_BLOCKS) {
+        assertNumericBlockPatch(block, patch[block]);
     }
 
     const merged = {
         ...current,
         ...patch,
-        gruppen_groessen: {
-            ...current.gruppen_groessen,
-            ...(patch.gruppen_groessen || {}),
-        },
+        ...Object.fromEntries(
+            NUMERIC_CONFIG_BLOCKS.map((block) => [
+                block,
+                { ...current[block], ...(patch[block] || {}) },
+            ])
+        ),
     };
 
-    if (
-        merged.gruppen_groessen.klein_max_cm2 > merged.gruppen_groessen.mittelgross_max_cm2
-    ) {
-        throw new ApiError(400, 'klein_max_cm2 must not exceed mittelgross_max_cm2');
+    for (const block of NUMERIC_CONFIG_BLOCKS) {
+        assertBlockInvariants(block, merged[block]);
     }
 
     if (merged.minWert > merged.maxWert) {
@@ -193,12 +260,14 @@ const updatePlatformConfig = async (patch) => {
     const current = await getPlatformConfig();
     validatePlatformPatch(patch, current);
 
+    // Dotted paths so a partial patch never wipes sibling keys.
     const setFields = { ...patch };
-    if (patch.gruppen_groessen) {
-        for (const [k, v] of Object.entries(patch.gruppen_groessen)) {
-            setFields[`gruppen_groessen.${k}`] = v;
+    for (const block of NUMERIC_CONFIG_BLOCKS) {
+        if (!patch[block]) continue;
+        for (const [key, value] of Object.entries(patch[block])) {
+            setFields[`${block}.${key}`] = value;
         }
-        delete setFields.gruppen_groessen;
+        delete setFields[block];
     }
     if (patch.session_prediction) {
         setFields.session_prediction = mergeSessionPrediction({
@@ -228,11 +297,8 @@ const updatePlatformConfig = async (patch) => {
     return mergePlatformConfig(doc);
 };
 
-const mergeGruppenGroessen = (platform, studioDoc) => ({
-    ...PLATFORM_CONFIG_DEFAULTS.gruppen_groessen,
-    ...(platform?.gruppen_groessen || {}),
-    ...(studioDoc?.gruppen_groessen || {}),
-});
+const mergeGruppenGroessen = (platform, studioDoc) =>
+    mergeNumericBlock('gruppen_groessen', platform, studioDoc);
 
 const getEffectiveGruppenGroessen = async (studioId) => {
     const platform = await getPlatformConfig();
@@ -243,13 +309,36 @@ const getEffectiveGruppenGroessen = async (studioId) => {
     return mergeGruppenGroessen(platform, studio);
 };
 
+/**
+ * Blocking periods and appointment settings for one studio, resolved in a
+ * single pair of reads. The booking and lockout paths call this per request, so
+ * no duration is ever read from a hardcoded constant.
+ */
+const getEffectiveBookingConfig = async (studioId) => {
+    const platform = await getPlatformConfig();
+    const studio = studioId
+        ? await Studio.findById(studioId).select('sperrfristen termin_einstellungen').lean()
+        : null;
+    return {
+        sperrfristen: mergeNumericBlock('sperrfristen', platform, studio),
+        termin_einstellungen: mergeNumericBlock('termin_einstellungen', platform, studio),
+    };
+};
+
+const getEffectiveSperrfristen = async (studioId) =>
+    (await getEffectiveBookingConfig(studioId)).sperrfristen;
+
 const getPublicConfig = async (studioId = null) => {
     const platform = await getPlatformConfig();
     const gruppen_groessen = studioId
         ? await getEffectiveGruppenGroessen(studioId)
         : mergeGruppenGroessen(platform, null);
+    const booking = await getEffectiveBookingConfig(studioId);
     return {
         gruppen_groessen,
+        gruppen_punkte: GRUPPEN_PUNKTE,
+        sperrfristen: booking.sperrfristen,
+        termin_einstellungen: booking.termin_einstellungen,
         elaycoin: {
             coinWert: platform.coinWert,
             minWert: platform.minWert,
@@ -370,8 +459,15 @@ const formatStudioConfig = (studio, platform) => {
             shop_provision_prozent: platform.shop_provision_prozent,
         },
         session_prediction: platform.session_prediction,
-        gruppen_groessen: mergeGruppenGroessen(platform, doc),
-        gruppen_groessen_defaults: mergeGruppenGroessen(platform, null),
+        /** Points per size category — read-only, so the UI can label each tier. */
+        gruppen_punkte: GRUPPEN_PUNKTE,
+        ...Object.fromEntries(
+            STUDIO_OVERRIDABLE_BLOCKS.flatMap((block) => [
+                [block, mergeNumericBlock(block, platform, doc)],
+                // Platform values, so the UI can show what a cleared field falls back to.
+                [`${block}_defaults`, mergeNumericBlock(block, platform, null)],
+            ])
+        ),
     };
 };
 
@@ -407,32 +503,13 @@ const updateStudioConfig = async (studioId, patch) => {
         studio.subscription_plan = patch.subscription_plan;
     }
 
-    if (patch.gruppen_groessen !== undefined) {
-        if (typeof patch.gruppen_groessen !== 'object' || Array.isArray(patch.gruppen_groessen)) {
-            throw new ApiError(400, 'gruppen_groessen must be an object');
-        }
-        const allowed = ['klein_max_cm2', 'mittelgross_max_cm2', 'max_punkte', 'gruppen_rabatt'];
-        const next = { ...(studio.gruppen_groessen || {}) };
-        for (const [key, value] of Object.entries(patch.gruppen_groessen)) {
-            if (!allowed.includes(key)) {
-                throw new ApiError(400, `Unknown gruppen_groessen field: ${key}`);
-            }
-            if (typeof value !== 'number' || value < 0) {
-                throw new ApiError(400, `gruppen_groessen.${key} must be a non-negative number`);
-            }
-            next[key] = value;
-        }
-        if (
-            (next.klein_max_cm2 ?? PLATFORM_CONFIG_DEFAULTS.gruppen_groessen.klein_max_cm2) >
-            (next.mittelgross_max_cm2 ?? PLATFORM_CONFIG_DEFAULTS.gruppen_groessen.mittelgross_max_cm2)
-        ) {
-            throw new ApiError(400, 'klein_max_cm2 must be <= mittelgross_max_cm2');
-        }
-        if (next.gruppen_rabatt != null && next.gruppen_rabatt > 1) {
-            throw new ApiError(400, 'gruppen_rabatt must be between 0 and 1');
-        }
-        studio.gruppen_groessen = next;
-        studio.markModified('gruppen_groessen');
+    for (const block of STUDIO_OVERRIDABLE_BLOCKS) {
+        if (patch[block] === undefined) continue;
+        assertNumericBlockPatch(block, patch[block]);
+        const next = { ...(studio[block] || {}), ...patch[block] };
+        assertBlockInvariants(block, next);
+        studio[block] = next;
+        studio.markModified(block);
     }
 
     if (patch.feature_overrides !== undefined) {
@@ -449,12 +526,16 @@ const updateStudioConfig = async (studioId, patch) => {
 
 module.exports = {
     mergePlatformConfig,
+    assertBlockInvariants,
     getPlatformConfig,
     ensurePlatformConfig,
     updatePlatformConfig,
     getPublicConfig,
     getEffectiveGruppenGroessen,
+    getEffectiveBookingConfig,
+    getEffectiveSperrfristen,
     mergeGruppenGroessen,
+    mergeNumericBlock,
     getEffectivePricingOverrides,
     resolveEffectiveCoinWert,
     formatStudioConfig,

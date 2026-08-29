@@ -135,7 +135,12 @@ const sessionSchema = new mongoose.Schema(
         verblassung_raw_ai: { type: mongoose.Schema.Types.Mixed, default: null },
         is_draft: { type: Boolean, default: false },
         is_no_show: { type: Boolean, default: false },
-        zonen_id: { type: String, default: null },
+        /**
+         * Zone this treatment belongs to, matching `CaseZone.zonen_id` ("Z001").
+         * Required for zone cases, `null` for single-tattoo cases. Each zone
+         * keeps its own session numbering, session log and fading series.
+         */
+        zonen_id: { type: String, default: null, index: true },
         zahlung: {
             type: zahlungSchema,
             default: () => ({}),
@@ -146,7 +151,10 @@ const sessionSchema = new mongoose.Schema(
     }
 );
 
-sessionSchema.index({ case: 1, session_number: 1 }, { unique: true });
+// Session numbers run per zone, so two zones of the same tattoo can both have a
+// session 1. For single-tattoo cases `zonen_id` is null, which keeps the
+// original one-number-per-case guarantee.
+sessionSchema.index({ case: 1, zonen_id: 1, session_number: 1 }, { unique: true });
 sessionSchema.index({ case: 1, treatment_date: -1 });
 sessionSchema.index({ studio: 1, treatment_date: -1, is_draft: 1, is_no_show: 1 });
 

@@ -6,6 +6,7 @@ const {
     patchPlatformConfigSchema,
     patchStudioConfigSchema,
     sessionPredictionPreviewSchema,
+    pricingPreviewSchema,
 } = require('../validators/configValidator');
 const { USER_ROLES } = require('../config/constants');
 
@@ -65,6 +66,29 @@ router.post(
     authorize(...studioAndAdminRoles),
     validate(sessionPredictionPreviewSchema),
     configController.previewSessionPredictionHandler
+);
+
+/**
+ * @swagger
+ * /config/pricing/preview:
+ *   post:
+ *     summary: Live price calculator for the pricing settings (no persist)
+ *     description: |
+ *       **Auth:** Bearer · studio + admin.
+ *       Runs the real pricingEngine against draft `studio_pricing` values and a
+ *       sample case, returning an ordered base-price-to-final-price breakdown,
+ *       the delta against the saved configuration, and a sanity check that
+ *       flags values which would produce a nonsensical price.
+ *     tags: [Config]
+ *     security:
+ *       - bearerAuth: []
+ */
+router.post(
+    '/pricing/preview',
+    protect,
+    authorize(...studioAndAdminRoles),
+    validate(pricingPreviewSchema),
+    configController.previewPricingHandler
 );
 
 /**

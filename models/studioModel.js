@@ -1,7 +1,32 @@
 const mongoose = require('mongoose');
 const { STUDIO_STATUS } = require('../config/constants');
-const { DEFAULT_OEFFNUNGSZEITEN } = require('../config/studioDefaults');
+const {
+    DEFAULT_OEFFNUNGSZEITEN,
+    DEFAULT_DAY_HOURS,
+    DEFAULT_SLOT_INTERVAL_MINUTEN,
+    DEFAULT_PUFFERZEIT_MINUTEN,
+    MIN_SLOT_INTERVAL_MINUTEN,
+    MAX_SLOT_INTERVAL_MINUTEN,
+} = require('../config/studioDefaults');
 
+const oeffnungsAusnahmeSchema = new mongoose.Schema(
+    {
+        datum: { type: String, required: true, trim: true },
+        offen: { type: Boolean, default: true },
+        von: { type: String, default: DEFAULT_DAY_HOURS.von, trim: true },
+        bis: { type: String, default: DEFAULT_DAY_HOURS.bis, trim: true },
+        notiz: { type: String, default: '', trim: true },
+    },
+    { _id: false }
+);
+
+/**
+ * A bookable branch of the studio. Customers may switch between locations of the
+ * same studio freely — no transfer request is involved, because the owning
+ * Studio (and therefore the customer's `aktuelle_firma_id`) does not change.
+ *
+ * Schedule fields are overrides: `null` / empty means "inherit from the studio".
+ */
 const standortSchema = new mongoose.Schema(
     {
         name: { type: String, required: true, trim: true },
@@ -9,6 +34,26 @@ const standortSchema = new mongoose.Schema(
         plz: { type: String, default: '', trim: true },
         ort: { type: String, default: '', trim: true },
         land: { type: String, default: 'Schweiz', trim: true },
+        aktiv: { type: Boolean, default: true },
+        /** Weekly opening hours override — keys mo–so. null inherits the studio hours. */
+        oeffnungszeiten: {
+            type: mongoose.Schema.Types.Mixed,
+            default: null,
+        },
+        /** Date-specific overrides for this location only. */
+        oeffnungs_ausnahmen: {
+            type: [oeffnungsAusnahmeSchema],
+            default: [],
+        },
+        /** null inherits the studio value. */
+        pufferzeit_minuten: { type: Number, default: null, min: 0 },
+        /** null inherits the studio value. */
+        slot_interval_minuten: {
+            type: Number,
+            default: null,
+            min: MIN_SLOT_INTERVAL_MINUTEN,
+            max: MAX_SLOT_INTERVAL_MINUTEN,
+        },
     },
     { _id: true }
 );
@@ -16,8 +61,8 @@ const standortSchema = new mongoose.Schema(
 const dayHoursSchema = new mongoose.Schema(
     {
         offen: { type: Boolean, default: true },
-        von: { type: String, default: '10:00', trim: true },
-        bis: { type: String, default: '19:00', trim: true },
+        von: { type: String, default: DEFAULT_DAY_HOURS.von, trim: true },
+        bis: { type: String, default: DEFAULT_DAY_HOURS.bis, trim: true },
     },
     { _id: false }
 );
@@ -29,6 +74,8 @@ const behandlungsraumSchema = new mongoose.Schema(
         aktiv: { type: Boolean, default: true },
         laser_brand: { type: String, default: '', trim: true },
         laser_model: { type: String, default: '', trim: true },
+        /** Owning location (`standorte._id`). Empty means available at every location. */
+        standort_id: { type: String, default: '', trim: true },
     },
     { _id: true }
 );
@@ -39,6 +86,8 @@ const mitarbeiterSchema = new mongoose.Schema(
         nachname: { type: String, required: true, trim: true },
         rolle: { type: String, default: 'Laser-Therapeutin', trim: true },
         raum_id: { type: String, default: '', trim: true },
+        /** Owning location (`standorte._id`). Empty means working at every location. */
+        standort_id: { type: String, default: '', trim: true },
         aktiv: { type: Boolean, default: true },
         user_id: {
             type: mongoose.Schema.Types.ObjectId,
@@ -138,6 +187,22 @@ const studioSchema = new mongoose.Schema(
             type: mongoose.Schema.Types.Mixed,
             default: {},
         },
+        /**
+         * Blocking periods in days for this studio.
+         * Empty/partial object inherits missing keys from platform defaults.
+         */
+        sperrfristen: {
+            type: mongoose.Schema.Types.Mixed,
+            default: {},
+        },
+        /**
+         * Appointment durations, booking horizon and lead time for this studio.
+         * Empty/partial object inherits missing keys from platform defaults.
+         */
+        termin_einstellungen: {
+            type: mongoose.Schema.Types.Mixed,
+            default: {},
+        },
         /** Weekly opening hours — keys mo–so, each { offen, von, bis } */
         oeffnungszeiten: {
             type: mongoose.Schema.Types.Mixed,
@@ -149,8 +214,8 @@ const studioSchema = new mongoose.Schema(
                 {
                     datum: { type: String, required: true, trim: true },
                     offen: { type: Boolean, default: true },
-                    von: { type: String, default: '10:00', trim: true },
-                    bis: { type: String, default: '19:00', trim: true },
+                    von: { type: String, default: DEFAULT_DAY_HOURS.von, trim: true },
+                    bis: { type: String, default: DEFAULT_DAY_HOURS.bis, trim: true },
                     notiz: { type: String, default: '', trim: true },
                     _id: false,
                 },
@@ -170,15 +235,15 @@ const studioSchema = new mongoose.Schema(
         /** Buffer minutes after each appointment block */
         pufferzeit_minuten: {
             type: Number,
-            default: 10,
+            default: DEFAULT_PUFFERZEIT_MINUTEN,
             min: 0,
         },
         /** Booking slot interval in minutes (15 / 30 / 45 / 60) */
         slot_interval_minuten: {
             type: Number,
-            default: 60,
-            min: 15,
-            max: 60,
+            default: DEFAULT_SLOT_INTERVAL_MINUTEN,
+            min: MIN_SLOT_INTERVAL_MINUTEN,
+            max: MAX_SLOT_INTERVAL_MINUTEN,
         },
         /** Subscription package: basic | professional | enterprise */
         subscription_plan: {

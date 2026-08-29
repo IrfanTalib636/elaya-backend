@@ -3,6 +3,7 @@ const { socketAuthMiddleware } = require('./auth');
 const { registerChatHandlers } = require('./chatHandler');
 const { PLATFORM_CONFIG_ROOM } = require('./configEmit');
 const { availabilityStudioRoom } = require('./studioScheduleEmit');
+const { availabilityCustomerRoom } = require('./availabilityEmit');
 const { setIO } = require('./io');
 const { isCustomer, isStudio, refId } = require('../utils/accessHelpers');
 const Customer = require('../models/customerModel');
@@ -52,6 +53,9 @@ const joinAvailabilityRooms = async (socket) => {
 
     if (isCustomer(user.role) && user.customer_id) {
         const customerId = refId(user.customer_id);
+        // Blocking periods span all cases of one customer, so a change on any of
+        // them has to reach this client.
+        socket.join(availabilityCustomerRoom(customerId));
         const [customer, caseStudios] = await Promise.all([
             Customer.findById(customerId).select('aktuelle_firma_id').lean(),
             Case.distinct('studio', { customer: customerId }),

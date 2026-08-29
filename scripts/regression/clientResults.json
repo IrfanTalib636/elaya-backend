@@ -1,0 +1,167 @@
+{
+  "generatedAt": "2026-08-29T17:06:36.575Z",
+  "summary": {
+    "pass": 24,
+    "fail": 0,
+    "skip": 2,
+    "total": 26
+  },
+  "results": [
+    {
+      "suite": "Frontend i18n",
+      "name": "locale files parse",
+      "status": "pass",
+      "detail": ""
+    },
+    {
+      "suite": "Frontend i18n",
+      "name": "de: no duplicate keys",
+      "status": "pass",
+      "detail": ""
+    },
+    {
+      "suite": "Frontend i18n",
+      "name": "en: no duplicate keys",
+      "status": "pass",
+      "detail": ""
+    },
+    {
+      "suite": "Frontend i18n",
+      "name": "de and en cover the same keys",
+      "status": "pass",
+      "detail": "2178 keys"
+    },
+    {
+      "suite": "Frontend i18n",
+      "name": "every literal t() key exists in the locales",
+      "status": "pass",
+      "detail": "325 keys referenced"
+    },
+    {
+      "suite": "Frontend i18n",
+      "name": "dynamically built t() keys noted for manual review",
+      "status": "skip",
+      "detail": "14 file(s) build keys at runtime"
+    },
+    {
+      "suite": "Frontend content bundles",
+      "name": "locale files parse",
+      "status": "pass",
+      "detail": ""
+    },
+    {
+      "suite": "Frontend content bundles",
+      "name": "de: no duplicate keys",
+      "status": "pass",
+      "detail": ""
+    },
+    {
+      "suite": "Frontend content bundles",
+      "name": "en: no duplicate keys",
+      "status": "pass",
+      "detail": ""
+    },
+    {
+      "suite": "Frontend content bundles",
+      "name": "de and en cover the same keys",
+      "status": "pass",
+      "detail": "231 keys"
+    },
+    {
+      "suite": "Frontend content bundles",
+      "name": "caseForm de/en parity",
+      "status": "pass",
+      "detail": "231 keys"
+    },
+    {
+      "suite": "Mobile i18n",
+      "name": "locale files parse",
+      "status": "pass",
+      "detail": ""
+    },
+    {
+      "suite": "Mobile i18n",
+      "name": "de: no duplicate keys",
+      "status": "pass",
+      "detail": ""
+    },
+    {
+      "suite": "Mobile i18n",
+      "name": "en: no duplicate keys",
+      "status": "pass",
+      "detail": ""
+    },
+    {
+      "suite": "Mobile i18n",
+      "name": "de and en cover the same keys",
+      "status": "pass",
+      "detail": "1032 keys"
+    },
+    {
+      "suite": "Mobile i18n",
+      "name": "every literal t() key exists in the locales",
+      "status": "pass",
+      "detail": "698 keys referenced"
+    },
+    {
+      "suite": "Mobile i18n",
+      "name": "dynamically built t() keys noted for manual review",
+      "status": "skip",
+      "detail": "14 file(s) build keys at runtime"
+    },
+    {
+      "suite": "Frontend routing",
+      "name": "App.jsx declares routes",
+      "status": "pass",
+      "detail": "39 route(s)"
+    },
+    {
+      "suite": "Frontend routing",
+      "name": "every routed element is imported",
+      "status": "pass",
+      "detail": "32 element(s)"
+    },
+    {
+      "suite": "Frontend routing",
+      "name": "SocketProvider wraps the app",
+      "status": "pass",
+      "detail": "single multiplexed socket connection"
+    },
+    {
+      "suite": "Mobile navigation",
+      "name": "navigators declare screens",
+      "status": "pass",
+      "detail": "39 screen(s)"
+    },
+    {
+      "suite": "Mobile navigation",
+      "name": "every screen name appears in a ParamList type",
+      "status": "pass",
+      "detail": "40 typed route(s)"
+    },
+    {
+      "suite": "Mobile navigation",
+      "name": "every navigate() target resolves to a screen",
+      "status": "pass",
+      "detail": "29 target(s)"
+    },
+    {
+      "suite": "Dynamic configuration",
+      "name": "no hardcoded lockout or horizon constants remain",
+      "status": "pass",
+      "detail": ""
+    },
+    {
+      "suite": "Dynamic configuration",
+      "name": "mobile booking reads the horizon from studio config",
+      "status": "pass",
+      "detail": ""
+    },
+    {
+      "suite": "Dynamic configuration",
+      "name": "mobile booking omits duration so the studio default applies",
+      "status": "pass",
+      "detail": ""
+    }
+  ]
+}

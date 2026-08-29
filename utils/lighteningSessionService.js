@@ -3,6 +3,7 @@
  */
 
 const Session = require('../models/sessionModel');
+const CaseZone = require('../models/caseZoneModel');
 const FileAsset = require('../models/fileAssetModel');
 const { FILE_PURPOSE, FILE_STATUS } = require('../config/storageConfig');
 const {
@@ -37,9 +38,17 @@ const resolveProgressFileIdForSession = async (sessionDoc) => {
     return linked ? String(linked._id) : null;
 };
 
+/**
+ * The treatment this one is compared against.
+ *
+ * Scoped to the session's zone: comparing a zone against a different zone's
+ * photo would measure two unrelated areas. Session numbering is per zone, so
+ * "the previous session" is unambiguous within a zone.
+ */
 const resolvePreviousTreatment = async (sessionDoc) => {
     const prev = await Session.findOne({
         case: sessionDoc.case,
+        zonen_id: sessionDoc.zonen_id ?? null,
         _id: { $ne: sessionDoc._id },
         session_number: { $lt: sessionDoc.session_number },
         is_no_show: false,
@@ -59,13 +68,40 @@ const resolvePreviousTreatment = async (sessionDoc) => {
     };
 };
 
+const loadSessionZone = async (sessionDoc) => {
+    if (!sessionDoc?.zonen_id) return null;
+    return CaseZone.findOne({
+        case: sessionDoc.case,
+        zonen_id: sessionDoc.zonen_id,
+    })
+        .select('foto_url farben dichte')
+        .lean();
+};
+
+/**
+ * Baseline photo for a zone: its intake shot, which the customer was asked to
+ * frame identically for exactly this comparison.
+ */
+const resolveZoneBaselinePhotoId = async (sessionDoc) => {
+    const zone = await loadSessionZone(sessionDoc);
+    return zone?.foto_url || null;
+};
+
 const evaluateAndApplySessionLightening = async (sessionDoc, caseDoc, extras = {}) => {
     if (!sessionDoc || sessionDoc.is_no_show) return null;
 
     const previous = extras.previous || (await resolvePreviousTreatment(sessionDoc));
+    const zone = await loadSessionZone(sessionDoc);
     const followUpId =
         extras.follow_up_photo_id || (await resolveProgressFileIdForSession(sessionDoc));
-    const initialId = extras.initial_photo_id || previous.photoId || caseDoc?.photo_intake_main || null;
+    // For a zone, fall back to that zone's intake photo rather than the
+    // case-level one, which shows the whole tattoo and is not comparable.
+    const initialId =
+        extras.initial_photo_id ||
+        previous.photoId ||
+        zone?.foto_url ||
+        (sessionDoc.zonen_id ? null : caseDoc?.photo_intake_main) ||
+        null;
 
     const days_since_previous =
         extras.days_since_previous != null
@@ -99,8 +135,10 @@ const evaluateAndApplySessionLightening = async (sessionDoc, caseDoc, extras = {
         visual_fade_pct: visual,
         previous_percent: extras.previous_percent ?? previous.percent ?? caseDoc?.removal,
         studio_review_pct: sessionDoc.lightening_studio_pct,
-        colors: caseDoc?.tc_colors_present,
-        density: caseDoc?.tc_density,
+        // Colours and density are measured per zone; saturation, coverup and
+        // lifestyle only exist at case level.
+        colors: zone?.farben?.length ? zone.farben : caseDoc?.tc_colors_present,
+        density: zone?.dichte || caseDoc?.tc_density,
         saturation: caseDoc?.tc_saturation,
         coverup: caseDoc?.tc_coverup,
         laser_profile_level: extras.laser_profile_level || caseDoc?.laser_profile_level,
@@ -120,4 +158,5 @@ module.exports = {
     evaluateAndApplySessionLightening,
     resolvePreviousTreatment,
     resolveProgressFileIdForSession,
+    resolveZoneBaselinePhotoId,
 };

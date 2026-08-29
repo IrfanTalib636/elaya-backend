@@ -31,6 +31,14 @@ const submitSignatureSchema = z.object({
     unterschrift_data: base64DataUri,
     /** Optional; omit or null when the client has no PDF yet. */
     merkblatt_pdf: pdfDataUri,
+    /**
+     * Second, separate confirmation: the medical anamnesis was answered truthfully
+     * and completely. Optional so older clients that only capture the leaflet
+     * signature keep working.
+     */
+    anamnese_bestaetigt: z.literal(true).optional(),
+    anamnese_bestaetigung_text: z.string().min(1).optional(),
+    anamnese_unterschrift_data: base64DataUri.optional(),
 });
 
 const merkblattQuerySchema = z.object({

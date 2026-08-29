@@ -2,6 +2,7 @@ const {
     normalizePreSessionCheck,
     computeAvailability,
     startOfDay,
+    resolveSperrfristen,
 } = require('./lockoutEngine');
 const { computeAmpel } = require('./anamnesisEngine');
 
@@ -11,11 +12,6 @@ const addDays = (date, days) => {
     d.setHours(0, 0, 0, 0);
     return d;
 };
-
-const UV_MODERATE_DAYS = 21;
-const UV_INTENSE_DAYS = 28;
-const MED_SHORT_DAYS = 14;
-const MED_RETINOID_DAYS = 180;
 
 /** KO fields re-asked at booking when originally flagged in anamnesis. */
 const KO_RECHECKS = [
@@ -73,19 +69,34 @@ const KO_RECHECKS = [
     },
 ];
 
-const MEDICATION_GROUPS = [
-    { key: 'keine', label_de: 'Keine / keine Medikamente', label_en: 'None / no medications', lock_days: 0 },
-    { key: 'antibiotika', label_de: 'Antibiotika', label_en: 'Antibiotics', lock_days: MED_SHORT_DAYS },
-    { key: 'antidepressiva', label_de: 'Antidepressiva', label_en: 'Antidepressants', lock_days: MED_SHORT_DAYS },
-    { key: 'retinoide', label_de: 'Retinoide', label_en: 'Retinoids', lock_days: MED_RETINOID_DAYS },
-];
+/**
+ * Option catalogues carry the studio's configured `lock_days`, which is what the
+ * clients render — they never hold their own copy of the durations.
+ */
+const medicationGroups = (sperrfristen) => {
+    const cfg = resolveSperrfristen(sperrfristen);
+    return [
+        { key: 'keine', label_de: 'Keine / keine Medikamente', label_en: 'None / no medications', lock_days: 0 },
+        { key: 'antibiotika', label_de: 'Antibiotika', label_en: 'Antibiotics', lock_days: cfg.medikament_kurz_tage },
+        {
+            key: 'antidepressiva',
+            label_de: 'Antidepressiva',
+            label_en: 'Antidepressants',
+            lock_days: cfg.medikament_kurz_tage,
+        },
+        { key: 'retinoide', label_de: 'Retinoide', label_en: 'Retinoids', lock_days: cfg.medikament_retinoide_tage },
+    ];
+};
 
-const UV_OPTIONS = [
-    { value: 'keine', label_de: 'Keine', label_en: 'None', lock_days: 0 },
-    { value: 'leicht', label_de: 'Leicht', label_en: 'Light', lock_days: 0 },
-    { value: 'mittel', label_de: 'Mittel', label_en: 'Moderate', lock_days: UV_MODERATE_DAYS },
-    { value: 'intensiv', label_de: 'Intensiv', label_en: 'Intense', lock_days: UV_INTENSE_DAYS },
-];
+const uvOptions = (sperrfristen) => {
+    const cfg = resolveSperrfristen(sperrfristen);
+    return [
+        { value: 'keine', label_de: 'Keine', label_en: 'None', lock_days: 0 },
+        { value: 'leicht', label_de: 'Leicht', label_en: 'Light', lock_days: 0 },
+        { value: 'mittel', label_de: 'Mittel', label_en: 'Moderate', lock_days: cfg.uv_mittel_tage },
+        { value: 'intensiv', label_de: 'Intensiv', label_en: 'Intense', lock_days: cfg.uv_intensiv_tage },
+    ];
+};
 
 const CLARIFICATION_MESSAGE = {
     code: 'studio_clarification_required',
@@ -225,23 +236,25 @@ const buildPrerequisites = (caseDoc) => {
     };
 };
 
-const buildBookingPrecheckForm = (caseDoc, anamnesis) => {
+const buildBookingPrecheckForm = (caseDoc, anamnesis, sperrfristen = null) => {
     const answers = anamnesis?.antworten || {};
     const ampel = computeAmpel(answers);
 
     return {
+        /** Studio-configured blocking periods, so the client never assumes any. */
+        sperrfristen: resolveSperrfristen(sperrfristen),
         case_id: caseDoc._id.toString(),
         consultation_only_skips_ps01: true,
         prerequisites: buildPrerequisites(caseDoc),
         ps01: {
             title: 'Kurz-Check vor dem Termin',
             subtitle: 'Dauert nur 30 Sekunden. Pflicht vor jeder Behandlung.',
-            uv_options: UV_OPTIONS,
+            uv_options: uvOptions(sperrfristen),
             medication_question:
                 'Hast du in den letzten 6 Monaten Medikamente eingenommen?',
             medication_question_en:
                 'Have you taken any medications in the last 6 months?',
-            medication_groups: MEDICATION_GROUPS,
+            medication_groups: medicationGroups(sperrfristen),
             ko_rechecks: buildKoRechecks(answers),
             rote_fragen_rechecks: buildRoteFragenRechecks(ampel.rote_fragen),
             requires_wiederholungen_confirm: ampel.rote_fragen.length > 0,
@@ -301,7 +314,8 @@ const formatNotice = ({ source, days, earliest, active, label_de, label_en }) =>
  * Immediate UV/medication lockout notices for the Quick Check UI.
  * Longest active lockout wins for earliest_bookable.
  */
-const summarizePreSessionLockouts = (preSession = {}, now = new Date()) => {
+const summarizePreSessionLockouts = (preSession = {}, now = new Date(), sperrfristen = null) => {
+    const cfg = resolveSperrfristen(sperrfristen);
     const rawMeds = Array.isArray(preSession.medikamente)
         ? preSession.medikamente.filter(Boolean)
         : [];
@@ -310,7 +324,8 @@ const summarizePreSessionLockouts = (preSession = {}, now = new Date()) => {
     const notices = [];
 
     if (check.uv_exposition === 'intensiv' || check.uv_exposition === 'mittel') {
-        const days = check.uv_exposition === 'intensiv' ? UV_INTENSE_DAYS : UV_MODERATE_DAYS;
+        const days =
+            check.uv_exposition === 'intensiv' ? cfg.uv_intensiv_tage : cfg.uv_mittel_tage;
         const until = addDays(heute, days);
         notices.push(
             formatNotice({
@@ -329,9 +344,24 @@ const summarizePreSessionLockouts = (preSession = {}, now = new Date()) => {
 
     if (meds.length && intakeDate) {
         const groups = [
-            { key: 'retinoide', days: MED_RETINOID_DAYS, label_de: 'Retinoide', label_en: 'retinoids' },
-            { key: 'antibiotika', days: MED_SHORT_DAYS, label_de: 'Antibiotika', label_en: 'antibiotics' },
-            { key: 'antidepressiva', days: MED_SHORT_DAYS, label_de: 'Antidepressiva', label_en: 'antidepressants' },
+            {
+                key: 'retinoide',
+                days: cfg.medikament_retinoide_tage,
+                label_de: 'Retinoide',
+                label_en: 'retinoids',
+            },
+            {
+                key: 'antibiotika',
+                days: cfg.medikament_kurz_tage,
+                label_de: 'Antibiotika',
+                label_en: 'antibiotics',
+            },
+            {
+                key: 'antidepressiva',
+                days: cfg.medikament_kurz_tage,
+                label_de: 'Antidepressiva',
+                label_en: 'antidepressants',
+            },
         ];
         for (const group of groups) {
             if (!meds.includes(group.key)) continue;
@@ -357,34 +387,40 @@ const summarizePreSessionLockouts = (preSession = {}, now = new Date()) => {
 };
 
 
-const computeBlockDatesFromPreSession = (preSession = {}, now = new Date()) => {
+const computeBlockDatesFromPreSession = (
+    preSession = {},
+    now = new Date(),
+    sperrfristen = null
+) => {
+    const cfg = resolveSperrfristen(sperrfristen);
     const check = normalizePreSessionCheck(preSession);
     const heute = startOfDay(now);
     let uvBlockDate = null;
     let medicationBlockDate = null;
 
     if (check.uv_exposition === 'intensiv') {
-        uvBlockDate = addDays(heute, UV_INTENSE_DAYS);
+        uvBlockDate = addDays(heute, cfg.uv_intensiv_tage);
     } else if (check.uv_exposition === 'mittel') {
-        uvBlockDate = addDays(heute, UV_MODERATE_DAYS);
+        uvBlockDate = addDays(heute, cfg.uv_mittel_tage);
+    }
+    if (uvBlockDate && uvBlockDate <= heute) {
+        uvBlockDate = null;
     }
 
     const meds = check.medikamente || [];
     const intakeDate = check.medikament_datum ? startOfDay(check.medikament_datum) : heute;
     let maxMedUntil = null;
 
-    if (meds.includes('retinoide')) {
-        maxMedUntil = addDays(intakeDate, MED_RETINOID_DAYS);
-    }
-    if (meds.includes('antibiotika')) {
-        maxMedUntil = maxMedUntil
-            ? (addDays(intakeDate, MED_SHORT_DAYS) > maxMedUntil ? addDays(intakeDate, MED_SHORT_DAYS) : maxMedUntil)
-            : addDays(intakeDate, MED_SHORT_DAYS);
-    }
-    if (meds.includes('antidepressiva')) {
-        const until = addDays(intakeDate, MED_SHORT_DAYS);
-        maxMedUntil = maxMedUntil ? (until > maxMedUntil ? until : maxMedUntil) : until;
-    }
+    const applyMedUntil = (days) => {
+        const until = addDays(intakeDate, days);
+        if (!maxMedUntil || until > maxMedUntil) {
+            maxMedUntil = until;
+        }
+    };
+
+    if (meds.includes('retinoide')) applyMedUntil(cfg.medikament_retinoide_tage);
+    if (meds.includes('antibiotika')) applyMedUntil(cfg.medikament_kurz_tage);
+    if (meds.includes('antidepressiva')) applyMedUntil(cfg.medikament_kurz_tage);
 
     if (maxMedUntil && maxMedUntil > heute) {
         medicationBlockDate = maxMedUntil;
@@ -402,6 +438,7 @@ const validateBookingPrecheck = ({
     wiederholungen = {},
     wiederholungenConfirmed = false,
     koSignature = null,
+    sperrfristen = null,
 }) => {
     if (consultationOnly) {
         return {
@@ -480,8 +517,8 @@ const validateBookingPrecheck = ({
     }
 
     const { uvBlockDate, medicationBlockDate, preSessionCheck } =
-        computeBlockDatesFromPreSession(preSession);
-    const lockouts = summarizePreSessionLockouts(preSession);
+        computeBlockDatesFromPreSession(preSession, new Date(), sperrfristen);
+    const lockouts = summarizePreSessionLockouts(preSession, new Date(), sperrfristen);
     const uniqueWarnings = [];
     const seen = new Set();
     const clarificationLabels = [];

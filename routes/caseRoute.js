@@ -95,6 +95,43 @@ router.post(
 
 /**
  * @swagger
+ * /cases/intake/prefill:
+ *   get:
+ *     summary: Reusable intake answers from the customer's previous case
+ *     description: |
+ *       **Auth:** Bearer · **Who can call:** customer, studio_admin, studio_staff, admin, super_admin
+ *
+ *       Person-level skin and lifestyle answers from the customer's most recent
+ *       case, so a returning customer can review them instead of answering
+ *       everything again. The new case still stores its own copy of whatever is
+ *       confirmed, keeping each case's snapshot traceable.
+ *
+ *       Body-area specific answers (e.g. `skin_sun_zone`) are never carried over.
+ *     tags: [Cases]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: customer_id
+ *         description: Required for studio/admin callers
+ *         schema: { type: string }
+ *       - in: query
+ *         name: exclude_case_id
+ *         description: The case currently being filled in
+ *         schema: { type: string }
+ *     responses:
+ *       200:
+ *         description: "Previous answers, or `available: false` for a first case"
+ */
+router.get(
+    '/intake/prefill',
+    protect,
+    authorize(...caseAccessRoles),
+    caseController.getCaseIntakePrefill
+);
+
+/**
+ * @swagger
  * /cases/pricing/preview:
  *   post:
  *     summary: Preview price + session estimate from intake payload (no saved case)
@@ -226,6 +263,10 @@ router.get(
  *         name: to
  *         schema: { type: string, format: date }
  *       - in: query
+ *         name: standort_id
+ *         description: Scope hours, slot interval and occupancy to one studio location
+ *         schema: { type: string }
+ *       - in: query
  *         name: uv_level
  *         schema: { type: string, enum: [none, moderate, intense] }
  *     responses:
@@ -238,6 +279,36 @@ router.get(
     authorize(...caseAccessRoles),
     validateMiddleware(availabilityQuerySchema, 'query'),
     caseController.getCaseAvailability
+);
+
+/**
+ * @swagger
+ * /cases/{id}/standorte:
+ *   get:
+ *     summary: Bookable studio locations for a case
+ *     description: |
+ *       **Auth:** Bearer · **Who can call:** customer, studio_admin, studio_staff, admin, super_admin
+ *
+ *       Active locations of the case's studio, each flagged with whether the
+ *       customer last booked or was last treated there. Switching between
+ *       locations of the same studio needs no transfer request.
+ *     tags: [Cases]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: string }
+ *     responses:
+ *       200:
+ *         description: Locations with last-used markers
+ */
+router.get(
+    '/:id/standorte',
+    protect,
+    authorize(...caseAccessRoles),
+    caseController.getCaseStandorte
 );
 
 /**

@@ -4,6 +4,7 @@ const {
     getPublicConfig,
     formatStudioConfig,
     updateStudioConfig,
+    getEffectivePricingOverrides,
 } = require('../utils/configService');
 const { getEffectiveFeaturesForStudio, FEATURE_CATALOG } = require('../utils/featureService');
 const { isAdmin, isStudio } = require('../utils/accessHelpers');
@@ -15,6 +16,7 @@ const mongoose = require('mongoose');
 const { runExcelPlausibilityCheck } = require('../utils/plausibilityCheck');
 const { DOMAIN_SOURCE_OF_TRUTH } = require('../config/domainSourceOfTruth');
 const { previewSessionPrediction } = require('../utils/sessionPredictionEngine');
+const { previewPricing } = require('../utils/pricingEngine');
 const { mergeSessionPrediction } = require('../config/sessionPredictionDefaults');
 const { emitSessionPredictionUpdated } = require('../sockets/configEmit');
 const { EXCEL_PLAUSIBILITY_EXAMPLES } = require('../config/excelPlausibilityExamples');
@@ -269,6 +271,49 @@ const previewSessionPredictionHandler = asyncHandler(async (req, res) => {
     });
 });
 
+/**
+ * POST /config/pricing/preview
+ * Live price calculator for the pricing settings — uses the real engine, never
+ * persists. The studio's unsaved `studio_pricing` values are merged over the
+ * saved ones so the effect of an edit is visible before saving.
+ */
+const previewPricingHandler = asyncHandler(async (req, res) => {
+    // Admins may preview another studio; a studio user is pinned to its own.
+    const studioId = isStudio(req.user.role)
+        ? req.user.studio_id
+        : req.body.studio_id || req.user.studio_id || null;
+
+    const baselinePricing = await getEffectivePricingOverrides(studioId);
+    const draftPricing = { ...baselinePricing, ...(req.body.studio_pricing || {}) };
+
+    const presets = Object.fromEntries(
+        EXCEL_PLAUSIBILITY_EXAMPLES.map((ex) => [ex.id, { title: ex.title, input: ex.input }])
+    );
+
+    let caseInput = req.body.case_input || {};
+    if (req.body.preset_id && presets[req.body.preset_id]) {
+        caseInput = { ...presets[req.body.preset_id].input, ...caseInput };
+    }
+    if (!Object.keys(caseInput).length) {
+        caseInput = { ...presets.example_1.input };
+    }
+
+    const preview = previewPricing(caseInput, draftPricing, { baselinePricing });
+
+    res.status(200).json({
+        success: true,
+        data: {
+            ...preview,
+            presets: EXCEL_PLAUSIBILITY_EXAMPLES.map((ex) => ({
+                id: ex.id,
+                title: ex.title,
+                area: ex.expected?.area ?? null,
+                reference_price: ex.expected?.price_per_session ?? null,
+            })),
+        },
+    });
+});
+
 module.exports = {
     getPlatform,
     patchPlatform,
@@ -279,4 +324,5 @@ module.exports = {
     getEffectiveFeatures,
     listStudioFeaturesAdmin,
     previewSessionPredictionHandler,
+    previewPricingHandler,
 };

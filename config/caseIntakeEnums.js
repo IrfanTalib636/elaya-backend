@@ -113,8 +113,6 @@ const LIFE_HYDRATION = ['low', 'normal', 'medium', 'good', 'high'];
 const LIFE_NUTRITION = ['poor', 'fair', 'good', 'very_good', 'very_poor'];
 const LIFE_AFTERCARE = ['low', 'medium', 'high'];
 
-const ZONE_FLAECHE_TEMPLATE = ['xs', 'sm', 'md', 'lg', 'xl', 'xxl'];
-
 /** Prototype PMU_01–PMU_05 enums (exact values from customer/studio prototype). */
 const PMU_TYPE = ['eyebrows', 'eyeliner', 'lips', 'microblading', 'other'];
 const PMU_TYPE_LABELS = {
@@ -157,7 +155,6 @@ module.exports = {
     LIFE_HYDRATION,
     LIFE_NUTRITION,
     LIFE_AFTERCARE,
-    ZONE_FLAECHE_TEMPLATE,
     PMU_TYPE,
     PMU_TYPE_LABELS,
     PMU_SIDE,
