@@ -1,6 +1,9 @@
 const Case = require('../models/caseModel');
 const CaseZone = require('../models/caseZoneModel');
 const Customer = require('../models/customerModel');
+const Session = require('../models/sessionModel');
+const Appointment = require('../models/appointmentModel');
+const Anamnesis = require('../models/anamnesisModel');
 const ApiError = require('../utils/ApiError');
 const asyncHandler = require('../utils/asyncHandler');
 const { generateCaseId } = require('../utils/generateCaseId');
@@ -10,11 +13,8 @@ const {
     parsePreSessionCheck,
 } = require('../utils/lockoutEngine');
 const {
-    calculatePrice,
     calculateCasePreview,
-    formatCustomerEstimate,
     formatCustomerPreview,
-    formatStudioPricing,
 } = require('../utils/pricingEngine');
 const { getEffectivePricingOverrides } = require('../utils/configService');
 const {
@@ -28,6 +28,7 @@ const { emitMessageCreated } = require('../sockets/emitHelpers');
 const { parsePagination, buildPaginationMeta } = require('../utils/pagination');
 const {
     CUSTOMER_INTAKE_FIELDS,
+    CARRY_OVER_INTAKE_FIELDS,
     syncDerivedIntakeFields,
 } = require('../utils/caseIntakeHelpers');
 const {
@@ -61,6 +62,7 @@ const INTAKE_RESPONSE_FIELDS = [
     'life_cig_per_day',
     'life_alcohol',
     'life_activity',
+    'life_sport_freq',
     'life_sleep_hours',
     'life_sleep_quality',
     'life_stress',
@@ -128,6 +130,7 @@ const formatEstimateConfirmation = (confirmation, role) => {
 
 const formatCase = (caseDoc, zones, role, options = {}) => {
     const doc = caseDoc.toObject ? caseDoc.toObject() : { ...caseDoc };
+    const prices = resolveDisplayedPrices(doc);
     const payload = {
         id: doc._id,
         caseId: doc.caseId,
@@ -155,6 +158,7 @@ const formatCase = (caseDoc, zones, role, options = {}) => {
         open_medical_flags_count: doc.open_medical_flags_count ?? 0,
         anamnesis_complete: doc.anamnesis_complete ?? false,
         signature_complete: !!doc.unterschrift?.zeitstempel,
+        anamnesis_signature_complete: !!doc.unterschrift_anamnese?.zeitstempel,
         lastSessionDate: doc.lastSessionDate,
         akquise_quelle: doc.akquise_quelle,
         zonen_aktiv: doc.zonen_aktiv,
@@ -180,13 +184,29 @@ const formatCase = (caseDoc, zones, role, options = {}) => {
         payload.signature_image_url = `/cases/${doc._id}/signature/image`;
     }
 
-    // AI "from" estimate — customer-visible per client requirement (§4d):
-    // the customer sees the calculated price + session range plus the studio
-    // confirmation state; the multiplier breakdown stays studio-internal.
-    payload.pricePerSession = doc.pricePerSession;
+    if (doc.unterschrift_anamnese?.unterschrift_data) {
+        const { zeitstempel, anamnese_bestaetigt, bestaetigung_text } =
+            doc.unterschrift_anamnese;
+        payload.unterschrift_anamnese = {
+            zeitstempel,
+            anamnese_bestaetigt,
+            bestaetigung_text,
+        };
+        payload.anamnesis_signature_image_url = `/cases/${doc._id}/signature/image?variant=anamnese`;
+    }
+
+    payload.pricePerSession = prices.pricePerSession;
+    payload.calculated_pricePerSession = prices.calculated_pricePerSession;
+    payload.calculated_sessionsMin = prices.calculated_sessionsMin;
+    payload.calculated_sessionsMax = prices.calculated_sessionsMax;
+    payload.confirmed_pricePerSession = prices.confirmed_pricePerSession;
+    payload.confirmed_sessionsMin = prices.confirmed_sessionsMin;
+    payload.confirmed_sessionsMax = prices.confirmed_sessionsMax;
     payload.estimate_confirmation = formatEstimateConfirmation(doc.estimate_confirmation, role);
 
     if (!isCustomer(role)) {
+        payload.estimate_needs_review = !!doc.estimate_needs_review;
+        payload.estimate_review_triggers = doc.estimate_review_triggers || [];
         payload.uvBlockDate = doc.uvBlockDate;
         payload.medicationBlockDate = doc.medicationBlockDate;
         payload.sperrfrist_deaktiviert = doc.sperrfrist_deaktiviert;
@@ -199,7 +219,7 @@ const formatCase = (caseDoc, zones, role, options = {}) => {
         };
     }
 
-    if (isAdmin(role)) {
+    if (isAdmin(role) || isStudio(role)) {
         payload.activityLog = doc.activityLog;
     }
 
@@ -213,17 +233,22 @@ const formatCase = (caseDoc, zones, role, options = {}) => {
                 koerperstelle: zone.koerperstelle,
                 farben: zone.farben,
                 dichte: zone.dichte,
+                laenge_cm: zone.laenge_cm,
+                breite_cm: zone.breite_cm,
                 flaeche_cm2: zone.flaeche_cm2,
-                flaeche_template: zone.flaeche_template,
-                flaeche_modus: zone.flaeche_modus,
-                flaeche_manuell: zone.flaeche_manuell,
                 foto_url: zone.foto_url,
                 fortschritt_prozent: zone.fortschritt_prozent,
+                // Each zone has its own session log, so it reports its own
+                // count and last treatment date.
+                sitzungen_erledigt: zone.sitzungen_erledigt ?? 0,
+                letzte_sitzung: zone.letzte_sitzung ?? null,
+                // The customer measures each zone, so they also see what it
+                // costs and how many sessions it is expected to take.
+                preis: zone.preis,
+                sitzungen_geschaetzt_min: zone.sitzungen_geschaetzt_min,
+                sitzungen_geschaetzt_max: zone.sitzungen_geschaetzt_max,
             };
             if (!isCustomer(role)) {
-                formatted.preis = zone.preis;
-                formatted.sitzungen_geschaetzt_min = zone.sitzungen_geschaetzt_min;
-                formatted.sitzungen_geschaetzt_max = zone.sitzungen_geschaetzt_max;
                 formatted.sperrfrist_bis = zone.sperrfrist_bis;
             }
             return formatted;
@@ -270,41 +295,75 @@ const resolveCustomerForCreate = async (user, bodyCustomerId) => {
     throw new ApiError(403, 'You do not have permission to create cases');
 };
 
+const zoneAreaCm2 = (zone) => {
+    const length = Number(zone.laenge_cm);
+    const width = Number(zone.breite_cm);
+    if (!(length > 0) || !(width > 0)) return null;
+    // One decimal, matching how the engine rounds a single-tattoo area.
+    return Math.round(length * width * 10) / 10;
+};
+
+/**
+ * Stamps a stable `zonen_id` on every zone and derives its area from the
+ * measured dimensions. Runs before photo linking so each zone's file lands in
+ * its own slot, and before pricing so the engine sees the area.
+ */
+const normalizeZoneInput = (zonenInput) =>
+    zonenInput.map((zone, index) => ({
+        ...zone,
+        zonen_id: zone.zonen_id || `Z${String(index + 1).padStart(3, '0')}`,
+        flaeche_cm2: zoneAreaCm2(zone),
+    }));
+
 const buildZoneDocs = (caseId, zonenInput) => {
     if (!zonenInput.length) {
         return [];
     }
 
-    return zonenInput.map((zone, index) => ({
+    return normalizeZoneInput(zonenInput).map((zone) => ({
         case: caseId,
-        zonen_id: zone.zonen_id || `Z${String(index + 1).padStart(3, '0')}`,
+        zonen_id: zone.zonen_id,
         bezeichnung: zone.bezeichnung,
         koerperstelle: zone.koerperstelle,
         farben: zone.farben,
         dichte: zone.dichte ?? null,
-        flaeche_cm2: zone.flaeche_cm2 ?? null,
-        flaeche_template: zone.flaeche_template ?? null,
-        flaeche_modus: zone.flaeche_modus ?? null,
-        flaeche_manuell: zone.flaeche_manuell ?? null,
+        laenge_cm: zone.laenge_cm ?? null,
+        breite_cm: zone.breite_cm ?? null,
+        flaeche_cm2: zone.flaeche_cm2,
         foto_url: zone.foto_url,
-        preis: zone.preis,
-        sitzungen_geschaetzt_min: zone.sitzungen_geschaetzt_min,
-        sitzungen_geschaetzt_max: zone.sitzungen_geschaetzt_max,
     }));
 };
 
-const syncCaseZones = async (caseDoc, zonenInput) => {
+const syncCaseZones = async (caseDoc, zonenInput, user, req) => {
     if (zonenInput === undefined) {
         return [];
     }
 
-    await CaseZone.deleteMany({ case: caseDoc._id });
-
     if (!zonenInput.length) {
+        await CaseZone.deleteMany({ case: caseDoc._id });
         return [];
     }
 
-    return CaseZone.insertMany(buildZoneDocs(caseDoc._id, zonenInput));
+    const normalized = normalizeZoneInput(zonenInput);
+
+    // Zone rows are replaced wholesale, so carry over the photo of any zone the
+    // payload leaves blank — otherwise editing e.g. a zone name would silently
+    // drop the fading reference shot.
+    const existing = await CaseZone.find({ case: caseDoc._id }).lean();
+    const photoByZoneId = new Map(
+        existing.filter((z) => z.foto_url).map((z) => [z.zonen_id, z.foto_url])
+    );
+    const withPhotos = normalized.map((zone) => ({
+        ...zone,
+        foto_url: zone.foto_url || photoByZoneId.get(zone.zonen_id) || '',
+    }));
+
+    // Link on update too, not just on create: a photo added while editing would
+    // otherwise stay an unlinked staging file and expire.
+    const linked = await linkZonePhotoFiles(caseDoc, withPhotos, user, req);
+
+    await CaseZone.deleteMany({ case: caseDoc._id });
+    return CaseZone.insertMany(buildZoneDocs(caseDoc._id, linked));
 };
 
 /** Intake fields that feed the price / session-range estimate. */
@@ -325,8 +384,20 @@ const ESTIMATE_RELEVANT_FIELDS = [
     'skin_fitzpatrick_type',
     'skin_sun_zone',
     'life_smoker',
+    'life_alcohol',
+    'life_cig_per_day',
+    'life_sleep_hours',
+    'life_sleep_quality',
+    'life_stress',
     'life_activity',
+    'life_sport_freq',
+    'life_height_cm',
+    'life_weight_kg',
+    'life_hydration',
+    'life_nutrition',
     'life_aftercare_commitment',
+    'tc_saturation',
+    'skin_keloid_risk',
     'goal_target',
     'zonen_aktiv',
     'zonen',
@@ -334,6 +405,10 @@ const ESTIMATE_RELEVANT_FIELDS = [
     'pigment_type',
     'stitch_depth',
     'previously_lasered',
+    'photo_intake_main',
+    'photo_intake_detail',
+    'photo_marker',
+    'photo_std_intake',
 ];
 
 /** Server-computed estimate fields — clients may not force these directly. */
@@ -345,6 +420,63 @@ const isEstimateConfirmed = (caseDoc) =>
         ESTIMATE_CONFIRMATION_STATUS.ANGEPASST,
     ].includes(caseDoc.estimate_confirmation?.status);
 
+const applyCalculatedPreview = (caseDoc, preview) => {
+    const price = preview.pricePerSession ?? 0;
+    const min = preview.sessions?.min ?? 0;
+    const max = preview.sessions?.max ?? 0;
+    const base = preview.sessions?.base ?? max;
+
+    caseDoc.calculated_pricePerSession = price;
+    caseDoc.calculated_sessionsMin = min;
+    caseDoc.calculated_sessionsMax = max;
+    caseDoc.estimate_needs_review = Boolean(preview.needs_human_review);
+    caseDoc.estimate_review_triggers = preview.review_triggers || [];
+
+    if (!isEstimateConfirmed(caseDoc)) {
+        caseDoc.pricePerSession = price;
+        caseDoc.sessions = base;
+        caseDoc.sessionsMin = min;
+        caseDoc.sessionsMax = max;
+    }
+};
+
+const resolveDisplayedPrices = (doc) => {
+    const confirmed = isEstimateConfirmed(doc);
+    const calculatedPrice =
+        doc.calculated_pricePerSession > 0
+            ? doc.calculated_pricePerSession
+            : confirmed
+              ? null
+              : (doc.pricePerSession ?? null);
+    const confirmedPrice = confirmed
+        ? (doc.estimate_confirmation?.pricePerSession ?? doc.pricePerSession ?? null)
+        : null;
+
+    return {
+        calculated_pricePerSession: calculatedPrice,
+        calculated_sessionsMin:
+            doc.calculated_sessionsMin > 0
+                ? doc.calculated_sessionsMin
+                : confirmed
+                  ? null
+                  : (doc.sessionsMin ?? null),
+        calculated_sessionsMax:
+            doc.calculated_sessionsMax > 0
+                ? doc.calculated_sessionsMax
+                : confirmed
+                  ? null
+                  : (doc.sessionsMax ?? null),
+        confirmed_pricePerSession: confirmedPrice,
+        confirmed_sessionsMin: confirmed
+            ? (doc.estimate_confirmation?.sessionsMin ?? doc.sessionsMin ?? null)
+            : null,
+        confirmed_sessionsMax: confirmed
+            ? (doc.estimate_confirmation?.sessionsMax ?? doc.sessionsMax ?? null)
+            : null,
+        pricePerSession: confirmedPrice ?? calculatedPrice ?? doc.pricePerSession ?? null,
+    };
+};
+
 const touchesEstimateInput = (body) =>
     ESTIMATE_RELEVANT_FIELDS.some((field) => body[field] !== undefined) ||
     ESTIMATE_OUTPUT_FIELDS.some((field) => body[field] !== undefined);
@@ -355,14 +487,11 @@ const touchesEstimateInput = (body) =>
  * adjusted the estimate, the confirmed values win and are never overwritten.
  */
 const refreshCaseEstimate = async (caseDoc, zoneDocs = null) => {
-    if (isEstimateConfirmed(caseDoc)) {
-        return;
-    }
-
     const pricingInput = caseDoc.toObject ? caseDoc.toObject() : { ...caseDoc };
 
+    let zones = null;
     if (caseDoc.zonen_aktiv) {
-        const zones =
+        zones =
             zoneDocs ??
             (await CaseZone.find({ case: caseDoc._id }).sort({ zonen_id: 1 }).lean());
         pricingInput.zonen = zones.map((z) => (z.toObject ? z.toObject() : z));
@@ -370,16 +499,37 @@ const refreshCaseEstimate = async (caseDoc, zoneDocs = null) => {
 
     const pricingOverrides = await getEffectivePricingOverrides(caseDoc.studio);
     const preview = calculateCasePreview(pricingInput, pricingOverrides);
-
-    caseDoc.pricePerSession = preview.pricePerSession ?? 0;
-    caseDoc.sessions = preview.sessions?.base ?? preview.sessions?.max ?? 0;
-    caseDoc.sessionsMin = preview.sessions?.min ?? 0;
-    caseDoc.sessionsMax = preview.sessions?.max ?? 0;
-
+    applyCalculatedPreview(caseDoc, preview);
     await caseDoc.save();
+
+    // The engine returns a price and session range per zone; persist them so
+    // each zone card can show its own estimate instead of a zero.
+    if (zones?.length && Array.isArray(preview.zonen)) {
+        await Promise.all(
+            zones.map((zone, index) => {
+                const row = preview.zonen[index];
+                if (!row) return null;
+                return CaseZone.updateOne(
+                    { _id: zone._id },
+                    {
+                        $set: {
+                            preis: row.preis ?? 0,
+                            sitzungen_geschaetzt_min: row.sessions?.min ?? 0,
+                            sitzungen_geschaetzt_max: row.sessions?.max ?? 0,
+                        },
+                    }
+                );
+            })
+        );
+        // Callers format the response from these docs, so hand back the
+        // persisted values rather than the pre-update copies.
+        return CaseZone.find({ case: caseDoc._id }).sort({ zonen_id: 1 }).lean();
+    }
+
+    return zones;
 };
 
-const applyCaseUpdate = async (caseDoc, body) => {
+const applyCaseUpdate = async (caseDoc, body, user, req) => {
     const { zonen, ...fields } = body;
     const normalized = syncDerivedIntakeFields(fields);
 
@@ -403,7 +553,7 @@ const applyCaseUpdate = async (caseDoc, body) => {
 
     await caseDoc.save();
 
-    return syncCaseZones(caseDoc, zonen);
+    return syncCaseZones(caseDoc, zonen, user, req);
 };
 
 const createCase = asyncHandler(async (req, res) => {
@@ -450,13 +600,20 @@ const createCase = asyncHandler(async (req, res) => {
         }
 
         if (zonen.length > 0) {
-            const linkedZones = await linkZonePhotoFiles(caseDoc, zonen, req.user, req);
+            // Normalize first so each zone has its zonen_id before linking —
+            // the id becomes the photo's storage slot.
+            const linkedZones = await linkZonePhotoFiles(
+                caseDoc,
+                normalizeZoneInput(zonen),
+                req.user,
+                req
+            );
             zoneDocs = await CaseZone.insertMany(buildZoneDocs(caseDoc._id, linkedZones));
         }
 
         // Persist the AI estimate (price + session range) for BOTH tattoo and
         // PMU cases, computed from the owning studio's pricing configuration.
-        await refreshCaseEstimate(caseDoc, zoneDocs);
+        zoneDocs = (await refreshCaseEstimate(caseDoc, zoneDocs)) ?? zoneDocs;
     } catch (error) {
         if (caseDoc?._id) {
             await CaseZone.deleteMany({ case: caseDoc._id });
@@ -470,6 +627,101 @@ const createCase = asyncHandler(async (req, res) => {
         message: 'Case created successfully',
         data: {
             case: formatCase(caseDoc, zoneDocs, req.user.role),
+        },
+    });
+});
+
+/** How far back to look for a still-valid answer to each intake question. */
+const PREFILL_LOOKBACK_CASES = 10;
+
+/**
+ * Person-level intake answers from the customer's most recent case, so a
+ * returning customer can review and reuse them instead of re-answering.
+ * The new case still stores its own copy of whatever is confirmed.
+ */
+const getCaseIntakePrefill = asyncHandler(async (req, res) => {
+    let customerId;
+
+    if (isCustomer(req.user.role)) {
+        customerId = req.user.customer_id;
+    } else if (isStudio(req.user.role) || isAdmin(req.user.role)) {
+        customerId = req.query.customer_id;
+        if (!customerId) {
+            throw new ApiError(400, 'customer_id is required');
+        }
+    } else {
+        throw new ApiError(403, 'You do not have permission to read intake prefill');
+    }
+
+    // Kept to a plain customer + recency lookup so it can use the
+    // { customer, createdAt } index; cases without answers simply contribute
+    // nothing when the fields are merged below.
+    const filter = { customer: customerId };
+
+    // Never offer the case currently being filled in as its own source.
+    if (req.query.exclude_case_id) {
+        filter._id = { $ne: req.query.exclude_case_id };
+    }
+
+    if (isStudio(req.user.role)) {
+        filter.studio = req.user.studio_id;
+    }
+
+    // Look across the last few cases so a question answered two cases ago is
+    // still offered when the newest case happens to have skipped it.
+    const recentCases = await Case.find(filter)
+        .sort({ createdAt: -1 })
+        .limit(PREFILL_LOOKBACK_CASES)
+        .select(
+            [
+                ...CARRY_OVER_INTAKE_FIELDS,
+                'caseId',
+                'tc_title',
+                'bodyLabel',
+                'type',
+                'createdAt',
+                'unterschrift',
+            ].join(' ')
+        )
+        .lean();
+
+    const fields = {};
+    let source = null;
+
+    for (const candidate of recentCases) {
+        for (const field of CARRY_OVER_INTAKE_FIELDS) {
+            const value = candidate[field];
+            if (value === null || value === undefined) continue;
+            // Newest case wins, so only fill gaps left by later cases.
+            if (!(field in fields)) {
+                fields[field] = value;
+                source = source ?? candidate;
+            }
+        }
+    }
+
+    if (!source) {
+        res.status(200).json({
+            success: true,
+            data: { available: false, source: null, fields: {} },
+        });
+        return;
+    }
+
+    res.status(200).json({
+        success: true,
+        data: {
+            available: Object.keys(fields).length > 0,
+            source: {
+                case_id: String(source._id),
+                caseId: source.caseId ?? '',
+                tc_title: source.tc_title ?? '',
+                bodyLabel: source.bodyLabel ?? '',
+                type: source.type,
+                created_at: source.createdAt,
+                signed_at: source.unterschrift?.zeitstempel ?? null,
+            },
+            fields,
         },
     });
 });
@@ -550,11 +802,18 @@ const getCase = asyncHandler(async (req, res) => {
 
     const access = await assertCaseAccess(req.user, caseDoc);
 
-    const zones = caseDoc.zonen_aktiv
+    let zones = caseDoc.zonen_aktiv
         ? await CaseZone.find({ case: caseDoc._id }).sort({ zonen_id: 1 })
         : [];
 
     const viewerStudioId = isStudio(req.user.role) ? req.user.studio_id : null;
+    if (!(caseDoc.calculated_pricePerSession > 0)) {
+        try {
+            zones = (await refreshCaseEstimate(caseDoc, zones)) ?? zones;
+        } catch (error) {
+            console.error('Calculated estimate snapshot failed:', error.message);
+        }
+    }
     const formatted = formatCase(caseDoc, zones, req.user.role, { viewerStudioId });
     if (access.transferiert) formatted.transferiert = true;
     if (access.read_only) formatted.read_only = true;
@@ -600,13 +859,14 @@ const updateCase = asyncHandler(async (req, res) => {
         throw new ApiError(400, 'Zone mode requires between 2 and 8 zones');
     }
 
-    const zoneDocs = await applyCaseUpdate(caseDoc, req.body);
+    let zoneDocs = await applyCaseUpdate(caseDoc, req.body, req.user, req);
 
     if (touchedEstimate) {
-        await refreshCaseEstimate(
+        const refreshed = await refreshCaseEstimate(
             caseDoc,
             req.body.zonen !== undefined ? zoneDocs : null
         );
+        if (refreshed?.length) zoneDocs = refreshed;
     }
 
     await caseDoc.populate('customer', 'vorname nachname email telefon');
@@ -640,19 +900,30 @@ const deleteIncompleteCase = asyncHandler(async (req, res) => {
 
     await assertCaseWriteAccess(req.user, caseDoc);
 
-    if (caseDoc.unterschrift?.zeitstempel) {
-        throw new ApiError(400, 'Signed cases cannot be deleted from the app');
-    }
+    const studioTestDeleteEnabled = process.env.TEST_CASE_DELETE_ENABLED !== 'false';
+    const studioHardDeleteAllowed =
+        studioTestDeleteEnabled &&
+        (req.user.role === USER_ROLES.STUDIO_ADMIN ||
+            req.user.role === USER_ROLES.STUDIO_STAFF);
 
-    const deletable =
-        caseDoc.status === CASE_STATUS.DRAFT ||
-        caseDoc.status === CASE_STATUS.PENDING;
+    if (!studioHardDeleteAllowed) {
+        if (caseDoc.unterschrift?.zeitstempel) {
+            throw new ApiError(400, 'Signed cases cannot be deleted from the app');
+        }
 
-    if (!deletable) {
-        throw new ApiError(400, 'Only incomplete draft/pending cases can be deleted');
+        const deletable =
+            caseDoc.status === CASE_STATUS.DRAFT ||
+            caseDoc.status === CASE_STATUS.PENDING;
+
+        if (!deletable) {
+            throw new ApiError(400, 'Only incomplete draft/pending cases can be deleted');
+        }
     }
 
     await CaseZone.deleteMany({ case: caseDoc._id });
+    await Session.deleteMany({ case: caseDoc._id });
+    await Appointment.deleteMany({ case: caseDoc._id });
+    await Anamnesis.deleteMany({ case: caseDoc._id });
     await Case.deleteOne({ _id: caseDoc._id });
 
     res.status(200).json({
@@ -671,7 +942,7 @@ const getCaseAvailability = asyncHandler(async (req, res) => {
 
     await assertCaseAccess(req.user, caseDoc);
 
-    const { consultationOnly, from, to, ...preSessionInput } = req.query;
+    const { consultationOnly, from, to, standort_id, ...preSessionInput } = req.query;
 
     const result = await computeAvailability({
         activeCaseId: caseDoc._id,
@@ -680,11 +951,116 @@ const getCaseAvailability = asyncHandler(async (req, res) => {
         preSessionCheck: parsePreSessionCheck(preSessionInput),
         from,
         to,
+        standortId: standort_id || null,
     });
 
     res.status(200).json({
         success: true,
         data: result,
+    });
+});
+
+/**
+ * Bookable locations of the case's studio, plus where the customer last booked
+ * and was last treated. Switching between these is a free choice for the
+ * customer: the owning studio never changes, so no transfer request applies.
+ */
+const getCaseStandorte = asyncHandler(async (req, res) => {
+    const caseDoc = await Case.findById(req.params.id);
+
+    if (!caseDoc) {
+        throw new ApiError(404, 'Case not found');
+    }
+
+    await assertCaseAccess(req.user, caseDoc);
+
+    const Studio = require('../models/studioModel');
+    const {
+        activeStandorte,
+        resolveStandortSchedule,
+        roomsForStandort,
+        staffForStandort,
+    } = require('../utils/studioHours');
+    const { APPOINTMENT_STATUS } = require('../config/constants');
+
+    const studio = await Studio.findById(caseDoc.studio)
+        .select(
+            'firma standorte strasse plz ort land behandlungsraeume mitarbeiter oeffnungszeiten oeffnungs_ausnahmen pufferzeit_minuten slot_interval_minuten'
+        )
+        .lean();
+
+    if (!studio) {
+        throw new ApiError(404, 'Studio not found');
+    }
+
+    const [lastAppointment, lastSession] = await Promise.all([
+        Appointment.findOne({
+            customer: caseDoc.customer,
+            studio: studio._id,
+            status: { $nin: [APPOINTMENT_STATUS.STORNIERT, APPOINTMENT_STATUS.CANCELLED] },
+            standort_id: { $nin: ['', null] },
+        })
+            .sort({ date: -1 })
+            .select('standort_id standort_name date')
+            .lean(),
+        Session.findOne({
+            customer: caseDoc.customer,
+            studio: studio._id,
+            standort_id: { $nin: ['', null] },
+        })
+            .sort({ treatment_date: -1 })
+            .select('standort_id standort_name treatment_date')
+            .lean(),
+    ]);
+
+    const lastBookedId = lastAppointment?.standort_id || '';
+    const lastTreatedId = lastSession?.standort_id || '';
+    // "Last used" prefers the most recent of the two signals.
+    const lastUsedId =
+        lastBookedId && lastTreatedId
+            ? new Date(lastSession.treatment_date) > new Date(lastAppointment.date)
+                ? lastTreatedId
+                : lastBookedId
+            : lastBookedId || lastTreatedId;
+
+    const standorte = activeStandorte(studio).map((standort) => {
+        const id = String(standort._id);
+        const schedule = resolveStandortSchedule(studio, id);
+        return {
+            id,
+            name: standort.name,
+            strasse: standort.strasse ?? '',
+            plz: standort.plz ?? '',
+            ort: standort.ort ?? '',
+            land: standort.land ?? 'Schweiz',
+            ist_zuletzt_genutzt: id === lastUsedId,
+            ist_zuletzt_gebucht: id === lastBookedId,
+            ist_zuletzt_behandelt: id === lastTreatedId,
+            raeume_anzahl: roomsForStandort(studio, id).length,
+            mitarbeiter_anzahl: staffForStandort(studio, id).length,
+            slot_interval_minuten: Number(schedule.slot_interval_minuten) || 60,
+        };
+    });
+
+    res.status(200).json({
+        success: true,
+        data: {
+            studio: {
+                id: String(studio._id),
+                firma: studio.firma,
+                strasse: studio.strasse ?? '',
+                plz: studio.plz ?? '',
+                ort: studio.ort ?? '',
+            },
+            standorte,
+            /** Customers only need to choose when there is more than one option. */
+            auswahl_erforderlich: standorte.length > 1,
+            last_used_standort_id: lastUsedId,
+            last_booked_standort_id: lastBookedId,
+            last_booked_standort_name: lastAppointment?.standort_name || '',
+            last_treated_standort_id: lastTreatedId,
+            last_treated_standort_name: lastSession?.standort_name || '',
+        },
     });
 });
 
@@ -705,35 +1081,22 @@ const getCasePricing = asyncHandler(async (req, res) => {
     }
 
     const pricingOverrides = await getEffectivePricingOverrides(caseDoc.studio);
-    const result = caseDoc.zonen_aktiv && pricingInput.zonen?.length
-        ? calculateCasePreview(pricingInput, pricingOverrides)
-        : calculatePrice(pricingInput, pricingOverrides);
+    const result = calculateCasePreview(pricingInput, pricingOverrides);
     const payload = isCustomer(req.user.role)
-        ? formatCustomerEstimate(
-              result.sessions
-                  ? result
-                  : {
-                        ...result,
-                        sessions: {
-                            min: caseDoc.sessionsMin,
-                            max: caseDoc.sessionsMax,
-                        },
-                        totalMin: result.pricePerSession * (caseDoc.sessionsMin || 0),
-                        totalMax: result.pricePerSession * (caseDoc.sessionsMax || 0),
-                    }
-          )
-        : result.sessions
-          ? result
-          : formatStudioPricing(result);
+        ? formatCustomerPreview(result)
+        : result;
 
     payload.estimate_confirmation = formatEstimateConfirmation(
         caseDoc.estimate_confirmation,
         req.user.role
     );
+    const prices = resolveDisplayedPrices(caseDoc);
     payload.persisted = {
-        pricePerSession: caseDoc.pricePerSession,
+        pricePerSession: prices.pricePerSession,
         sessionsMin: caseDoc.sessionsMin,
         sessionsMax: caseDoc.sessionsMax,
+        calculated_pricePerSession: prices.calculated_pricePerSession,
+        confirmed_pricePerSession: prices.confirmed_pricePerSession,
     };
 
     res.status(200).json({
@@ -792,7 +1155,7 @@ const updateEstimateConfirmation = asyncHandler(async (req, res) => {
                     caseDoc.estimate_confirmation,
                     req.user.role
                 ),
-                pricePerSession: caseDoc.pricePerSession,
+                ...resolveDisplayedPrices(caseDoc),
                 sessionsMin: caseDoc.sessionsMin,
                 sessionsMax: caseDoc.sessionsMax,
             },
@@ -812,6 +1175,12 @@ const updateEstimateConfirmation = asyncHandler(async (req, res) => {
     }
     if (confirmedMin > confirmedMax) {
         throw new ApiError(400, 'sessionsMin must not exceed sessionsMax');
+    }
+
+    if (!(caseDoc.calculated_pricePerSession > 0)) {
+        caseDoc.calculated_pricePerSession = caseDoc.pricePerSession ?? 0;
+        caseDoc.calculated_sessionsMin = caseDoc.sessionsMin ?? 0;
+        caseDoc.calculated_sessionsMax = caseDoc.sessionsMax ?? 0;
     }
 
     caseDoc.estimate_confirmation = {
@@ -883,7 +1252,7 @@ const updateEstimateConfirmation = asyncHandler(async (req, res) => {
                 caseDoc.estimate_confirmation,
                 req.user.role
             ),
-            pricePerSession: caseDoc.pricePerSession,
+            ...resolveDisplayedPrices(caseDoc),
             sessionsMin: caseDoc.sessionsMin,
             sessionsMax: caseDoc.sessionsMax,
             chat_notified: chatNotified,
@@ -932,6 +1301,8 @@ module.exports = {
     updateCase,
     deleteIncompleteCase,
     getCaseAvailability,
+    getCaseStandorte,
+    getCaseIntakePrefill,
     getCasePricing,
     previewCasePricing,
     updateEstimateConfirmation,

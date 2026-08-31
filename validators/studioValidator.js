@@ -26,6 +26,39 @@ const oeffnungszeitenSchema = z
     .partial()
     .optional();
 
+const oeffnungsAusnahmeSchema = z
+    .object({
+        datum: z
+            .string()
+            .trim()
+            .regex(/^\d{4}-\d{2}-\d{2}$/, 'datum must be YYYY-MM-DD'),
+        offen: z.boolean().optional(),
+        von: timeSchema.optional(),
+        bis: timeSchema.optional(),
+        notiz: z.string().trim().max(200).optional(),
+    })
+    .strict();
+
+const standortSchema = z
+    .object({
+        id: z.string().trim().optional(),
+        name: z.string().trim().min(1, 'Location name is required'),
+        strasse: z.string().trim().optional(),
+        plz: z.string().trim().optional(),
+        ort: z.string().trim().optional(),
+        land: z.string().trim().optional(),
+        aktiv: z.boolean().optional(),
+        /** Omit to inherit the studio-wide schedule. */
+        oeffnungszeiten: oeffnungszeitenSchema,
+        oeffnungs_ausnahmen: z.array(oeffnungsAusnahmeSchema).optional(),
+        pufferzeit_minuten: z.number().int().min(0).max(120).nullable().optional(),
+        slot_interval_minuten: z
+            .union([z.literal(15), z.literal(30), z.literal(45), z.literal(60)])
+            .nullable()
+            .optional(),
+    })
+    .strict();
+
 const behandlungsraumSchema = z
     .object({
         id: z.string().trim().optional(),
@@ -34,6 +67,8 @@ const behandlungsraumSchema = z
         aktiv: z.boolean().optional(),
         laser_brand: z.string().trim().optional(),
         laser_model: z.string().trim().optional(),
+        /** Empty means the room is used at every location. */
+        standort_id: z.string().trim().optional(),
     })
     .strict();
 
@@ -52,6 +87,8 @@ const mitarbeiterSchema = z
             )
             .optional(),
         raum_id: z.string().trim().optional(),
+        /** Empty means the staff member works at every location. */
+        standort_id: z.string().trim().optional(),
         aktiv: z.boolean().optional(),
     })
     .strict();
@@ -72,18 +109,24 @@ const patchStudioSettingsSchema = z
     .object({
         profile: patchStudioProfileSchema.optional(),
         oeffnungszeiten: oeffnungszeitenSchema,
+        oeffnungs_ausnahmen: z.array(oeffnungsAusnahmeSchema).optional(),
+        standorte: z.array(standortSchema).optional(),
         behandlungsraeume: z.array(behandlungsraumSchema).optional(),
         mitarbeiter: z.array(mitarbeiterSchema).optional(),
         pufferzeit_minuten: z.number().int().min(0).max(120).optional(),
+        slot_interval_minuten: z.union([z.literal(15), z.literal(30), z.literal(45), z.literal(60)]).optional(),
     })
     .strict()
     .refine(
         (body) =>
             body.profile !== undefined ||
             body.oeffnungszeiten !== undefined ||
+            body.oeffnungs_ausnahmen !== undefined ||
+            body.standorte !== undefined ||
             body.behandlungsraeume !== undefined ||
             body.mitarbeiter !== undefined ||
-            body.pufferzeit_minuten !== undefined,
+            body.pufferzeit_minuten !== undefined ||
+            body.slot_interval_minuten !== undefined,
         { message: 'At least one settings section is required' }
     );
 

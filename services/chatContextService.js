@@ -23,7 +23,7 @@ const heuteLabel = () => formatDeDate(new Date());
 /**
  * Build customer profile context for Elaya FAB (prototype buildAssistantContext parity).
  */
-const buildCustomerChatContext = async (customerId, focusCaseId = null) => {
+const buildCustomerChatContext = async (customerId, focusCaseId = null, options = {}) => {
     const customer = await Customer.findById(customerId)
         .select('vorname nachname geburtsdatum ort elaycoins.balance')
         .lean();
@@ -31,6 +31,7 @@ const buildCustomerChatContext = async (customerId, focusCaseId = null) => {
 
     let caseFilter = { customer: customerId };
     if (focusCaseId) caseFilter._id = focusCaseId;
+    if (options.studioId) caseFilter.studio = options.studioId;
 
     const cases = await Case.find(caseFilter)
         .select(
@@ -48,7 +49,7 @@ const buildCustomerChatContext = async (customerId, focusCaseId = null) => {
             is_no_show: false,
         })
             .select(
-                'case session_number treatment_date verblassung_prozent verblassung_ki.beurteilung'
+                'case session_number treatment_date verblassung_prozent comparison_eligible verblassung_ki.beurteilung'
             )
             .sort({ treatment_date: -1 })
             .lean(),
@@ -119,11 +120,13 @@ const buildCustomerChatContext = async (customerId, focusCaseId = null) => {
         if (caseSessions.length) {
             const last = caseSessions[0];
             ctx += `Letzte Sitzung: S.${last.session_number || '?'} am ${formatDeDate(last.treatment_date)}`;
-            if (last.verblassung_prozent != null) {
+            if (last.comparison_eligible !== false && last.verblassung_prozent != null) {
                 ctx += `, ${last.verblassung_prozent}% verblasst`;
+            } else if (last.comparison_eligible === false) {
+                ctx += ', noch kein zuverlässiger Bildvergleich';
             }
             ctx += '\n';
-            const kiT = last.verblassung_ki?.beurteilung;
+            const kiT = last.comparison_eligible === false ? null : last.verblassung_ki?.beurteilung;
             if (kiT) ctx += `KI-Analyse: ${String(kiT).slice(0, 180)}\n`;
         }
 
@@ -162,8 +165,9 @@ const buildCustomerChatContext = async (customerId, focusCaseId = null) => {
 
 /**
  * Build studio assistant context (compact — active customers/cases for this studio).
+ * Optional customerId/caseId loads the full customer case context as focus.
  */
-const buildStudioChatContext = async (studioId) => {
+const buildStudioChatContext = async (studioId, { customerId = null, caseId = null, studioCasesOnly = false } = {}) => {
     const studio = await Studio.findById(studioId)
         .select('firma studio_code ort standorte')
         .lean();
@@ -173,11 +177,57 @@ const buildStudioChatContext = async (studioId) => {
     if (standorte.length) ctx += `\nStandorte: ${standorte.join(', ')}`;
     ctx += '\n\n';
 
+    let focusCustomerId = customerId;
+    if (!focusCustomerId && caseId) {
+        const focusCase = await Case.findById(caseId).select('customer').lean();
+        focusCustomerId = focusCase?.customer || null;
+    }
+
+    if (focusCustomerId) {
+        ctx += 'FOKUS-KUNDE (nutze diese Daten für die Antwort):\n';
+        ctx += await buildCustomerChatContext(focusCustomerId, caseId, {
+            studioId: studioCasesOnly ? studioId : null,
+        });
+        return ctx;
+    }
+
+    const start = new Date();
+    start.setHours(0, 0, 0, 0);
+    const end = new Date();
+    end.setHours(23, 59, 59, 999);
+
+    const todayAppts = await Appointment.find({
+        studio: studioId,
+        date: { $gte: start, $lte: end },
+        status: {
+            $nin: [APPOINTMENT_STATUS.STORNIERT, APPOINTMENT_STATUS.CANCELLED],
+        },
+    })
+        .select('date time type consultationOnly customer case')
+        .populate({ path: 'customer', select: 'vorname nachname' })
+        .populate({ path: 'case', select: 'caseId bodyLabel tc_title' })
+        .sort({ time: 1 })
+        .limit(25)
+        .lean();
+
+    if (todayAppts.length) {
+        ctx += `Termine heute (${todayAppts.length}):\n`;
+        for (const a of todayAppts) {
+            const name = a.customer
+                ? `${a.customer.vorname || ''} ${a.customer.nachname || ''}`.trim()
+                : 'Kunde';
+            const titel = a.case?.bodyLabel || a.case?.tc_title || a.case?.caseId || '';
+            const art = a.consultationOnly || a.type === 'beratung' ? 'Beratung' : 'Behandlung';
+            ctx += `  • ${a.time || '—'} ${name}${titel ? ` · ${titel}` : ''} (${art})\n`;
+        }
+        ctx += '\n';
+    }
+
     const cases = await Case.find({
         studio: studioId,
         status: { $nin: [CASE_STATUS.COMPLETED, CASE_STATUS.LOESCHANTRAG_AUSSTEHEND] },
     })
-        .select('caseId tc_title bodyLabel sessionsDone removal customer status')
+        .select('caseId tc_title bodyLabel sessionsDone removal customer status medical_flag_level')
         .populate({ path: 'customer', select: 'vorname nachname' })
         .sort({ updatedAt: -1 })
         .limit(40)
@@ -202,12 +252,14 @@ const buildStudioChatContext = async (studioId) => {
         byCustomer.get(cid).cases.push(c);
     }
 
+    ctx += `Aktive Kunden (${byCustomer.size}):\n\n`;
     for (const ku of byCustomer.values()) {
         ctx += `--- Kunde: ${ku.name} (${ku.cases.length} aktive Case${ku.cases.length === 1 ? '' : 's'}) ---\n`;
         for (const c of ku.cases) {
             const titel = c.tc_title || c.bodyLabel || 'Case';
             ctx += `  • ${titel}${c.caseId ? ` (${c.caseId})` : ''}: ${c.sessionsDone || 0} Sitzung(en)`;
             if (c.removal != null) ctx += ` · ${c.removal}% verblasst`;
+            if (c.medical_flag_level) ctx += ` · Ampel ${c.medical_flag_level}`;
             ctx += '\n';
         }
         ctx += '\n';

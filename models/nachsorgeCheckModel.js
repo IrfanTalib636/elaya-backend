@@ -20,6 +20,16 @@ const nachsorgeCheckSchema = new mongoose.Schema(
             required: true,
             index: true,
         },
+        /**
+         * Zone this check documents, matching `CaseZone.zonen_id` ("Z001").
+         * Required for zone cases so healing is tracked per zone; `null` for
+         * single-tattoo cases.
+         */
+        zonen_id: {
+            type: String,
+            trim: true,
+            default: null,
+        },
         foto_file_id: {
             type: mongoose.Schema.Types.ObjectId,
             ref: 'FileAsset',
@@ -57,6 +67,42 @@ const nachsorgeCheckSchema = new mongoose.Schema(
         studio_kontakt: { type: Boolean, default: false },
         naechster_check_tage: { type: Number, default: 7 },
         hinweis: { type: String, default: '' },
+        healing_status: {
+            type: String,
+            enum: ['normal', 'monitor', 'conspicuous', 'delayed', null],
+            default: null,
+        },
+        healing_phase: {
+            type: String,
+            enum: ['early', 'healing', 'consolidation', 'unknown', null],
+            default: null,
+        },
+        healing_severity_score: { type: Number, default: null },
+        healing_red_flag: { type: Boolean, default: false },
+        healing_red_flags: { type: [String], default: [] },
+        healing_needs_review: { type: Boolean, default: false },
+        healing_customer_summary: { type: String, default: '' },
+        healing_progress_score: { type: Number, min: 0, max: 100, default: null },
+        healing_recommended_action: {
+            type: String,
+            enum: ['continue_aftercare', 'continue_monitoring', 'photo_again', 'check_studio', null],
+            default: null,
+        },
+        healing_symptoms: { type: mongoose.Schema.Types.Mixed, default: null },
+        healing_behavior: { type: mongoose.Schema.Types.Mixed, default: null },
+        progress_direction_self: {
+            type: String,
+            enum: ['better', 'same', 'worse', 'unclear', null],
+            default: null,
+        },
+        studio_review_notes: { type: String, trim: true, default: '' },
+        healing_status_calculated: {
+            type: String,
+            enum: ['normal', 'monitor', 'conspicuous', 'delayed', null],
+            default: null,
+        },
+        healing_studio_reviewed_at: { type: Date, default: null },
+        healing_studio_reviewed_by: { type: String, trim: true, default: '' },
         /** Full model payload for audit — never return wholesale to clients */
         raw_ai: { type: mongoose.Schema.Types.Mixed, default: null },
         erstellt_von: {
@@ -70,6 +116,8 @@ const nachsorgeCheckSchema = new mongoose.Schema(
 
 nachsorgeCheckSchema.index({ customer: 1, createdAt: -1 });
 nachsorgeCheckSchema.index({ case: 1, createdAt: -1 });
+// Per-zone healing history for one case.
+nachsorgeCheckSchema.index({ case: 1, zonen_id: 1, createdAt: -1 });
 nachsorgeCheckSchema.index({ studio: 1, createdAt: -1 });
 
 module.exports = mongoose.model('NachsorgeCheck', nachsorgeCheckSchema);

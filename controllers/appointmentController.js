@@ -9,6 +9,9 @@ const { applyKurzfristigeStornierungMalusIfNeeded } = require('../utils/elaycoin
 const { applyBookingPrecheckToCase } = require('../utils/bookingPrecheckApply');
 const { parsePagination, buildPaginationMeta } = require('../utils/pagination');
 const { syncCustomerPipeline } = require('../utils/pipelineEngine');
+const { formatApptStamp } = require('../utils/activityLog');
+const { emitAvailabilityChanged } = require('../sockets/availabilityEmit');
+const { refId } = require('../utils/accessHelpers');
 const {
     USER_ROLES,
     APPOINTMENT_TYPE,
@@ -72,14 +75,14 @@ const assertCaseAccess = (user, caseDoc) => {
     }
 
     if (isCustomer(user.role)) {
-        if (caseDoc.customer.toString() !== user.customer_id.toString()) {
+        if (refId(caseDoc.customer) !== refId(user.customer_id)) {
             throw new ApiError(403, 'You do not have access to this case');
         }
         return;
     }
 
     if (isStudio(user.role)) {
-        if (caseDoc.studio.toString() !== user.studio_id.toString()) {
+        if (refId(caseDoc.studio) !== refId(user.studio_id)) {
             throw new ApiError(403, 'You do not have access to this case');
         }
         return;
@@ -93,15 +96,17 @@ const assertAppointmentAccess = (user, appointment) => {
         return;
     }
 
+    // refId, not .toString(): these refs are populated on some read paths, and a
+    // populated document stringifies to its contents rather than its id.
     if (isCustomer(user.role)) {
-        if (appointment.customer.toString() !== user.customer_id.toString()) {
+        if (refId(appointment.customer) !== refId(user.customer_id)) {
             throw new ApiError(403, 'You do not have access to this appointment');
         }
         return;
     }
 
     if (isStudio(user.role)) {
-        if (appointment.studio.toString() !== user.studio_id.toString()) {
+        if (refId(appointment.studio) !== refId(user.studio_id)) {
             throw new ApiError(403, 'You do not have access to this appointment');
         }
         return;
@@ -131,7 +136,8 @@ const buildAppointmentPayload = (caseDoc, body, gruppenMeta = {}) => {
         date,
         type: resolveAppointmentType(consultationOnly, body.type),
         consultationOnly,
-        dauer_minuten: body.dauer_minuten ?? null,
+        // Clients may omit the duration; the studio's configured default applies.
+        dauer_minuten: body.dauer_minuten ?? gruppenMeta.default_dauer_minuten ?? null,
         standort_id: body.standort_id ?? '',
         standort_name: body.standort_name ?? '',
         gruppen_termin: gruppenMeta.gruppen_termin ?? false,
@@ -140,6 +146,41 @@ const buildAppointmentPayload = (caseDoc, body, gruppenMeta = {}) => {
         gruppen_rabatt: gruppenMeta.gruppen_rabatt ?? null,
         gruppen_preis_total: gruppenMeta.gruppen_preis_total ?? null,
     };
+};
+
+/**
+ * Resolve which studio location an appointment belongs to. Customers must pick
+ * one when the studio runs several; a single-location studio is assigned
+ * automatically so existing clients keep working.
+ */
+const resolveStandortForBooking = async (caseDoc, body, user) => {
+    const Studio = require('../models/studioModel');
+    const { activeStandorte, findStandort } = require('../utils/studioHours');
+
+    const studio = await Studio.findById(caseDoc.studio).select('standorte').lean();
+    const available = activeStandorte(studio);
+    const requested = String(body.standort_id ?? '').trim();
+
+    if (requested) {
+        const match = findStandort({ standorte: available }, requested);
+        if (!match) {
+            throw new ApiError(400, 'Unknown standort_id for this studio');
+        }
+        return { standort_id: String(match._id), standort_name: match.name };
+    }
+
+    if (available.length === 1) {
+        return {
+            standort_id: String(available[0]._id),
+            standort_name: available[0].name,
+        };
+    }
+
+    if (available.length > 1 && isCustomer(user.role)) {
+        throw new ApiError(400, 'standort_id is required — please choose a location');
+    }
+
+    return { standort_id: '', standort_name: body.standort_name ?? '' };
 };
 
 const appendCaseActivity = async (caseDoc, type, details) => {
@@ -195,6 +236,7 @@ const resolvePreSessionForCustomerBooking = async (caseDoc, body, user, { persis
         ko_signature: koSignature = null,
     } = body.booking_precheck;
 
+    const { getEffectiveSperrfristen } = require('../utils/configService');
     const result = validateBookingPrecheck({
         caseDoc,
         anamnesis,
@@ -204,6 +246,7 @@ const resolvePreSessionForCustomerBooking = async (caseDoc, body, user, { persis
         wiederholungen,
         wiederholungenConfirmed,
         koSignature,
+        sperrfristen: await getEffectiveSperrfristen(caseDoc.studio),
     });
 
     if (!result.can_proceed) {
@@ -223,23 +266,71 @@ const createAppointment = asyncHandler(async (req, res) => {
 
     assertCaseAccess(req.user, primaryCase);
 
-    const isGroup = body.gruppen_termin && gruppen_cases.length > 0;
+    const extraGroupIds = Array.isArray(gruppen_cases) ? gruppen_cases : [];
+    // The case list decides, not the flag: requiring both meant a payload with
+    // gruppen_cases but no gruppen_termin silently booked only the primary case.
+    const isGroup = extraGroupIds.length > 0;
     const groupCases = isGroup
-        ? await loadCasesForGroup(primaryCase, gruppen_cases, req.user)
+        ? await loadCasesForGroup(primaryCase, extraGroupIds, req.user)
         : [primaryCase];
+
+    if (isGroup) {
+        const CaseZone = require('../models/caseZoneModel');
+        const { getEffectiveGruppenGroessen, getEffectivePricingOverrides } = require('../utils/configService');
+        const { validateGroupSelection, calcGroupPricingFromPrices } = require('../utils/groupBooking');
+        const { calculatePrice } = require('../utils/pricingEngine');
+
+        const gg = await getEffectiveGruppenGroessen(primaryCase.studio);
+        const items = [];
+        for (const caseDoc of groupCases) {
+            const zones = caseDoc.zonen_aktiv
+                ? await CaseZone.find({ case: caseDoc._id }).lean()
+                : [];
+            items.push({ caseDoc, zones });
+        }
+        const check = validateGroupSelection(items, gg);
+        if (!check.ok) {
+            throw new ApiError(400, check.message);
+        }
+
+        const prices = [];
+        for (const caseDoc of groupCases) {
+            const pricingInput = caseDoc.toObject ? caseDoc.toObject() : { ...caseDoc };
+            if (caseDoc.zonen_aktiv) {
+                pricingInput.zonen = await CaseZone.find({ case: caseDoc._id }).lean();
+            }
+            const overrides = await getEffectivePricingOverrides(caseDoc.studio);
+            prices.push(calculatePrice(pricingInput, overrides).pricePerSession || 0);
+        }
+        const priced = calcGroupPricingFromPrices(prices, gg);
+        body.gruppen_rabatt = gg.gruppen_rabatt;
+        body.gruppen_preis_total = priced.gesamt;
+    }
+
+    const standort = await resolveStandortForBooking(primaryCase, body, req.user);
+    body.standort_id = standort.standort_id;
+    body.standort_name = standort.standort_name;
+
+    const { getEffectiveBookingConfig } = require('../utils/configService');
+    const { termin_einstellungen } = await getEffectiveBookingConfig(primaryCase.studio);
+    const defaultDauer = isGroup
+        ? termin_einstellungen.gruppen_dauer_minuten
+        : isTreatmentBooking(body)
+          ? termin_einstellungen.behandlung_dauer_minuten
+          : termin_einstellungen.beratung_dauer_minuten;
 
     const preSessionCheck = await resolvePreSessionForCustomerBooking(primaryCase, body, req.user);
 
-    if (isTreatmentBooking(body)) {
-        for (const caseDoc of groupCases) {
-            await assertBookingDateAllowed({
-                caseId: caseDoc._id,
-                customerId: caseDoc.customer,
-                date: body.date,
-                consultationOnly: false,
-                preSessionCheck,
-            });
-        }
+    for (const caseDoc of groupCases) {
+        await assertBookingDateAllowed({
+            caseId: caseDoc._id,
+            customerId: caseDoc.customer,
+            date: body.date,
+            time: body.time,
+            consultationOnly: !isTreatmentBooking(body),
+            preSessionCheck: isTreatmentBooking(body) ? preSessionCheck : {},
+            standortId: standort.standort_id || null,
+        });
     }
 
     const gruppen_id = isGroup ? crypto.randomUUID() : null;
@@ -253,6 +344,7 @@ const createAppointment = asyncHandler(async (req, res) => {
                 gruppen_cases: gruppenCaseIds,
                 gruppen_rabatt: body.gruppen_rabatt,
                 gruppen_preis_total: body.gruppen_preis_total,
+                default_dauer_minuten: defaultDauer,
             })
         )
     );
@@ -265,6 +357,14 @@ const createAppointment = asyncHandler(async (req, res) => {
         );
         await syncCustomerPipeline(caseDoc.customer);
     }
+
+    // A new treatment date opens a cross-case blocking period on the customer's
+    // other cases, so their app has to recompute every earliest bookable date.
+    emitAvailabilityChanged({
+        customerId: primaryCase.customer,
+        studioId: primaryCase.studio,
+        reason: 'appointment_created',
+    });
 
     res.status(201).json({
         success: true,
@@ -362,6 +462,23 @@ const updateAppointment = asyncHandler(async (req, res) => {
     const consultationOnly = req.body.consultationOnly ?? appointment.consultationOnly;
     const isReschedule = req.body.date && isTreatmentBooking(req.body, appointment.consultationOnly);
 
+    // A customer may also move to another location of the same studio when
+    // rescheduling; keep the current one when the request omits it.
+    let targetStandort = null;
+    if (req.body.standort_id !== undefined) {
+        const caseForStandort = await Case.findById(appointment.case).select('studio').lean();
+        if (caseForStandort) {
+            targetStandort = await resolveStandortForBooking(
+                caseForStandort,
+                req.body,
+                req.user
+            );
+        }
+    }
+    const effectiveStandortId = targetStandort
+        ? targetStandort.standort_id
+        : appointment.standort_id || '';
+
     if (isReschedule) {
         const caseDoc = await Case.findById(appointment.case);
         if (caseDoc) {
@@ -373,13 +490,16 @@ const updateAppointment = asyncHandler(async (req, res) => {
                 caseId: caseDoc._id,
                 customerId: caseDoc.customer,
                 date: req.body.date,
+                time: req.body.time,
                 consultationOnly: false,
                 preSessionCheck,
+                standortId: effectiveStandortId || null,
             });
         }
     }
 
     const previousDate = appointment.date;
+    const previousTime = appointment.time;
     const wasCancelled =
         appointment.status === APPOINTMENT_STATUS.STORNIERT ||
         appointment.status === APPOINTMENT_STATUS.CANCELLED;
@@ -409,10 +529,10 @@ const updateAppointment = asyncHandler(async (req, res) => {
     if (req.body.dauer_minuten !== undefined) {
         appointment.dauer_minuten = req.body.dauer_minuten;
     }
-    if (req.body.standort_id !== undefined) {
-        appointment.standort_id = req.body.standort_id;
-    }
-    if (req.body.standort_name !== undefined) {
+    if (targetStandort) {
+        appointment.standort_id = targetStandort.standort_id;
+        appointment.standort_name = targetStandort.standort_name;
+    } else if (req.body.standort_name !== undefined) {
         appointment.standort_name = req.body.standort_name;
     }
     if (req.body.gruppen_rabatt !== undefined) {
@@ -449,14 +569,28 @@ const updateAppointment = asyncHandler(async (req, res) => {
             req.body.status === APPOINTMENT_STATUS.STORNIERT ||
             req.body.status === APPOINTMENT_STATUS.CANCELLED
         ) {
-            await appendCaseActivity(caseDoc, 'cancelled', appointment.time);
+            await appendCaseActivity(
+                caseDoc,
+                'cancelled',
+                formatApptStamp(appointment.date, appointment.time)
+            );
         } else if (req.body.date && new Date(req.body.date).getTime() !== new Date(previousDate).getTime()) {
             await appendCaseActivity(
                 caseDoc,
                 'rescheduled',
-                `${appointment.time} · ${appointment.month}`
+                `${formatApptStamp(previousDate, previousTime)} → ${formatApptStamp(appointment.date, appointment.time)}`
             );
         }
+    }
+
+    // Cancelling frees a blocking period, rescheduling moves it — either way the
+    // earliest bookable date of every case of this customer can change.
+    if (isNowCancelled || dateChanged || req.body.status !== undefined) {
+        emitAvailabilityChanged({
+            customerId: appointment.customer,
+            studioId: appointment.studio,
+            reason: isNowCancelled ? 'appointment_cancelled' : 'appointment_updated',
+        });
     }
 
     res.status(200).json({

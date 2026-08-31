@@ -102,15 +102,16 @@ const LIFE_ALCOHOL = [
 ];
 /** Tattoo + PMU activity (prototype PMU uses medium). */
 const LIFE_ACTIVITY = ['low', 'light', 'medium', 'regular', 'high'];
-const LIFE_SLEEP_HOURS = ['under_5', '5-6', '6-7', '7-8', '8+'];
+/** Lifestyle_Regeneration: 0|1-2|3-4|5+ */
+const LIFE_SPORT_FREQ = ['0', '1-2', '3-4', '5+'];
+/** Excel options include <5; app stores under_5. */
+const LIFE_SLEEP_HOURS = ['under_5', '<5', '5-6', '6-7', '7-8', '8+'];
 const LIFE_SLEEP_QUALITY = ['poor', 'fair', 'good', 'excellent'];
 const LIFE_STRESS = ['low', 'medium', 'high', 'very_high'];
 /** Tattoo + PMU hydration (prototype PMU uses medium/high). */
 const LIFE_HYDRATION = ['low', 'normal', 'medium', 'good', 'high'];
-const LIFE_NUTRITION = ['poor', 'fair', 'good'];
+const LIFE_NUTRITION = ['poor', 'fair', 'good', 'very_good', 'very_poor'];
 const LIFE_AFTERCARE = ['low', 'medium', 'high'];
-
-const ZONE_FLAECHE_TEMPLATE = ['xs', 'sm', 'md', 'lg', 'xl', 'xxl'];
 
 /** Prototype PMU_01–PMU_05 enums (exact values from customer/studio prototype). */
 const PMU_TYPE = ['eyebrows', 'eyeliner', 'lips', 'microblading', 'other'];
@@ -147,13 +148,13 @@ module.exports = {
     LIFE_SMOKER,
     LIFE_ALCOHOL,
     LIFE_ACTIVITY,
+    LIFE_SPORT_FREQ,
     LIFE_SLEEP_HOURS,
     LIFE_SLEEP_QUALITY,
     LIFE_STRESS,
     LIFE_HYDRATION,
     LIFE_NUTRITION,
     LIFE_AFTERCARE,
-    ZONE_FLAECHE_TEMPLATE,
     PMU_TYPE,
     PMU_TYPE_LABELS,
     PMU_SIDE,

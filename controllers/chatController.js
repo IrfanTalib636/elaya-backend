@@ -5,8 +5,10 @@ const {
     isStudio,
     isAdmin,
     assertCaseAccess,
+    resolveStudioCustomerRelation,
 } = require('../utils/accessHelpers');
 const Case = require('../models/caseModel');
+const Customer = require('../models/customerModel');
 const {
     ELAYA_ASSISTANT_SYSTEM,
     ELAYA_STUDIO_ASSISTANT_SYSTEM,
@@ -75,6 +77,7 @@ const sendChat = asyncHandler(async (req, res) => {
     const message = req.body.message;
     const history = normalizeHistory(req.body.history);
     const caseId = req.body.case_id || null;
+    const focusCustomerId = req.body.customer_id || null;
 
     if (caseId) {
         const caseDoc = await Case.findById(caseId);
@@ -91,6 +94,7 @@ const sendChat = asyncHandler(async (req, res) => {
 
     let contextText;
     let systemPrompt;
+    let studioCasesOnly = false;
 
     if (customerUser) {
         systemPrompt = ELAYA_ASSISTANT_SYSTEM;
@@ -101,8 +105,31 @@ const sendChat = asyncHandler(async (req, res) => {
         if (!studioId && !isAdmin(req.user.role)) {
             throw new ApiError(400, 'Studio context missing');
         }
+
+        let resolvedCustomerId = focusCustomerId;
+        if (!resolvedCustomerId && caseId) {
+            const caseDoc = await Case.findById(caseId).select('customer').lean();
+            resolvedCustomerId = caseDoc?.customer ? String(caseDoc.customer) : null;
+        }
+
+        if (resolvedCustomerId && studioId) {
+            const customer = await Customer.findById(resolvedCustomerId)
+                .select('aktuelle_firma_id firma_history')
+                .lean();
+            if (!customer) throw new ApiError(404, 'Customer not found');
+            const relation = resolveStudioCustomerRelation(studioId, customer);
+            if (relation.wechsel_status === 'none') {
+                throw new ApiError(403, 'You do not have access to this customer');
+            }
+            studioCasesOnly = relation.read_only;
+        }
+
         contextText = studioId
-            ? await buildStudioChatContext(studioId)
+            ? await buildStudioChatContext(studioId, {
+                  customerId: resolvedCustomerId,
+                  caseId,
+                  studioCasesOnly,
+              })
             : `Heute: ${new Date().toLocaleDateString('de-CH')}\nAdmin-Modus — kein Studio-Kontext geladen.`;
     }
 
@@ -122,9 +149,12 @@ const sendChat = asyncHandler(async (req, res) => {
     }
 
     const profileLabel = customerUser ? 'KUNDENPROFIL' : 'STUDIO-PROFIL';
-    const ack = customerUser
+    let ack = customerUser
         ? 'Verstanden. Ich habe alle Profildaten geladen.'
         : 'Verstanden. Ich habe das Studio-Profil geladen.';
+    if (!customerUser && (focusCustomerId || caseId)) {
+        ack = 'Verstanden. Ich habe den Fokus-Kunden und die Falldaten geladen.';
+    }
 
     const messages = [
         { role: 'user', content: `${profileLabel}:\n${contextText}` },

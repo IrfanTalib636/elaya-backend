@@ -48,6 +48,10 @@ const CHAT_ROLES = [
  *               message:
  *                 type: string
  *                 example: Wann kann ich den nächsten Termin buchen?
+ *               customer_id:
+ *                 type: string
+ *                 nullable: true
+ *                 description: Studio only — focus context on one customer
  *               case_id:
  *                 type: string
  *                 nullable: true

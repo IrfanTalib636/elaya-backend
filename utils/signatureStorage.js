@@ -4,12 +4,16 @@ const ApiError = require('./ApiError');
 const { UPLOAD_ROOT } = require('../config/storageConfig');
 
 const SIGNATURE_FILENAME = 'signature.jpg';
+/** Second, separate signature confirming the medical anamnesis is truthful and complete. */
+const SIGNATURE_ANAMNESE_FILENAME = 'signature-anamnese.jpg';
+
+const SIGNATURE_FILENAMES = [SIGNATURE_FILENAME, SIGNATURE_ANAMNESE_FILENAME];
 
 const isSignatureStoragePath = (value) =>
     typeof value === 'string' &&
     value.length > 0 &&
     !value.startsWith('data:') &&
-    value.endsWith(SIGNATURE_FILENAME);
+    SIGNATURE_FILENAMES.some((name) => value.endsWith(name));
 
 const parseSignatureImage = (dataUri) => {
     if (typeof dataUri !== 'string' || !dataUri.length) {
@@ -38,11 +42,11 @@ const parseSignatureImage = (dataUri) => {
     return { mime, buffer };
 };
 
-const signatureRelativePath = (studioId, caseId) =>
-    path.posix.join(studioId.toString(), 'cases', caseId.toString(), SIGNATURE_FILENAME);
+const signatureRelativePath = (studioId, caseId, filename = SIGNATURE_FILENAME) =>
+    path.posix.join(studioId.toString(), 'cases', caseId.toString(), filename);
 
-const saveSignatureImage = async (studioId, caseId, buffer) => {
-    const relative = signatureRelativePath(studioId, caseId);
+const saveSignatureImage = async (studioId, caseId, buffer, filename = SIGNATURE_FILENAME) => {
+    const relative = signatureRelativePath(studioId, caseId, filename);
     const absolute = path.join(UPLOAD_ROOT, relative);
     await fs.mkdir(path.dirname(absolute), { recursive: true });
     await fs.writeFile(absolute, buffer);
@@ -71,6 +75,7 @@ const readSignatureImage = async (relativePath) => {
 
 module.exports = {
     SIGNATURE_FILENAME,
+    SIGNATURE_ANAMNESE_FILENAME,
     isSignatureStoragePath,
     parseSignatureImage,
     signatureRelativePath,

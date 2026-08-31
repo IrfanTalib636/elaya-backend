@@ -17,6 +17,10 @@ const verblassungAnalyzeSchema = z
         foto_vorher_file_id: optionalObjectId,
         foto_aktuell_file_id: optionalObjectId,
         persist: z.boolean().optional().default(true),
+        image_quality_ok: z.boolean().nullable().optional(),
+        photo_same_angle: z.boolean().nullable().optional(),
+        photo_same_distance: z.boolean().nullable().optional(),
+        photo_comparable_light: z.boolean().nullable().optional(),
     })
     .strict();
 

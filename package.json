@@ -12,7 +12,18 @@
     "seed:shop-products": "node scripts/seedShopProducts.js",
     "seed:demo": "node scripts/seedDemo.js",
     "backfill:estimates": "node scripts/backfillEstimates.js",
-    "bootstrap:admin": "node scripts/bootstrapAdmin.js"
+    "verify:examples": "node scripts/verifyExcelExamples.js",
+    "verify:lightening": "node scripts/verifyLighteningLogic.js",
+    "verify:healing": "node scripts/verifyHealingLogic.js",
+    "verify:implementation": "node scripts/verifyImplementationRules.js",
+    "verify:session-preview": "node scripts/verifySessionPredictionPreview.js",
+    "verify:pricing-preview": "node scripts/verifyPricingPreview.js",
+    "bootstrap:admin": "node scripts/bootstrapAdmin.js",
+    "regression": "node scripts/regression/run.js",
+    "regression:clients": "node scripts/regression/checkClients.mjs",
+    "regression:report": "node scripts/regression/buildReport.mjs",
+    "migrate:session-zone-index": "node scripts/migrateSessionZoneIndex.js",
+    "verify:zone-tracking": "node scripts/verifyZoneTracking.js"
   },
   "keywords": [],
   "author": "",
@@ -42,6 +53,7 @@
     "zod": "^4.4.3"
   },
   "devDependencies": {
-    "nodemon": "^3.1.14"
+    "nodemon": "^3.1.14",
+    "pdfkit": "^0.20.1"
   }
 }

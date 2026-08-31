@@ -1,5 +1,6 @@
 const mongoose = require('mongoose');
 const { PLATFORM_CONFIG_DEFAULTS } = require('../config/platformDefaults');
+const { DEFAULT_SESSION_PREDICTION } = require('../config/sessionPredictionDefaults');
 
 const gruppenGroessenSchema = new mongoose.Schema(
     {
@@ -13,6 +14,21 @@ const gruppenGroessenSchema = new mongoose.Schema(
     },
     { _id: false }
 );
+
+/** Builds a strict numeric sub-schema from a defaults block. */
+const numericBlockSchema = (block, { min = 0 } = {}) =>
+    new mongoose.Schema(
+        Object.fromEntries(
+            Object.entries(PLATFORM_CONFIG_DEFAULTS[block]).map(([key, value]) => [
+                key,
+                { type: Number, default: value, min },
+            ])
+        ),
+        { _id: false }
+    );
+
+const sperrfristenSchema = numericBlockSchema('sperrfristen');
+const terminEinstellungenSchema = numericBlockSchema('termin_einstellungen');
 
 const platformConfigSchema = new mongoose.Schema(
     {
@@ -41,6 +57,16 @@ const platformConfigSchema = new mongoose.Schema(
             type: gruppenGroessenSchema,
             default: () => ({ ...PLATFORM_CONFIG_DEFAULTS.gruppen_groessen }),
         },
+        /** Blocking periods in days — studios may override each value. */
+        sperrfristen: {
+            type: sperrfristenSchema,
+            default: () => ({ ...PLATFORM_CONFIG_DEFAULTS.sperrfristen }),
+        },
+        /** Appointment durations, booking horizon and lead time. */
+        termin_einstellungen: {
+            type: terminEinstellungenSchema,
+            default: () => ({ ...PLATFORM_CONFIG_DEFAULTS.termin_einstellungen }),
+        },
         /** Plan → feature key list */
         subscription_plans: {
             type: mongoose.Schema.Types.Mixed,
@@ -50,6 +76,11 @@ const platformConfigSchema = new mongoose.Schema(
         feature_global: {
             type: mongoose.Schema.Types.Mixed,
             default: {},
+        },
+        /** Admin-only Sitzungsprognose parameters (Master Excel). Studio may view, not edit. */
+        session_prediction: {
+            type: mongoose.Schema.Types.Mixed,
+            default: () => JSON.parse(JSON.stringify(DEFAULT_SESSION_PREDICTION)),
         },
     },
     {

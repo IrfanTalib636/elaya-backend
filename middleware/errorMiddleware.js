@@ -9,6 +9,22 @@ const errorMiddleware = (err, _req, res, _next) => {
         });
     }
 
+    // body-parser rejects unparseable or oversized payloads before any route
+    // runs. Without this branch the client sees a 500 for its own bad request.
+    if (err.type === 'entity.parse.failed') {
+        return res.status(400).json({
+            success: false,
+            message: 'Invalid JSON body',
+        });
+    }
+
+    if (err.type === 'entity.too.large') {
+        return res.status(413).json({
+            success: false,
+            message: 'Request body too large',
+        });
+    }
+
     if (err.name === 'ValidationError') {
         const errors = Object.values(err.errors).map((e) => ({
             field: e.path,

@@ -1,11 +1,11 @@
 # Elaya Backend API
 
-Shared REST API for the Elaya platform — Customer Web Portal, Studio Web Dashboard, Admin Dashboard, and future mobile apps.
+Shared REST API for the Elaya platform — customer mobile app, Studio Web Dashboard, and Admin Dashboard.
 
 **Stack:** Node.js · Express 5 · MongoDB · Mongoose · JWT · Zod  
 **API base path:** `/api/v1`  
 **Planned production host:** [Railway](https://railway.app)  
-**Last updated:** 2026-07-20
+**Last updated:** 2026-08-29
 
 ---
 
@@ -36,7 +36,7 @@ Shared REST API for the Elaya platform — Customer Web Portal, Studio Web Dashb
 | Appointment API | ✅ Done | POST/GET/PATCH `/appointments` — group booking supported |
 | Session API | ✅ Done | POST/GET/PATCH `/sessions` — studio/admin write, customer read |
 | Lockout engine | ✅ Done | `berechneAlleSperren` — 49/28-day, UV/meds, customer booking validation |
-| Pricing engine | ✅ Done | 7-factor formula — GET `/cases/:id/pricing` (role-scoped) |
+| Pricing engine | ✅ Done | Excel PriceFormula + Multipliers — GET `/cases/:id/pricing` (role-scoped; customers never see multipliers) |
 | Elaycoin engine | ✅ Done | Tested — rewards, milestones, no-show, kurzfristige stornierung, expiry |
 | **Week 2.5** | ✅ **100%** | |
 | Feature flags / platform config | ✅ Done | Tested — admin, customer, studio; `platform_config` + `studio_pricing` / `elaycoin_studio_cfg` |
@@ -170,6 +170,8 @@ Cart stays **client-side** (mobile). Admin product CRUD UI → M4.
 
 Optional `SOCKET_IO_PATH` (default `/socket.io`).
 
+**Other server → client events on the same connection:** `studio:schedule_updated`, `config:session_prediction_updated`, `customer:availability_changed`, `studio:availability_changed`. Clients multiplex all of these over **one** socket — see the availability events above.
+
 ### AI Nachsorge / aftercare (2026-07-23)
 
 | Area | Status | Notes |
@@ -181,6 +183,8 @@ Optional `SOCKET_IO_PATH` (default `/socket.io`).
 | **History** | ✅ Done | `GET /nachsorge`, `GET /nachsorge/:id` |
 | **Swagger Files** | ✅ Done | `POST /files/staging` documented under **Files** tag |
 | **E2E smoke** | ✅ Verified | 2026-07-23 — upload → photo-check → check (+50 coins) → list/detail (`ai_available: true`) |
+| **Healing logic (§9)** | ✅ Done | `healingLogicEngine.js` — phases 1–7 / 8–21 / >21; status `normal \| monitor \| conspicuous \| delayed`; delayed is never date-only |
+| **Studio review** | ✅ Done | `PATCH /nachsorge/:id/review` — confirm or correct healing status + notes |
 | **Verblassung AI** | ✅ Done | `POST /verblassung` — before/after fading % on session; syncs case `removal` |
 | **Elaya FAB chat** | ✅ Done | `POST /chat` — customer + studio context; `erster_elaya_chat` coins |
 
@@ -195,10 +199,11 @@ Optional `SOCKET_IO_PATH` (default `/socket.io`).
 | **Analyze** | ✅ Done | `POST /verblassung` `{ session_id, foto_vorher_file_id?, foto_aktuell_file_id?, persist? }` — studio/admin only |
 | **Photos** | ✅ Done | Defaults: aktuell = session progress file; vorher = prior session progress or case intake main |
 | **Persist** | ✅ Done | Writes `verblassung_prozent`, `removal_pct`, `verblassung_ki`; syncs case `removal` |
-| **Customer read** | ✅ Done | `GET /sessions` includes `%` + customer-safe KI text (no `empfehlung_studio` / raw AI) |
+| **Customer read** | ✅ Done | `GET /sessions` includes `%` only when `comparison_eligible`; otherwise `too_early` / `no_reliable_comparison` (no invented %) |
 | **Progress upload** | ✅ Done | `POST /files/sessions/:id/progress` sets `fortschritt_foto_file_id` |
 | **E2E smoke** | ✅ Verified | 2026-07-23 — progress upload → `/verblassung` (`ai_available: true`, persisted); empty optional photo ids accepted |
-| **Studio UI** | ⏳ Later | Session “KI-Verblassung” button |
+| **First-session skip** | ✅ Done | Session 1 has no KI fading analysis (`ki_analysis_available: false`) |
+| **Studio UI** | ✅ Done | Session detail — studio % override, photo flags, internal estimate |
 
 **Disk path:** `uploads/{studioId}/sessions/{sessionId}/progress.jpg` (not under `staging/`).
 
@@ -211,7 +216,103 @@ Optional `SOCKET_IO_PATH` (default `/socket.io`).
 | **Coins** | ✅ Done | Customer `erster_elaya_chat` (+30, einmalig) |
 | **Escalation** | ✅ Done | Parses `[ESKALATION|…]` → `data.eskalation` (stripped from reply) |
 | **Suggested actions** | ✅ Done | Heuristic tags e.g. `termin_buchen`, `nachsorge` (customer) |
-| **Mobile / studio FAB UI** | ⏳ Later | Wire floating button to this API |
+| **Mobile / studio FAB UI** | ✅ Done | Studio `/studio/elaya`; mobile Chat tab |
+
+### Master Excel domain engines (IT_Clarifications · 2026-08-19)
+
+Leading domain source: [`../masterExcelFile_EN.xlsx`](../masterExcelFile_EN.xlsx) (German original: `../masterExcelFile.xlsx`). CSV exports are technical imports only — if they differ, **Master Excel + IT_Clarifications win**.
+
+**Source of truth if unclear:** 1) IT_Clarifications → 2) README_ClaudeCode → 3) PriceFormula / Multipliers / PriceCalculator / Examples → 4) `*_Master` sheets → 5) questionnaire / progress sheets. Returned on `GET /config/platform` as `domain_source_of_truth`.
+
+| Area | Status | Notes |
+|---|---|---|
+| **Price formula + multipliers** | ✅ Done | `pricingEngine.js` — Fläche × Basis × Farbe × Tiefe × Alter × Haut × Stelle × CoverUp × Ziel; `MAX(Mindestpreis, round-up 5 CHF)` |
+| **Session forecast** | ✅ Done | `sessionPredictionEngine.js` + `lifestyleCompositeEngine.js` — SessionForecast + SessionLogic_Master |
+| **Excel examples (§7)** | ✅ Done | `npm run verify:examples` — three Master Excel cases (age 3y = ×1.05; cover-up infers very-deep) |
+| **Lightening (§8)** | ✅ Done | `lighteningLogicEngine.js` + `lighteningComparisonEngine.js` — customer % only if `comparison_eligible` |
+| **Healing (§9)** | ✅ Done | `healingLogicEngine.js` — window + symptoms + progress; red flags override the window |
+| **Implementation rules (§10)** | ✅ Done | Empty fields still calculate, raise uncertainty, set `needs_human_review`. Studio must confirm/correct price, sessions, lightening, healing |
+| **Estimate confirmation** | ✅ Done | `PATCH /cases/:id/estimate-confirmation` — `offen` / `bestaetigt` / `angepasst` |
+| **Photo_Standards** | ✅ Done | Failed/missing intake flags → review triggers; do not block calculation |
+| **Customer vs studio** | ✅ Done | Customers never receive multipliers, weights, scores, or review-trigger internals |
+| **Flow_Mapping events** | ✅ Done | Recalc on case create/update (incl. photos), aftercare submit, studio review, session complete (`lastSessionDate` = healing baseline) |
+
+**Verify:** `npm run verify:examples` · `verify:lightening` · `verify:healing` · `verify:implementation`
+
+### Configurable rules, multi-location studios & dynamic scheduling (2026-08-29)
+
+No blocking period, appointment duration, or booking horizon is hardcoded any more. All of them are platform defaults that a studio can override, and both clients read them from the API instead of shipping their own copies.
+
+| Area | Status | Notes |
+|---|---|---|
+| **`sperrfristen` config block** | ✅ Done | Studio-overridable blocking periods in days — `same_case_tage:49`, `cross_case_tage:28`, `uv_mittel_tage:21`, `uv_intensiv_tage:28`, `medikament_kurz_tage:14`, `medikament_retinoide_tage:180` |
+| **`termin_einstellungen` config block** | ✅ Done | Studio-overridable scheduling — `behandlung_dauer_minuten:30`, `beratung_dauer_minuten:30`, `gruppen_dauer_minuten:90`, `buchung_horizont_tage:365`, `min_vorlaufzeit_stunden:0` |
+| **`gruppen_punkte` (read-only)** | ✅ Done | `klein:1`, `mittelgross:2`, `gross:4` — platform-wide so a `gross` tattoo always fills the default 4-point cap and must be booked alone |
+| **Three-layer merge** | ✅ Done | `configService.mergeNumericBlock` — static defaults → platform config → studio override; `PATCH` writes dotted paths so a partial patch cannot wipe siblings |
+| **Cross-field invariants** | ✅ Done | `assertBlockInvariants` — `klein_max_cm2` **strictly** < `mittelgross_max_cm2` (equal thresholds make the medium tier unreachable), `gruppen_rabatt ≤ 1`, `uv_mittel_tage ≤ uv_intensiv_tage`, `buchung_horizont_tage ≥ 1` |
+| **Lockout engine parameterised** | ✅ Done | `berechneAlleSperren({ sperrfristen })`; a block configured to `0` days is skipped; German messages interpolate the configured numbers |
+| **Machine-readable lockout reasons** | ✅ Done | Each `sperren[]` entry now carries `kategorie` (`uv` · `medikament` · `cross_case` · `same_case`), `tage`, `case_name` — clients localize instead of printing the German `grund` |
+| **Booking horizon + lead time** | ✅ Done | Availability returns `spaetestes`; `fruehestes` respects `min_vorlaufzeit_stunden`; bookings past the horizon are rejected |
+| **Server-side appointment duration** | ✅ Done | `dauer_minuten` may be omitted — the studio's configured default for treatment / consultation / group applies |
+| **Multi-location studios (`standorte`)** | ✅ Done | Each location has its own `oeffnungszeiten`, `oeffnungs_ausnahmen`, `pufferzeit_minuten`, `slot_interval_minuten`, `aktiv`; unset fields inherit from the studio |
+| **Location-aware availability** | ✅ Done | `GET /cases/:id/availability?standort_id=…` scopes hours, slot grid, and occupancy; legacy appointments without a location still block every location |
+| **Rooms + staff per location** | ✅ Done | `behandlungsraeume[].standort_id`, `mitarbeiter[].standort_id`, validated against existing locations; empty = available everywhere |
+| **Last-used location** | ✅ Done | `GET /cases/:id/standorte` — flags where the customer last booked and was last treated; no approval needed to switch inside one studio |
+
+**Exposure:** `sperrfristen`, `termin_einstellungen`, and `gruppen_punkte` all appear on `GET /config/public` and `GET /config/studio` (the latter also ships a `*_defaults` sibling per block for UI placeholders). New `configService` getters: `getEffectiveBookingConfig`, `getEffectiveSperrfristen`.
+
+**Studio defaults centralised:** `config/studioDefaults.js` now owns `DEFAULT_DAY_HOURS`, `DEFAULT_SLOT_INTERVAL_MINUTEN:60`, `DEFAULT_PUFFERZEIT_MINUTEN:10`, `MIN/MAX_SLOT_INTERVAL_MINUTEN`, `MAX_PUFFERZEIT_MINUTEN` — previously inline literals in the model and `studioHours.js`.
+
+### Zone-level treatment tracking (2026-08-29)
+
+A zoned tattoo is one visual tattoo made of several independently treated zones. Every zone now carries its own measurements, photo, price, session log, fading baseline, and aftercare history.
+
+| Area | Status | Notes |
+|---|---|---|
+| **Zone measured, not templated** | ✅ Done | `laenge_cm` + `breite_cm` are **required positive numbers**; `flaeche_cm2` is derived server-side and a client-supplied value is ignored. `flaeche_template` / `flaeche_modus` / `flaeche_manuell` and `ZONE_FLAECHE_TEMPLATE` removed |
+| **Zone name required** | ✅ Done | `bezeichnung` is now a required non-empty trimmed string (was optional, defaulting to `''`) |
+| **Per-zone price + session range** | ✅ Done | `refreshCaseEstimate` persists `preis`, `sitzungen_geschaetzt_min/max` onto each `CaseZone`; visible to customers |
+| **Per-zone session numbering** | ✅ Done | Unique index widened from `{case, session_number}` to `{case, zonen_id, session_number}` — two zones can each have a session 1 |
+| **`zonen_id` required for zone cases** | ✅ Done | `POST /sessions` rejects a missing zone on a zoned case and rejects a zone on a single-tattoo case; validated to belong to the case |
+| **Sessions cannot change zone** | ✅ Done | `PATCH /sessions/:id` refuses to move a session between zones — delete and re-log it instead |
+| **Per-zone progress rollup** | ✅ Done | `syncZoneSessionStats` writes `fortschritt_prozent`, `sitzungen_erledigt`, `letzte_sitzung` onto each zone |
+| **Zone-scoped fading** | ✅ Done | Previous-session lookup filtered by `zonen_id`; `resolveZoneBaselinePhotoId` uses the zone's own intake photo as the session-1 baseline, never the whole-tattoo photo |
+| **Per-zone aftercare** | ✅ Done | `zonen_id` on `NachsorgeCheck` (+ index), required for zone cases, validated, exposed, and filterable |
+| **Zone filters** | ✅ Done | `GET /sessions?zonen_id=…`, `GET /nachsorge?zonen_id=…` |
+| **Activity feed** | ✅ Done | Aftercare entries are prefixed with the zone (e.g. `Nachsorge-Check (Z001)`) so several checks on one tattoo stay distinguishable |
+| **Density multiplier fixed** | ✅ Done | `ZONE_DICHTE_MULT` gained the `low`/`medium`/`high`/`very_high` keys the clients actually send — previously every zone silently fell back to ×1.0 |
+
+**Migration required once:** `npm run migrate:session-zone-index` — creates the new unique index and drops the old `{case, session_number}` one. Idempotent. **Verify:** `npm run verify:zone-tracking`.
+
+### Booking transparency, intake prefill & anamnesis signature (2026-08-29)
+
+| Area | Status | Notes |
+|---|---|---|
+| **Earliest bookable date everywhere** | ✅ Done | The notice shown *before* the calendar now uses the same full lockout set as the calendar (same-case, cross-case, UV, medication, booked appointments) — the latest date always wins |
+| **Availability hint always computed** | ✅ Done | `POST …/booking-precheck/preview` previously only returned `availability_hint` when the customer reported UV exposure, hiding same-case and cross-case blocks |
+| **Real-time availability events** | ✅ Done | `sockets/availabilityEmit.js` — booking, cancelling, or logging a session re-broadcasts to **both** the customer and the studio, so a cross-case block that opens on case B appears without a manual refresh |
+| **Intake prefill** | ✅ Done | `GET /cases/intake/prefill` — reuses the 16 person-level skin/lifestyle answers (`CARRY_OVER_INTAKE_FIELDS`) from the customer's most recent case. `skin_sun_zone` is deliberately excluded because it describes the treated area |
+| **Per-case snapshot preserved** | ✅ Done | Prefill only seeds the form; each case still stores the answers that were valid when it was created, so history and session prediction stay traceable |
+| **Second signature (anamnesis)** | ✅ Done | `POST /cases/:id/signature` accepts `anamnese_bestaetigt` (literal `true`), `anamnese_bestaetigung_text`, `anamnese_unterschrift_data`, stored separately in `unterschrift_anamnese` |
+| **Separate signature image** | ✅ Done | `GET /cases/:id/signature/image?variant=anamnese`; stored as `signature-anamnese.jpg` alongside the leaflet signature |
+| **Completion flag** | ✅ Done | `anamnesis_signature_complete` on case payloads and on `GET …/merkblatt` (`requirements`) |
+
+**Socket events:** `customer:availability_changed` → room `availability:customer:{customerId}`, `studio:availability_changed` → room `availability:studio:{studioId}`. Payload `{ updated_at, reason, … }` with `reason` ∈ `appointment_created` · `appointment_cancelled` · `appointment_updated` · `session_created` · `session_updated`. Emission is fire-and-forget — a socket failure never fails the REST request.
+
+### Live pricing preview + regression harness (2026-08-29)
+
+| Area | Status | Notes |
+|---|---|---|
+| **Pricing preview endpoint** | ✅ Done | `POST /config/pricing/preview` — runs the real `pricingEngine` against **unsaved** `studio_pricing` values; never persists |
+| **Ordered price breakdown** | ✅ Done | `breakdown.steps[]` = base price → each applied multiplier (with the `config_key` it came from and a running subtotal) → rounding → minimum-price floor |
+| **Saved → draft delta** | ✅ Done | Runs the saved config as `baseline` alongside the draft and reports the CHF difference |
+| **Config sanity check** | ✅ Done | `checkPricingConfig` flags a multiplier of `0` or less as an **error** (it collapses every price it touches) and implausibly high multipliers as a warning |
+| **Multipliers name their source** | ✅ Done | `resolveColorMultiplier` / `resolveDepthMultiplier` return `{ key, value }` so a breakdown can say *which* setting produced ×1.4 |
+| **API regression suite** | ✅ Done | `npm run regression` — 19 API suites + 3 Socket.io suites, ~136 checks; creates and cleans up its own fixtures so runs are idempotent |
+| **Client static checks** | ✅ Done | `npm run regression:clients` — missing/duplicate translation keys, locale drift, hardcoded config values, route/navigation integrity across both client apps |
+| **PDF report** | ✅ Done | `npm run regression:report` — renders the JSON results into `ELAYA_Regression_Test_Report.pdf` (requires `pdfkit`) |
+
+**Verify:** `npm run verify:pricing-preview` (breakdown replays to the real price; a zero multiplier is reported) · `npm run verify:examples` still matches the Master Excel prices CHF 90 / 205 / 865.
 
 ### Changelog
 
@@ -259,6 +360,25 @@ Optional `SOCKET_IO_PATH` (default `/socket.io`).
 [2026-07-23] — Verblassung E2E verified; optional empty photo ids in Swagger; progress files under uploads/{studio}/sessions/
 [2026-07-24] — AI Elaya FAB chat: POST /chat with server context, escalation parse, erster_elaya_chat coins
 [2026-08-05] — Studio ↔ customer live chat: Socket.io + REST `/messaging` (Conversation/Message models)
+[2026-08-19] — Master Excel engines: PriceFormula/Multipliers, session forecast + lifestyle composite, lightening + healing logic
+[2026-08-19] — Human-in-the-loop: PATCH /cases/:id/estimate-confirmation, PATCH /nachsorge/:id/review, session lightening studio override
+[2026-08-19] — Role-aware outputs: no customer multipliers; fading % only when comparison_eligible; skip KI on session 1
+[2026-08-19] — Verifiers: npm run verify:examples | verify:lightening | verify:healing | verify:implementation
+[2026-08-29] — Config blocks sperrfristen + termin_einstellungen (studio-overridable) + read-only gruppen_punkte
+[2026-08-29] — Lockout engine parameterised: no hardcoded 49/28/21/28/14/180 days; sperren carry kategorie + tage for client-side localization
+[2026-08-29] — Booking horizon (spaetestes) + min lead time; appointment durations default from studio config
+[2026-08-29] — Multi-location studios: per-standort hours/exceptions/slot grid/buffer, rooms + staff per location, location-scoped availability
+[2026-08-29] — GET /cases/:id/standorte — locations with last-booked / last-treated flags for the customer
+[2026-08-29] — Zone tattoos measured: laenge_cm × breite_cm required, flaeche_cm2 derived, zone name required, per-zone price + session range persisted
+[2026-08-29] — Per-zone sessions: unique index {case, zonen_id, session_number} + migrate:session-zone-index; zonen_id required for zone cases
+[2026-08-29] — Per-zone fading baseline (zone intake photo) + per-zone progress rollup (syncZoneSessionStats)
+[2026-08-29] — Per-zone aftercare: zonen_id on NachsorgeCheck + validation + filters; zone prefix in activity feed
+[2026-08-29] — GET /cases/intake/prefill — reuse person-level skin/lifestyle answers from the customer's last case
+[2026-08-29] — Second signature: anamnesis truthfulness stored separately (unterschrift_anamnese, variant=anamnese image)
+[2026-08-29] — Real-time availability: customer:availability_changed + studio:availability_changed on booking/cancel/session
+[2026-08-29] — POST /config/pricing/preview — live price breakdown (base → multipliers → final) + config sanity check
+[2026-08-29] — Regression harness: npm run regression | regression:clients | regression:report (PDF)
+[2026-08-29] — Fixes: invalid JSON → 400 (was 500), GDPR export zones, group booking dropped cases, zone photos dropped on case update, populated-ref access checks
 ```
 
 ---
@@ -270,6 +390,7 @@ backend/
 ├── config/
 │   ├── constants.js       # Enums (roles, case status, appointment status, etc.)
 │   ├── db.js              # MongoDB connection
+│   ├── domainSourceOfTruth.js # IT_Clarifications §10 precedence + review principle
 │   ├── fieldReference.js  # Developer cheat sheet (local only, gitignored)
 │   ├── pricingDefaults.js # 7-factor pricing multipliers (client §5d)
 │   ├── elaycoinConfig.js  # Elaycoin situations + platform limits (client §7)
@@ -320,7 +441,25 @@ backend/
 ├── scripts/
 │   ├── bootstrapAdmin.js  # One-time production super admin (guarded)
 │   ├── seedDemo.js        # Financier demo — #TRI-001 + #HAN-001 (local; VPS with SEED_DEMO_ALLOW_PRODUCTION=1)
-│   └── seedDev.js         # Local dev fixtures only — blocked in production
+│   ├── seedDev.js         # Local dev fixtures only — blocked in production
+│   ├── migrateSessionZoneIndex.js # One-time — per-zone session unique index
+│   ├── verifyExcelExamples.js
+│   ├── verifyLighteningLogic.js
+│   ├── verifyHealingLogic.js
+│   ├── verifyImplementationRules.js
+│   ├── verifyPricingPreview.js    # Live price breakdown + config sanity check
+│   ├── verifyZoneTracking.js      # Per-zone sessions / aftercare / progress
+│   ├── verifyCaseAvailability.js  # Cross-case recalculation of earliest date
+│   ├── verifyAvailabilitySocket.js
+│   ├── verifyStudioAvailabilitySocket.js
+│   └── regression/        # Full platform regression harness
+│       ├── run.js         # Orchestrator — npm run regression
+│       ├── runner.js      # Assertion + structured-result harness
+│       ├── httpClient.js  # HTTP client with cookie jar (refresh-token flows)
+│       ├── apiSuites.js   # 19 API suites
+│       ├── socketSuites.js # Connection, availability fan-out, messaging
+│       ├── checkClients.mjs # Static i18n / hardcoded-value checks on both clients
+│       └── buildReport.mjs  # Results → PDF (pdfkit)
 ├── validators/
 │   ├── anamnesisValidator.js
 │   ├── appointmentValidator.js
@@ -342,14 +481,29 @@ backend/
 │   ├── bookingPrecheckApply.js  # Persist PS_01 side effects on appointment book
 │   ├── generateCaseId.js
 │   ├── generateTokenAndSetCookies.js
-│   ├── lockoutEngine.js         # berechneAlleSperren — 49/28-day, UV/meds, pre-session
+│   ├── lockoutEngine.js         # berechneAlleSperren — configurable sperrfristen, UV/meds, horizon + lead time
 │   ├── medicalFlagHelpers.js    # Worst medical flag aggregation for CRM/customers
 │   ├── passwordReset.js         # Token issue/verify + portal-scoped reset
 │   ├── pagination.js            # page/limit parsing for list endpoints
 │   ├── elaycoinEngine.js        # vergebeElaycoins, zieheElaycoinsAb, expiry
 │   ├── configService.js         # platform_config + studio_pricing helpers
-│   ├── pricingEngine.js         # 7-factor session price (internal)
-│   └── sessionHelpers.js        # session_number + case stats sync
+│   ├── pricingEngine.js         # Excel PriceFormula + multipliers (internal)
+│   ├── sessionPredictionEngine.js
+│   ├── lifestyleCompositeEngine.js
+│   ├── lighteningLogicEngine.js
+│   ├── lighteningComparisonEngine.js
+│   ├── lighteningSessionService.js
+│   ├── healingLogicEngine.js
+│   ├── photoStandards.js        # Photo_Standards intake flags
+│   ├── engineReview.js          # needs_human_review envelope
+│   ├── plausibilityCheck.js     # Excel §7 examples
+│   ├── groupBooking.js          # Size points (gruppen_punkte) + group discount
+│   ├── studioHours.js           # Opening hours + per-standort schedule resolution
+│   └── sessionHelpers.js        # Per-zone session_number + case/zone stats sync
+├── sockets/
+│   ├── index.js                 # Socket.io server — JWT auth, rooms
+│   ├── availabilityEmit.js      # customer/studio:availability_changed fan-out
+│   └── studioScheduleEmit.js    # studio:schedule_updated
 ├── server.js
 ├── .env.example
 └── README.md
@@ -377,6 +531,8 @@ npm run dev                 # development with nodemon
 
 Server: `http://localhost:4000`  
 Swagger: `http://localhost:4000/api/v1/docs`
+
+Studio web (`elaya-frontend`) and customer app (`elaya-mobile`) both talk to this API at `/api/v1`. See those READMEs for local `VITE_API_URL` / `EXPO_PUBLIC_BASE_URL`.
 
 ### Environment variables
 
@@ -481,8 +637,14 @@ Only studios with status **`aktiv`** appear in the public list. Pending (`ausste
 | `GET` | `/api/v1/cases` | Bearer | List cases (scoped by role) — **paginated** |
 | `GET` | `/api/v1/cases/:id` | Bearer | Get case + zones |
 | `PATCH` | `/api/v1/cases/:id` | Bearer | Update case (intake vs studio fields by role) |
-| `GET` | `/api/v1/cases/:id/availability` | Bearer | Booking calendar — blocked days + `fruehestes` |
-| `GET` | `/api/v1/cases/:id/pricing` | Bearer | Price estimate — customer AB only; studio sees breakdown |
+| `GET` | `/api/v1/cases/intake/prefill` | Bearer | Person-level skin/lifestyle answers from the customer's last case — `customer_id` (studio/admin), `exclude_case_id` |
+| `GET` | `/api/v1/cases/:id/availability` | Bearer | Booking calendar — blocked days, `fruehestes`, `spaetestes`; optional `standort_id` |
+| `GET` | `/api/v1/cases/:id/standorte` | Bearer | Studio locations for this case + last-booked / last-treated flags |
+| `POST` | `/api/v1/cases/pricing/preview` | Bearer | Price + session preview from intake (no case id) — customer sees AB only |
+| `GET` | `/api/v1/cases/:id/pricing` | Bearer | Price estimate — customer AB only; studio sees breakdown + `needs_human_review` |
+| `PATCH` | `/api/v1/cases/:id/estimate-confirmation` | Studio / Admin | Confirm (`bestaetigt`), adjust (`angepasst`), or re-open (`offen`) the estimate |
+
+**Zones on `POST`/`PATCH /cases`:** each zone requires `bezeichnung`, `laenge_cm`, `breite_cm`, and `foto_url` (a staging file id uploaded with `slot=zone`). `flaeche_cm2` is derived server-side. Responses add `preis`, `sitzungen_geschaetzt_min/max`, `sitzungen_erledigt`, `letzte_sitzung`, `fortschritt_prozent` per zone.
 
 ### Appointments
 
@@ -497,10 +659,12 @@ Only studios with status **`aktiv`** appear in the public list. Pending (`ausste
 
 | Method | Path | Auth | Description |
 |---|---|---|---|
-| `POST` | `/api/v1/sessions` | Bearer (studio/admin) | Record treatment session |
-| `GET` | `/api/v1/sessions` | Bearer | List sessions (customer = read-only view) — **paginated** |
+| `POST` | `/api/v1/sessions` | Bearer (studio/admin) | Record treatment session — `zonen_id` **required** for zone cases |
+| `GET` | `/api/v1/sessions` | Bearer | List sessions (customer = read-only view) — **paginated**, optional `zonen_id` |
 | `GET` | `/api/v1/sessions/:id` | Bearer | Get session details |
-| `PATCH` | `/api/v1/sessions/:id` | Bearer (studio/admin) | Update protocol / complete draft |
+| `PATCH` | `/api/v1/sessions/:id` | Bearer (studio/admin) | Update protocol / complete draft — cannot move a session to another zone |
+
+**Per-zone numbering:** `session_number` is unique per `{case, zonen_id}`, so each zone of a tattoo has its own session 1, 2, 3 … Zone sessions get `session_id` `s<n>-<zonen_id>-<caseTail>`. Run `npm run migrate:session-zone-index` once on an existing database.
 
 ### Files (private photos)
 
@@ -525,7 +689,17 @@ Case fields `photo_intake_main`, `photo_intake_detail`, `photo_marker`, and zone
 **Case `status` values (English):** `pending` · `active` · `completed` · `loeschantrag_ausstehend`  
 (User/studio account status uses German: `ausstehend` · `aktiv` · `gesperrt`.)
 
-**Pricing:** `pricePerSession` is hidden from customer API responses (internal studio field per client spec).
+**Pricing:** Customers see displayed price/session range only (no multipliers, weights, or review triggers). Until the studio confirms (`estimate_confirmation`), the engine snapshot is shown; after confirm/adjust, confirmed values win. Studio still sees the calculated snapshot.
+
+### Nachsorge (aftercare)
+
+| Method | Path | Auth | Description |
+|---|---|---|---|
+| `POST` | `/api/v1/nachsorge/photo-check` | Bearer | Stage 1 — photo-only AI ampel |
+| `POST` | `/api/v1/nachsorge/check` | Bearer | Stage 2 — persist healing assessment; also runs lightening on latest session |
+| `GET` | `/api/v1/nachsorge` | Bearer | List checks (customer = own; studio = studio-scoped) |
+| `GET` | `/api/v1/nachsorge/:id` | Bearer | Check detail (role-scoped fields) |
+| `PATCH` | `/api/v1/nachsorge/:id/review` | Studio / Admin | Confirm or correct `healing_status` + notes |
 
 ### Pagination (list endpoints)
 
@@ -617,15 +791,29 @@ Maps prototype `elaya_admin_config` → `platform_config` and `inkderm_pricing` 
 
 | Method | Path | Auth | Description |
 |---|---|---|---|
-| `GET` | `/api/v1/config/public` | Bearer (all roles) | Group booking sizes + Elaycoin display limits |
-| `GET` | `/api/v1/config/platform` | Admin | Full platform config (Elaycoin, finance, group booking) |
+| `GET` | `/api/v1/config/public` | Bearer (all roles) | Group booking sizes + points, `sperrfristen`, `termin_einstellungen`, Elaycoin display limits |
+| `GET` | `/api/v1/config/platform` | Admin | Full platform config (Elaycoin, finance, group booking, blocking periods, appointments) |
 | `PATCH` | `/api/v1/config/platform` | Admin | Update platform config (partial) |
-| `GET` | `/api/v1/config/studio` | Studio staff/admin | Own studio pricing + Elaycoin overrides |
-| `PATCH` | `/api/v1/config/studio` | Studio admin | Update own `studio_pricing`, `elaycoin_studio_cfg`, `coin_wert` |
+| `GET` | `/api/v1/config/studio` | Studio staff/admin | Own studio pricing + Elaycoin / booking overrides (each block with a `*_defaults` sibling) |
+| `PATCH` | `/api/v1/config/studio` | Studio admin | Update own `studio_pricing`, `elaycoin_studio_cfg`, `coin_wert`, `gruppen_groessen`, `sperrfristen`, `termin_einstellungen` |
+| `POST` | `/api/v1/config/pricing/preview` | Studio / Admin | Live price breakdown for **unsaved** pricing values — never persists |
 | `GET` | `/api/v1/config/studios/:studioId` | Admin | Studio config by ID |
 | `PATCH` | `/api/v1/config/studios/:studioId` | Admin | Update any studio config |
 
 **Platform defaults (client handoff):** `coinWert:0.10`, `minWert:0.05`, `maxWert:0.20`, `deckelProzent:20`, `verfallMonate:12`, `grundgebuehr:149`, `transaktionsProzent:3`, `zahlungszielTage:30`, `gruppen_groessen:{ klein_max_cm2:50, mittelgross_max_cm2:150, max_punkte:4, gruppen_rabatt:0.15 }`.
+
+**Studio-overridable numeric blocks** (`gruppen_groessen`, `sperrfristen`, `termin_einstellungen`) merge as **static defaults → platform config → studio override**, so a studio only stores the keys it actually changed. Patches are written as dotted paths, so sending one key never wipes its siblings.
+
+| Block | Keys (defaults) |
+|---|---|
+| `gruppen_groessen` | `klein_max_cm2:50`, `mittelgross_max_cm2:150`, `max_punkte:4`, `gruppen_rabatt:0.15` |
+| `sperrfristen` | `same_case_tage:49`, `cross_case_tage:28`, `uv_mittel_tage:21`, `uv_intensiv_tage:28`, `medikament_kurz_tage:14`, `medikament_retinoide_tage:180` |
+| `termin_einstellungen` | `behandlung_dauer_minuten:30`, `beratung_dauer_minuten:30`, `gruppen_dauer_minuten:90`, `buchung_horizont_tage:365`, `min_vorlaufzeit_stunden:0` |
+| `gruppen_punkte` *(read-only)* | `klein:1`, `mittelgross:2`, `gross:4` |
+
+`gruppen_punkte` is intentionally **not** editable: `gross` equals the default `max_punkte`, which is what makes a large tattoo bookable only on its own. Studios adjust the cm² thresholds instead.
+
+**Live pricing preview:** `POST /config/pricing/preview` with `{ preset_id?, case_input?, studio_pricing?, studio_id? }` returns `{ live, baseline, delta, config_check, presets }`. `live.breakdown.steps[]` walks base price → each multiplier (naming the `config_key` it came from, with a running subtotal) → rounding → minimum-price floor, so a studio can see exactly which of its own settings moved the price. `config_check.issues[]` flags values that break the maths — a multiplier of `0` is an `error` because it collapses every price it touches.
 
 **Testing:** Login as admin → `GET /config/platform`. Patch → `PATCH /config/platform` with `{ "gruppen_groessen": { "gruppen_rabatt": 0.15 } }`. Customer → `GET /config/public`. Studio admin (`studio@inkfree.ch`) → `GET/PATCH /config/studio`. Admin → `GET/PATCH /config/studios/{studioId}` (studioId from seed output or GET `/cases` → `studio` field).
 
@@ -646,16 +834,22 @@ Maps prototype settings tabs → `Studio` document fields (separate from pricing
 
 - `profile` — `firma`, `email`, `telefon`, address fields, `studio_code`, `status`, `notizen` (email read-only)
 - `oeffnungszeiten` — keys `mo`–`so`, each `{ offen, von, bis }` (defaults merged on read)
-- `behandlungsraeume[]` — `{ id, name, farbe, aktiv, laser_brand, laser_model }`
-- `mitarbeiter[]` — `{ id, vorname, nachname, rolle, raum_id, aktiv, user_id }` (roster only; login invite flow post-M2)
+- `standorte[]` — `{ id, name, strasse, plz, ort, land, aktiv, oeffnungszeiten, oeffnungs_ausnahmen[], pufferzeit_minuten, slot_interval_minuten }`
+- `behandlungsraeume[]` — `{ id, name, farbe, aktiv, laser_brand, laser_model, standort_id }`
+- `mitarbeiter[]` — `{ id, vorname, nachname, rolle, raum_id, aktiv, user_id, standort_id }` (roster only; login invite flow post-M2)
 - `pufferzeit_minuten` — buffer after appointments (0–120)
 
 **PATCH notes:**
 
 - `profile`, `oeffnungszeiten`, and `pufferzeit_minuten` are partial merges.
-- `behandlungsraeume` and `mitarbeiter` **replace the full array** when sent — include existing items you want to keep.
+- `standorte`, `behandlungsraeume`, and `mitarbeiter` **replace the full array** when sent — include existing items you want to keep.
 - `mitarbeiter[].raum_id` must reference a room `id` from the current roster (validated on save).
+- `behandlungsraeume[].standort_id` / `mitarbeiter[].standort_id` must reference an existing location; leave empty to make the resource available at every location.
 - Staff roles: `Studiobetreiber`, `Laser-Therapeutin`, `Empfang`, `Andere`.
+
+**Locations (`standorte`):** a location inherits every unset field from the studio, so a branch that shares the studio's hours only needs a name and address. `slot_interval_minuten` accepts `15 | 30 | 45 | 60` or `null` (inherit). Set `aktiv: false` to keep a location on record without offering it for booking — inactive locations are hidden from `GET /studios/public` and from `GET /cases/:id/standorte`.
+
+**Location-aware booking:** `POST /appointments` resolves `standort_id` against the studio. A studio with exactly one active location gets it assigned automatically; a customer booking at a multi-location studio without one gets `400 standort_id is required — please choose a location`. Switching location inside the same studio needs no request or approval.
 
 **Testing:** Login as studio admin (`studio@inkfree.ch`) → `GET /studio/settings`. Patch profile: `{ "profile": { "telefon": "+41 61 123 45 67" } }`. Patch hours: `{ "oeffnungszeiten": { "so": { "offen": true } } }`. Admin → `GET/PATCH /studio/studios/{studioId}/settings`.
 
@@ -777,6 +971,38 @@ Industry pattern: **never auto-create admins on server start**. Run a guarded on
 | `npm start` | Production start |
 | `npm run seed:dev` | Local dev only — admin + studio admin + pilot studio INKFREE (blocked in production) |
 | `npm run bootstrap:admin` | One-time production super admin (guarded) |
+| `npm run verify:examples` | Master Excel §7 price/session fixtures |
+| `npm run verify:lightening` | LighteningLogic_Master + §8 fixtures |
+| `npm run verify:healing` | HealingLogic_Master + §9 fixtures |
+| `npm run verify:implementation` | §10 source-of-truth / review / customer-hide checks |
+| `npm run verify:session-preview` | Session prediction preview breakdown |
+| `npm run verify:pricing-preview` | Live price breakdown replays to the engine's price; config sanity check |
+| `npm run verify:zone-tracking` | Per-zone session logging, aftercare, and progress rollup (needs the API running) |
+| `npm run migrate:session-zone-index` | **One-time** — widen the session unique index to `{case, zonen_id, session_number}` |
+| `npm run regression` | Full API + Socket.io regression suite (needs the API running) |
+| `npm run regression:clients` | Static checks on both client apps — i18n keys, locale drift, hardcoded config |
+| `npm run regression:report` | Render the last regression results into a PDF report |
+
+Scripts without an npm alias — run with `node scripts/<name>.js`:
+
+| Script | Description |
+|---|---|
+| `verifyCaseAvailability.js` | Proves one case's earliest bookable date moves when another case of the same customer is booked |
+| `verifyAvailabilitySocket.js` | Books and cancels over HTTP, asserts `customer:availability_changed` arrives on a real socket |
+| `verifyStudioAvailabilitySocket.js` | Same with two clients — asserts `studio:availability_changed` reaches a studio-only socket |
+
+### Regression suite
+
+```bash
+npm run dev                  # API must be running
+npm run regression           # 19 API suites + 3 realtime suites
+npm run regression:clients    # static i18n / hardcoded-value checks on frontend + mobile
+npm run regression:report     # → ELAYA_Regression_Test_Report.pdf
+```
+
+The suite creates a throwaway customer, exercises the full customer journey (anamnesis → both signatures → booking pre-check → booking → session → aftercare), and deletes its own fixtures, so it is safe to re-run. Configure the target with `REGRESSION_BASE_URL` (default `http://localhost:4000`).
+
+Coverage: health & discovery, auth & authorization, configuration, customers, cases, availability & blocking periods, anamnesis & signatures, appointments, group booking, sessions, studio dashboard, admin dashboard, shop, messaging, aftercare & fading, files, studio transfers, Elaya chat, and input validation / hardening.
 
 ---
 
@@ -792,8 +1018,11 @@ Industry pattern: **never auto-create admins on server start**. Run a guarded on
 
 ## Related docs
 
+- `../elaya-frontend/README.md` — Studio / admin web
+- `../elaya-mobile/README.md` — Customer app
 - `../DEVELOPER-HANDOFF-EN.md` — Full platform spec and field definitions
 - `../ELAYA-DOCS-FOR-CLIENT.pdf` — Milestones and architecture
+- `../masterExcelFile_EN.xlsx` — Leading domain reference (IT_Clarifications, engines, Photo_Standards, Flow_Mapping)
 - `config/fieldReference.js` — Developer field name cheat sheet (local only, not in git)
 
 ---

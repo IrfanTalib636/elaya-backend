@@ -1,9 +1,13 @@
 const Case = require('../models/caseModel');
+const CaseZone = require('../models/caseZoneModel');
+const Session = require('../models/sessionModel');
 const FileAsset = require('../models/fileAssetModel');
 const NachsorgeCheck = require('../models/nachsorgeCheckModel');
 const ApiError = require('../utils/ApiError');
 const asyncHandler = require('../utils/asyncHandler');
-const { assertCaseAccess, isCustomer, isStudio, isAdmin, refId } = require('../utils/accessHelpers');
+const { computeHealingAssessment, applyStudioHealingCorrection, worseAmpel } = require('../utils/healingLogicEngine');
+const { evaluateAndApplySessionLightening } = require('../utils/lighteningSessionService');
+const { assertCaseAccess, assertCaseWriteAccess, isCustomer, isStudio, isAdmin, refId } = require('../utils/accessHelpers');
 const { assertFileAccess, logFileAccess } = require('../services/fileAccessService');
 const { readFileBuffer } = require('../services/fileStorageService');
 const { FILE_AUDIT_ACTION, FILE_STATUS } = require('../config/storageConfig');
@@ -47,6 +51,41 @@ const loadOwnedCase = async (user, caseId) => {
     if (!caseDoc) throw new ApiError(404, 'Case not found');
     await assertCaseAccess(user, caseDoc);
     return caseDoc;
+};
+
+/**
+ * Resolve which zone an aftercare check documents.
+ *
+ * Zone cases must name a zone: each zone heals on its own timeline and is
+ * photographed separately, so an unassigned check could not be compared with
+ * the zone's own history. Single-tattoo cases must not name one.
+ */
+const resolveCheckZone = async (caseDoc, zonenId) => {
+    const requested = typeof zonenId === 'string' ? zonenId.trim() : null;
+
+    if (!caseDoc.zonen_aktiv) {
+        if (requested) {
+            throw new ApiError(400, 'zonen_id is only valid for cases split into zones');
+        }
+        return null;
+    }
+
+    if (!requested) {
+        throw new ApiError(
+            400,
+            'zonen_id is required for a zone case — aftercare is documented per zone'
+        );
+    }
+
+    const zone = await CaseZone.findOne({ case: caseDoc._id, zonen_id: requested })
+        .select('_id')
+        .lean();
+
+    if (!zone) {
+        throw new ApiError(400, `zonen_id "${requested}" does not belong to this case`);
+    }
+
+    return requested;
 };
 
 const loadPhotoForAi = async (user, fotoFileId, caseDoc, req) => {
@@ -180,7 +219,7 @@ const aiUnavailableFallback = (stage) => {
     };
 };
 
-const formatCheck = (doc) => {
+const formatCheck = (doc, role = 'studio') => {
     const d = doc.toObject ? doc.toObject() : doc;
     const customerRef =
         d.customer && typeof d.customer === 'object' && d.customer._id
@@ -188,37 +227,82 @@ const formatCheck = (doc) => {
             : null;
     const caseRef =
         d.case && typeof d.case === 'object' && d.case._id ? d.case : null;
-    return {
+    const customerView = isCustomer(role);
+    const base = {
         id: String(d._id),
         case_id: String(caseRef ? caseRef._id : d.case),
         case_display_id: caseRef?.caseId ?? null,
+        zonen_id: d.zonen_id ?? null,
         customer_id: String(customerRef ? customerRef._id : d.customer),
-        customer_name: customerRef
-            ? [customerRef.vorname, customerRef.nachname].filter(Boolean).join(' ')
-            : null,
         studio_id: String(d.studio),
         foto_file_id: d.foto_file_id ? String(d.foto_file_id) : null,
         symptome: d.symptome || [],
         sitzungs_datum: d.sitzungs_datum,
         tage_nach_sitzung: d.tage_nach_sitzung,
         foto_status: d.foto_status,
-        foto_befund: d.foto_befund,
-        foto_auffaelligkeiten: d.foto_auffaelligkeiten || [],
         ampel: d.ampel,
         titel: d.titel,
-        zusammenfassung: d.zusammenfassung,
+        zusammenfassung: d.healing_customer_summary || d.zusammenfassung,
         empfehlungen: d.empfehlungen || [],
         studio_kontakt: !!d.studio_kontakt,
         naechster_check_tage: d.naechster_check_tage,
-        hinweis: d.hinweis,
+        hinweis: d.healing_customer_summary || d.hinweis,
+        healing_status: d.healing_status || null,
+        healing_phase: d.healing_phase || null,
+        healing_customer_summary: d.healing_customer_summary || '',
+        healing_recommended_action: d.healing_recommended_action || null,
+        progress_direction_self: d.progress_direction_self || null,
         erstellt_von: d.erstellt_von,
         erstellt_am: d.createdAt,
+    };
+
+    if (customerView) {
+        return {
+            ...base,
+            customer_name: null,
+            foto_befund: d.foto_befund,
+            foto_auffaelligkeiten: [],
+            healing_red_flag: false,
+            healing_red_flags: [],
+            healing_needs_review: false,
+            healing_severity_score: null,
+            healing_progress_score: null,
+            healing_symptoms: null,
+            healing_behavior: null,
+            studio_review_notes: '',
+            healing_status_calculated: null,
+            healing_studio_reviewed_at: null,
+            healing_studio_reviewed_by: '',
+        };
+    }
+
+    return {
+        ...base,
+        customer_name: customerRef
+            ? [customerRef.vorname, customerRef.nachname].filter(Boolean).join(' ')
+            : null,
+        foto_befund: d.foto_befund,
+        foto_auffaelligkeiten: d.foto_auffaelligkeiten || [],
+        healing_red_flag: !!d.healing_red_flag,
+        healing_red_flags: d.healing_red_flags || [],
+        healing_needs_review: !!d.healing_needs_review,
+        healing_severity_score: d.healing_severity_score ?? null,
+        healing_progress_score: d.healing_progress_score ?? null,
+        healing_symptoms: d.healing_symptoms || null,
+        healing_behavior: d.healing_behavior || null,
+        studio_review_notes: d.studio_review_notes || '',
+        healing_status_calculated: d.healing_status_calculated || d.healing_status || null,
+        healing_studio_reviewed_at: d.healing_studio_reviewed_at || null,
+        healing_studio_reviewed_by: d.healing_studio_reviewed_by || '',
     };
 };
 
 // ── POST /nachsorge/photo-check ───────────────────────────────────────────
 const photoCheck = asyncHandler(async (req, res) => {
     const caseDoc = await loadOwnedCase(req.user, req.body.case_id);
+    // Validated here too, so the customer is told about a missing zone before
+    // spending an AI call rather than after it.
+    await resolveCheckZone(caseDoc, req.body.zonen_id);
     const tage = resolveTageNachSitzung(req.body.sitzungs_datum, caseDoc);
     const { buffer, mimeType } = await loadPhotoForAi(
         req.user,
@@ -277,6 +361,7 @@ Antworte nur als reines JSON ohne Markdown.`,
 // ── POST /nachsorge/check ─────────────────────────────────────────────────
 const createCheck = asyncHandler(async (req, res) => {
     const caseDoc = await loadOwnedCase(req.user, req.body.case_id);
+    const zonenId = await resolveCheckZone(caseDoc, req.body.zonen_id);
     const sitzungsDatum = req.body.sitzungs_datum
         ? new Date(req.body.sitzungs_datum)
         : caseDoc.lastSessionDate || null;
@@ -356,10 +441,52 @@ Auffälligkeiten: ${(photoStage.foto_auffaelligkeiten || []).join(', ') || 'kein
         };
     }
 
+    const healing = computeHealingAssessment({
+        days_since_session: tage,
+        symptome,
+        photo_ampel: photoStage.foto_status || combined.ampel,
+        erythema_level: req.body.erythema_level,
+        swelling_level: req.body.swelling_level,
+        blistering_flag: req.body.blistering_flag,
+        crusting_level: req.body.crusting_level,
+        pain_score: req.body.pain_score,
+        itching_level: req.body.itching_level,
+        hyperpigmentation_level: req.body.hyperpigmentation_level,
+        hypopigmentation_level: req.body.hypopigmentation_level,
+        infection_suspected: req.body.infection_suspected,
+        oozing: req.body.oozing,
+        warmth: req.body.warmth,
+        open_lesion: req.body.open_lesion,
+        progress_direction_self: req.body.progress_direction_self,
+        concern_flag: req.body.concern_flag,
+        sun_avoidance: req.body.sun_avoidance,
+        spf_use: req.body.spf_use,
+        aftercare_use: req.body.aftercare_use,
+        scratching_behavior: req.body.scratching_behavior,
+        early_sport_flag: req.body.early_sport_flag,
+        current_sleep_quality: req.body.current_sleep_quality,
+        current_stress_level: req.body.current_stress_level,
+        current_hydration_level: req.body.current_hydration_level,
+        recent_alcohol_excess: req.body.recent_alcohol_excess,
+    });
+
+    combined.ampel = worseAmpel(combined.ampel, healing.ampel);
+    combined.studio_kontakt = combined.studio_kontakt || healing.studio_kontakt;
+    if (healing.customer_summary && !combined.zusammenfassung) {
+        combined.zusammenfassung = healing.customer_summary;
+    }
+    if (healing.recommended_action_text && !(combined.empfehlungen || []).includes(healing.recommended_action_text)) {
+        combined.empfehlungen = [healing.recommended_action_text, ...(combined.empfehlungen || [])];
+    }
+    if (healing.customer_summary) {
+        combined.hinweis = healing.customer_summary;
+    }
+
     const studioId = caseDoc.studio || caseDoc.aktuelle_firma_id;
     const check = await NachsorgeCheck.create({
         customer: caseDoc.customer,
         case: caseDoc._id,
+        zonen_id: zonenId,
         studio: studioId,
         foto_file_id: fileAsset._id,
         symptome,
@@ -375,6 +502,19 @@ Auffälligkeiten: ${(photoStage.foto_auffaelligkeiten || []).join(', ') || 'kein
         studio_kontakt: combined.studio_kontakt,
         naechster_check_tage: combined.naechster_check_tage,
         hinweis: combined.hinweis,
+        healing_status: healing.healing_status,
+        healing_phase: healing.healing_phase,
+        healing_severity_score: healing.severity_score,
+        healing_red_flag: healing.red_flag,
+        healing_red_flags: healing.red_flags,
+        healing_needs_review: healing.needs_human_review,
+        healing_customer_summary: healing.customer_summary,
+        healing_progress_score: healing.healing_progress_score,
+        healing_recommended_action: healing.recommended_action,
+        healing_symptoms: healing.symptoms,
+        healing_behavior: healing.behavior,
+        progress_direction_self: req.body.progress_direction_self || null,
+        healing_status_calculated: healing.healing_status,
         raw_ai: rawAi,
         erstellt_von: isCustomer(req.user.role) ? 'customer' : 'studio',
     });
@@ -395,11 +535,25 @@ Auffälligkeiten: ${(photoStage.foto_auffaelligkeiten || []).join(', ') || 'kein
         });
     }
 
+    const latestSession = await Session.findOne({
+        case: caseDoc._id,
+        is_draft: false,
+        is_no_show: false,
+    }).sort({ session_number: -1 });
+    if (latestSession) {
+        await evaluateAndApplySessionLightening(latestSession, caseDoc, {
+            progress_direction_self: req.body.progress_direction_self,
+            sleep_quality: req.body.current_sleep_quality,
+            stress_level: req.body.current_stress_level,
+        });
+        if (latestSession.isModified()) await latestSession.save();
+    }
+
     res.status(201).json({
         success: true,
         message: 'Nachsorge-Check gespeichert',
         data: {
-            check: formatCheck(check),
+            check: formatCheck(check, req.user.role),
             photo_stage: {
                 foto_status: photoStage.foto_status,
                 foto_befund: photoStage.foto_befund,
@@ -408,12 +562,24 @@ Auffälligkeiten: ${(photoStage.foto_auffaelligkeiten || []).join(', ') || 'kein
             result: {
                 ampel: combined.ampel,
                 titel: combined.titel,
-                zusammenfassung: combined.zusammenfassung,
+                zusammenfassung: healing.customer_summary || combined.zusammenfassung,
                 empfehlungen: combined.empfehlungen,
                 studio_kontakt: combined.studio_kontakt,
                 naechster_check_tage: combined.naechster_check_tage,
-                hinweis: combined.hinweis,
+                hinweis: healing.customer_summary || combined.hinweis,
                 ai_available: combined.ai_available !== false,
+                healing_status: healing.healing_status,
+                healing_phase: healing.healing_phase,
+                healing_customer_summary: healing.customer_summary,
+                healing_recommended_action: healing.recommended_action,
+                ...(isCustomer(req.user.role)
+                    ? {}
+                    : {
+                          healing_needs_review: healing.needs_human_review,
+                          healing_red_flag: healing.red_flag,
+                          healing_progress_score: healing.healing_progress_score,
+                          healing_red_flags: healing.red_flags,
+                      }),
             },
             elaycoins_awarded: coinsAwarded,
         },
@@ -440,6 +606,11 @@ const listChecks = asyncHandler(async (req, res) => {
         }
     }
 
+    // Lets a client show one zone's healing history on its own.
+    if (req.query.zonen_id) {
+        filter.zonen_id = req.query.zonen_id;
+    }
+
     const [rows, total] = await Promise.all([
         NachsorgeCheck.find(filter)
             .sort({ createdAt: -1 })
@@ -455,7 +626,7 @@ const listChecks = asyncHandler(async (req, res) => {
     res.status(200).json({
         success: true,
         data: {
-            checks: rows.map(formatCheck),
+            checks: rows.map((row) => formatCheck(row, req.user.role)),
             pagination: buildPaginationMeta(page, limit, total),
         },
     });
@@ -487,7 +658,70 @@ const getCheck = asyncHandler(async (req, res) => {
 
     res.status(200).json({
         success: true,
-        data: { check: formatCheck(check) },
+        data: { check: formatCheck(check, req.user.role) },
+    });
+});
+
+const reviewCheck = asyncHandler(async (req, res) => {
+    if (isCustomer(req.user.role)) {
+        throw new ApiError(403, 'Only studio staff or admin can review aftercare');
+    }
+
+    const check = await NachsorgeCheck.findById(req.params.id);
+    if (!check) throw new ApiError(404, 'Nachsorge check not found');
+
+    const caseDoc = await Case.findById(check.case);
+    if (!caseDoc) throw new ApiError(404, 'Case not found');
+    await assertCaseWriteAccess(req.user, caseDoc);
+
+    if (!check.healing_status_calculated) {
+        check.healing_status_calculated = check.healing_status;
+    }
+
+    if (req.body.studio_review_notes != null) {
+        check.studio_review_notes = String(req.body.studio_review_notes);
+    }
+
+    if (req.body.healing_status) {
+        const correction = applyStudioHealingCorrection(check, req.body.healing_status);
+        check.healing_status = correction.healing_status;
+        check.ampel = correction.ampel;
+        check.studio_kontakt = correction.studio_kontakt;
+        check.healing_needs_review = false;
+        check.healing_customer_summary = correction.customer_summary;
+        check.healing_recommended_action = correction.recommended_action;
+        check.hinweis = correction.customer_summary;
+        check.zusammenfassung = correction.customer_summary;
+    } else {
+        check.healing_needs_review = false;
+    }
+
+    check.healing_studio_reviewed_at = new Date();
+    check.healing_studio_reviewed_by = req.user.email || String(req.user._id);
+    await check.save();
+
+    const latestSession = await Session.findOne({
+        case: check.case,
+        is_draft: false,
+        is_no_show: false,
+    }).sort({ session_number: -1 });
+    if (latestSession) {
+        await evaluateAndApplySessionLightening(latestSession, caseDoc, {
+            studio_review_pct: latestSession.lightening_studio_pct,
+        });
+        if (latestSession.isModified()) await latestSession.save();
+    }
+
+    const populated = await NachsorgeCheck.findById(check._id)
+        .select('-raw_ai')
+        .populate('customer', 'vorname nachname')
+        .populate('case', 'caseId')
+        .lean();
+
+    res.status(200).json({
+        success: true,
+        message: 'Studio-Review gespeichert',
+        data: { check: formatCheck(populated, req.user.role) },
     });
 });
 
@@ -496,4 +730,5 @@ module.exports = {
     createCheck,
     listChecks,
     getCheck,
+    reviewCheck,
 };

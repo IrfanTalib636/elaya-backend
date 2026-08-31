@@ -23,6 +23,7 @@ const {
     LIFE_SMOKER,
     LIFE_ALCOHOL,
     LIFE_ACTIVITY,
+    LIFE_SPORT_FREQ,
     LIFE_SLEEP_HOURS,
     LIFE_SLEEP_QUALITY,
     LIFE_STRESS,
@@ -52,6 +53,20 @@ const unterschriftSchema = new mongoose.Schema(
     {
         zeitstempel: { type: Date, default: null },
         merkblatt_gelesen: { type: Boolean, default: false },
+        bestaetigung_text: { type: String, default: '' },
+        unterschrift_data: { type: String, default: '' },
+    },
+    { _id: false }
+);
+
+/**
+ * Second signature, kept separate from `unterschrift` because it confirms the
+ * correctness of the customer's medical anamnesis rather than the aftercare leaflet.
+ */
+const unterschriftAnamneseSchema = new mongoose.Schema(
+    {
+        zeitstempel: { type: Date, default: null },
+        anamnese_bestaetigt: { type: Boolean, default: false },
         bestaetigung_text: { type: String, default: '' },
         unterschrift_data: { type: String, default: '' },
     },
@@ -258,6 +273,11 @@ const caseSchema = new mongoose.Schema(
             enum: [...LIFE_ACTIVITY, null],
             default: null,
         },
+        life_sport_freq: {
+            type: String,
+            enum: [...LIFE_SPORT_FREQ, null],
+            default: null,
+        },
         life_sleep_hours: {
             type: String,
             enum: [...LIFE_SLEEP_HOURS, null],
@@ -391,7 +411,15 @@ const caseSchema = new mongoose.Schema(
             default: () => ({}),
         },
         lastSessionDate: { type: Date, default: null },
+        /** Engine flag — empty/unclear fields still calculate, but studio should review. */
+        estimate_needs_review: { type: Boolean, default: false },
+        estimate_review_triggers: { type: [String], default: [] },
+        /** Effective price per session (CHF) — AI estimate until studio confirms, then confirmed value. */
         pricePerSession: { type: Number, default: 0, min: 0 },
+        /** Immutable-from-studio AI snapshot; always updated by the pricing engine. */
+        calculated_pricePerSession: { type: Number, default: 0, min: 0 },
+        calculated_sessionsMin: { type: Number, default: 0, min: 0 },
+        calculated_sessionsMax: { type: Number, default: 0, min: 0 },
         akquise_quelle: {
             type: String,
             enum: Object.values(AKQUISE_QUELLE),
@@ -408,6 +436,10 @@ const caseSchema = new mongoose.Schema(
             type: unterschriftSchema,
             default: () => ({}),
         },
+        unterschrift_anamnese: {
+            type: unterschriftAnamneseSchema,
+            default: () => ({}),
+        },
         activityLog: { type: [activityLogSchema], default: [] },
         chat_nachrichten: { type: [chatNachrichtSchema], default: [] },
     },
@@ -419,6 +451,8 @@ const caseSchema = new mongoose.Schema(
 caseSchema.index({ studio: 1, caseId: 1 }, { unique: true });
 caseSchema.index({ studio: 1, medical_flag_level: 1 });
 caseSchema.index({ customer: 1, status: 1 });
+/** Recent cases per customer — intake prefill reads the newest answers. */
+caseSchema.index({ customer: 1, createdAt: -1 });
 
 const Case = mongoose.model('Case', caseSchema);
 

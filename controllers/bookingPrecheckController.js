@@ -8,6 +8,7 @@ const {
     validateBookingPrecheck,
     computeAvailability,
 } = require('../utils/bookingPrecheckEngine');
+const { getEffectiveSperrfristen } = require('../utils/configService');
 
 const loadCaseAndAnamnesis = async (caseId, user) => {
     const caseDoc = await Case.findById(caseId);
@@ -23,10 +24,11 @@ const loadCaseAndAnamnesis = async (caseId, user) => {
 /** GET /cases/:id/booking-precheck — PS_01 form schema for mobile booking flow */
 const getBookingPrecheck = asyncHandler(async (req, res) => {
     const { caseDoc, anamnesis } = await loadCaseAndAnamnesis(req.params.id, req.user);
+    const sperrfristen = await getEffectiveSperrfristen(caseDoc.studio);
 
     res.status(200).json({
         success: true,
-        data: buildBookingPrecheckForm(caseDoc, anamnesis),
+        data: buildBookingPrecheckForm(caseDoc, anamnesis, sperrfristen),
     });
 });
 
@@ -43,6 +45,8 @@ const previewBookingPrecheck = asyncHandler(async (req, res) => {
         ko_signature: koSignature = null,
     } = req.body;
 
+    const sperrfristen = await getEffectiveSperrfristen(caseDoc.studio);
+
     const result = validateBookingPrecheck({
         caseDoc,
         anamnesis,
@@ -52,10 +56,13 @@ const previewBookingPrecheck = asyncHandler(async (req, res) => {
         wiederholungen,
         wiederholungenConfirmed,
         koSignature,
+        sperrfristen,
     });
 
+    // Always computed for a real treatment: cross-case and same-case lockouts
+    // apply regardless of whether the customer reported UV exposure.
     let availabilityHint = null;
-    if (!consultationOnly && result.pre_session_check?.uv_exposition) {
+    if (!consultationOnly) {
         availabilityHint = await computeAvailability({
             activeCaseId: caseDoc._id,
             customerId: caseDoc.customer,
@@ -69,6 +76,7 @@ const previewBookingPrecheck = asyncHandler(async (req, res) => {
         data: {
             can_proceed: result.can_proceed,
             blocks: result.blocks,
+            warnings: result.warnings,
             requires_ko_signature: result.requires_ko_signature,
             changed_ko_keys: result.changed_ko_keys,
             pre_session_check: result.pre_session_check,
@@ -76,6 +84,7 @@ const previewBookingPrecheck = asyncHandler(async (req, res) => {
                 uvBlockDate: result.block_dates.uvBlockDate,
                 medicationBlockDate: result.block_dates.medicationBlockDate,
             },
+            lockouts: result.lockouts,
             availability_hint: availabilityHint,
         },
     });

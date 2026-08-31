@@ -50,6 +50,7 @@ const SIZE_MIDPOINTS = {
 };
 
 const DIFFICULT_COLORS = ['white', 'yellow', 'skin_tone'];
+const BLACK_FAMILY_COLORS = ['black', 'grey'];
 
 const BODY_LOCATION_KEYS = [
     'face',
@@ -69,5 +70,6 @@ module.exports = {
     DEFAULT_PRICING_CONFIG,
     SIZE_MIDPOINTS,
     DIFFICULT_COLORS,
+    BLACK_FAMILY_COLORS,
     BODY_LOCATION_KEYS,
 };

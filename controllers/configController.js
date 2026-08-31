@@ -4,6 +4,7 @@ const {
     getPublicConfig,
     formatStudioConfig,
     updateStudioConfig,
+    getEffectivePricingOverrides,
 } = require('../utils/configService');
 const { getEffectiveFeaturesForStudio, FEATURE_CATALOG } = require('../utils/featureService');
 const { isAdmin, isStudio } = require('../utils/accessHelpers');
@@ -12,6 +13,13 @@ const Studio = require('../models/studioModel');
 const ApiError = require('../utils/ApiError');
 const asyncHandler = require('../utils/asyncHandler');
 const mongoose = require('mongoose');
+const { runExcelPlausibilityCheck } = require('../utils/plausibilityCheck');
+const { DOMAIN_SOURCE_OF_TRUTH } = require('../config/domainSourceOfTruth');
+const { previewSessionPrediction } = require('../utils/sessionPredictionEngine');
+const { previewPricing } = require('../utils/pricingEngine');
+const { mergeSessionPrediction } = require('../config/sessionPredictionDefaults');
+const { emitSessionPredictionUpdated } = require('../sockets/configEmit');
+const { EXCEL_PLAUSIBILITY_EXAMPLES } = require('../config/excelPlausibilityExamples');
 
 const assertValidStudioId = (studioId) => {
     if (
@@ -31,22 +39,50 @@ const getPlatform = asyncHandler(async (_req, res) => {
 
     res.status(200).json({
         success: true,
-        data: { platform_config: config },
+        data: {
+            platform_config: config,
+            excel_plausibility: runExcelPlausibilityCheck({
+                session_prediction: config.session_prediction,
+            }),
+            domain_source_of_truth: DOMAIN_SOURCE_OF_TRUTH,
+        },
     });
 });
 
 const patchPlatform = asyncHandler(async (req, res) => {
+    const before = await getPlatformConfig();
     const config = await updatePlatformConfig(req.body);
+
+    if (req.body.session_prediction !== undefined) {
+        emitSessionPredictionUpdated({
+            session_prediction: config.session_prediction,
+            previous_base_sessions: before.session_prediction?.base_sessions ?? null,
+            base_sessions: config.session_prediction?.base_sessions ?? null,
+        });
+    }
 
     res.status(200).json({
         success: true,
         message: 'Platform config updated',
-        data: { platform_config: config },
+        data: {
+            platform_config: config,
+            excel_plausibility: runExcelPlausibilityCheck({
+                session_prediction: config.session_prediction,
+            }),
+        },
     });
 });
 
-const getPublic = asyncHandler(async (_req, res) => {
-    const config = await getPublicConfig();
+const getPublic = asyncHandler(async (req, res) => {
+    let studioId = req.user?.studio_id || null;
+    if (!studioId && req.user?.role === USER_ROLES.CUSTOMER && req.user.customer_id) {
+        const Customer = require('../models/customerModel');
+        const customer = await Customer.findById(req.user.customer_id)
+            .select('aktuelle_firma_id')
+            .lean();
+        studioId = customer?.aktuelle_firma_id || null;
+    }
+    const config = await getPublicConfig(studioId);
 
     res.status(200).json({
         success: true,
@@ -177,6 +213,107 @@ const listStudioFeaturesAdmin = asyncHandler(async (_req, res) => {
     });
 });
 
+/**
+ * POST /config/session-prediction/preview
+ * Live Sitzungsprognose calculator — uses the real engine, never persists.
+ * Admin/studio can pass draft session_prediction to see effect before save.
+ */
+const previewSessionPredictionHandler = asyncHandler(async (req, res) => {
+    const platform = await getPlatformConfig();
+    const baselinePrediction = platform.session_prediction;
+    const draftPrediction = mergeSessionPrediction({
+        ...baselinePrediction,
+        ...(req.body.session_prediction || {}),
+        tattoo_deltas: {
+            ...(baselinePrediction?.tattoo_deltas || {}),
+            ...(req.body.session_prediction?.tattoo_deltas || {}),
+        },
+        lifestyle_scores: {
+            ...(baselinePrediction?.lifestyle_scores || {}),
+            ...(req.body.session_prediction?.lifestyle_scores || {}),
+        },
+        aftercare_extra_max: {
+            ...(baselinePrediction?.aftercare_extra_max || {}),
+            ...(req.body.session_prediction?.aftercare_extra_max || {}),
+        },
+    });
+
+    const presets = Object.fromEntries(
+        EXCEL_PLAUSIBILITY_EXAMPLES.map((ex) => [ex.id, { title: ex.title, input: ex.input }])
+    );
+
+    let caseInput = req.body.case_input || {};
+    if (req.body.preset_id && presets[req.body.preset_id]) {
+        caseInput = { ...presets[req.body.preset_id].input, ...caseInput };
+    }
+    if (!Object.keys(caseInput).length) {
+        caseInput = { ...presets.example_1.input };
+    }
+
+    const preview = previewSessionPrediction(caseInput, draftPrediction, {
+        baselinePrediction,
+    });
+
+    res.status(200).json({
+        success: true,
+        data: {
+            ...preview,
+            presets: EXCEL_PLAUSIBILITY_EXAMPLES.map((ex) => ({
+                id: ex.id,
+                title: ex.title,
+                expected_sessions: {
+                    min: ex.expected.sessions_min,
+                    max: ex.expected.sessions_max,
+                },
+            })),
+            saved_session_prediction: baselinePrediction,
+        },
+    });
+});
+
+/**
+ * POST /config/pricing/preview
+ * Live price calculator for the pricing settings — uses the real engine, never
+ * persists. The studio's unsaved `studio_pricing` values are merged over the
+ * saved ones so the effect of an edit is visible before saving.
+ */
+const previewPricingHandler = asyncHandler(async (req, res) => {
+    // Admins may preview another studio; a studio user is pinned to its own.
+    const studioId = isStudio(req.user.role)
+        ? req.user.studio_id
+        : req.body.studio_id || req.user.studio_id || null;
+
+    const baselinePricing = await getEffectivePricingOverrides(studioId);
+    const draftPricing = { ...baselinePricing, ...(req.body.studio_pricing || {}) };
+
+    const presets = Object.fromEntries(
+        EXCEL_PLAUSIBILITY_EXAMPLES.map((ex) => [ex.id, { title: ex.title, input: ex.input }])
+    );
+
+    let caseInput = req.body.case_input || {};
+    if (req.body.preset_id && presets[req.body.preset_id]) {
+        caseInput = { ...presets[req.body.preset_id].input, ...caseInput };
+    }
+    if (!Object.keys(caseInput).length) {
+        caseInput = { ...presets.example_1.input };
+    }
+
+    const preview = previewPricing(caseInput, draftPricing, { baselinePricing });
+
+    res.status(200).json({
+        success: true,
+        data: {
+            ...preview,
+            presets: EXCEL_PLAUSIBILITY_EXAMPLES.map((ex) => ({
+                id: ex.id,
+                title: ex.title,
+                area: ex.expected?.area ?? null,
+                reference_price: ex.expected?.price_per_session ?? null,
+            })),
+        },
+    });
+});
+
 module.exports = {
     getPlatform,
     patchPlatform,
@@ -186,4 +323,6 @@ module.exports = {
     getFeatureCatalog,
     getEffectiveFeatures,
     listStudioFeaturesAdmin,
+    previewSessionPredictionHandler,
+    previewPricingHandler,
 };

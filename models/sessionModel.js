@@ -74,6 +74,35 @@ const sessionSchema = new mongoose.Schema(
         special_notes: { type: String, default: '' },
         removal_pct: { type: Number, min: 0, max: 100, default: null },
         verblassung_prozent: { type: Number, min: 0, max: 100, default: null },
+        /** Studio-only theoretical estimate when comparison_eligible is false (IT_Clarifications §8). */
+        lightening_internal_pct: { type: Number, min: 0, max: 100, default: null },
+        lightening_score: { type: Number, min: 0, max: 100, default: null },
+        progress_direction: {
+            type: String,
+            enum: ['improving', 'stable', 'worsening', 'unclear', null],
+            default: null,
+        },
+        lightening_confidence: {
+            type: String,
+            enum: ['low', 'medium', 'high', null],
+            default: null,
+        },
+        needs_human_review: { type: Boolean, default: null },
+        lightening_factors: { type: mongoose.Schema.Types.Mixed, default: null },
+        lightening_studio_pct: { type: Number, min: 0, max: 100, default: null },
+        lightening_studio_notes: { type: String, trim: true, default: '' },
+        lightening_studio_reviewed_at: { type: Date, default: null },
+        comparison_eligible: { type: Boolean, default: null },
+        uncertainty_level: {
+            type: String,
+            enum: ['low', 'medium', 'high', null],
+            default: null,
+        },
+        comparison_reasons: { type: [String], default: [] },
+        image_quality_ok: { type: Boolean, default: null },
+        photo_same_angle: { type: Boolean, default: null },
+        photo_same_distance: { type: Boolean, default: null },
+        photo_comparable_light: { type: Boolean, default: null },
         /** Legacy string / optional file id string; prefer fortschritt_foto_file_id */
         fortschritt_foto_data: { type: String, default: '' },
         fortschritt_foto_file_id: {
@@ -93,12 +122,25 @@ const sessionSchema = new mongoose.Schema(
             analysed_at: { type: Date, default: null },
             foto_vorher_file_id: { type: String, default: '' },
             foto_aktuell_file_id: { type: String, default: '' },
+            comparison_eligible: { type: Boolean, default: null },
+            uncertainty_level: { type: String, default: '' },
+            comparison_reasons: { type: [String], default: [] },
+            needs_human_review: { type: Boolean, default: null },
+            lightening_internal_pct: { type: Number, default: null },
+            percent_estimate: { type: Number, default: null },
+            lightening_score: { type: Number, default: null },
+            progress_direction: { type: String, default: '' },
         },
         /** Audit only — never return to clients */
         verblassung_raw_ai: { type: mongoose.Schema.Types.Mixed, default: null },
         is_draft: { type: Boolean, default: false },
         is_no_show: { type: Boolean, default: false },
-        zonen_id: { type: String, default: null },
+        /**
+         * Zone this treatment belongs to, matching `CaseZone.zonen_id` ("Z001").
+         * Required for zone cases, `null` for single-tattoo cases. Each zone
+         * keeps its own session numbering, session log and fading series.
+         */
+        zonen_id: { type: String, default: null, index: true },
         zahlung: {
             type: zahlungSchema,
             default: () => ({}),
@@ -109,7 +151,10 @@ const sessionSchema = new mongoose.Schema(
     }
 );
 
-sessionSchema.index({ case: 1, session_number: 1 }, { unique: true });
+// Session numbers run per zone, so two zones of the same tattoo can both have a
+// session 1. For single-tattoo cases `zonen_id` is null, which keeps the
+// original one-number-per-case guarantee.
+sessionSchema.index({ case: 1, zonen_id: 1, session_number: 1 }, { unique: true });
 sessionSchema.index({ case: 1, treatment_date: -1 });
 sessionSchema.index({ studio: 1, treatment_date: -1, is_draft: 1, is_no_show: 1 });
 

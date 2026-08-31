@@ -2,13 +2,17 @@ const Case = require('../models/caseModel');
 const Appointment = require('../models/appointmentModel');
 const Session = require('../models/sessionModel');
 const { APPOINTMENT_STATUS, APPOINTMENT_TYPE } = require('../config/constants');
+const { PLATFORM_CONFIG_DEFAULTS } = require('../config/platformDefaults');
 
-const SAME_CASE_DAYS = 49;
-const CROSS_CASE_DAYS = 28;
-const UV_MODERATE_DAYS = 21;
-const UV_INTENSE_DAYS = 28;
-const MED_SHORT_DAYS = 14;
-const MED_RETINOID_DAYS = 180;
+/**
+ * Blocking periods are studio configuration, never constants. These platform
+ * defaults only apply when a caller has no studio context (e.g. a case that is
+ * not yet attached to a studio).
+ */
+const resolveSperrfristen = (sperrfristen) => ({
+    ...PLATFORM_CONFIG_DEFAULTS.sperrfristen,
+    ...(sperrfristen || {}),
+});
 
 const CANCELLED_STATUSES = new Set([
     APPOINTMENT_STATUS.STORNIERT,
@@ -55,6 +59,9 @@ const hasWavelength = (session) => (session.wavelength_nm || []).length > 0;
 const isAppointmentCancelled = (appointment) => CANCELLED_STATUSES.has(appointment.status);
 
 const isAppointmentCompletedBySession = (appointment, sessions) => {
+    if (sessions.some((session) => session.appointment && String(session.appointment) === String(appointment._id))) {
+        return true;
+    }
     if (!appointment.date) {
         return false;
     }
@@ -63,6 +70,64 @@ const isAppointmentCompletedBySession = (appointment, sessions) => {
         (session) =>
             session.treatment_date && startOfDay(session.treatment_date).getTime() === aptDay
     );
+};
+
+const isOpenTreatmentAppointment = (appointment) =>
+    appointment &&
+    appointment.status === APPOINTMENT_STATUS.GEBUCHT &&
+    !appointment.consultationOnly &&
+    appointment.type !== APPOINTMENT_TYPE.BERATUNG;
+
+/** Close booked treatments that already have a documented session (stale "upcoming" rows). */
+const reconcileAppointmentsCoveredBySessions = async (appointments, sessions) => {
+    const ids = new Set();
+    const sessionsByCase = groupByCaseId(sessions);
+    const appointmentsByCase = groupByCaseId(appointments);
+
+    for (const [caseId, caseSessions] of sessionsByCase.entries()) {
+        const documented = caseSessions.filter((session) => session.treatment_date);
+        if (!documented.length) continue;
+
+        const caseAppointments = appointmentsByCase.get(caseId) || [];
+        const openTreatments = caseAppointments.filter(isOpenTreatmentAppointment);
+
+        for (const session of documented) {
+            if (session.appointment) ids.add(String(session.appointment));
+            const day = startOfDay(session.treatment_date).getTime();
+            for (const appointment of openTreatments) {
+                if (appointment.date && startOfDay(appointment.date).getTime() === day) {
+                    ids.add(String(appointment._id));
+                }
+            }
+        }
+
+        if (openTreatments.length === 1 && documented.length >= 1) {
+            const appointment = openTreatments[0];
+            const latestSessionCreated = Math.max(
+                ...documented.map((session) => new Date(session.createdAt || session.treatment_date).getTime())
+            );
+            const appointmentCreated = new Date(
+                appointment.createdAt || appointment.date || 0
+            ).getTime();
+            if (appointmentCreated && appointmentCreated <= latestSessionCreated) {
+                ids.add(String(appointment._id));
+            }
+        }
+    }
+
+    const pending = [...ids].filter((id) =>
+        appointments.some(
+            (appointment) =>
+                String(appointment._id) === id && appointment.status === APPOINTMENT_STATUS.GEBUCHT
+        )
+    );
+    if (!pending.length) return [];
+
+    await Appointment.updateMany(
+        { _id: { $in: pending }, status: APPOINTMENT_STATUS.GEBUCHT },
+        { $set: { status: APPOINTMENT_STATUS.COMPLETED } }
+    );
+    return pending;
 };
 
 const isCrossCaseAppointment = (appointment) =>
@@ -93,9 +158,14 @@ const normalizePreSessionCheck = (check = {}) => {
     }
 
     if (Array.isArray(normalized.medikamente)) {
-        normalized.medikamente = normalized.medikamente.filter(Boolean);
+        normalized.medikamente = normalized.medikamente.filter(
+            (item) => item && item !== 'keine'
+        );
     } else if (typeof normalized.medikamente === 'string' && normalized.medikamente.trim()) {
-        normalized.medikamente = normalized.medikamente.split(',').map((m) => m.trim()).filter(Boolean);
+        normalized.medikamente = normalized.medikamente
+            .split(',')
+            .map((m) => m.trim())
+            .filter((item) => item && item !== 'keine');
     } else if (!normalized.medikamente) {
         normalized.medikamente = [];
     }
@@ -146,12 +216,19 @@ const mkSperre = (heute, typ, grund, bisDate, extra = {}) => {
     };
 };
 
+/**
+ * `grund` is a ready-made German sentence. `kategorie` and `tage` are the
+ * machine-readable equivalents so clients can render the reason in the
+ * customer's own language.
+ */
 const serializeSperre = (sperre) => ({
     typ: sperre.typ,
     grund: sperre.grund,
     von: toDateKey(sperre.von),
     bis: toDateKey(sperre.bis),
     bis_string: sperre.bis_string,
+    ...(sperre.kategorie ? { kategorie: sperre.kategorie } : {}),
+    ...(sperre.tage != null ? { tage: sperre.tage } : {}),
     ...(sperre.case_name ? { case_name: sperre.case_name } : {}),
 });
 
@@ -175,7 +252,17 @@ const berechneAlleSperren = ({
     preSessionCheck = {},
     consultationOnly = false,
     lockoutDisabled = false,
+    sperrfristen = null,
 }) => {
+    const {
+        same_case_tage: SAME_CASE_DAYS,
+        cross_case_tage: CROSS_CASE_DAYS,
+        uv_mittel_tage: UV_MODERATE_DAYS,
+        uv_intensiv_tage: UV_INTENSE_DAYS,
+        medikament_kurz_tage: MED_SHORT_DAYS,
+        medikament_retinoide_tage: MED_RETINOID_DAYS,
+    } = resolveSperrfristen(sperrfristen);
+
     const heute = startOfDay(new Date());
     const activeCaseIdStr = activeCaseId.toString();
     const activeCase = cases.find((c) => c._id.toString() === activeCaseIdStr);
@@ -242,7 +329,7 @@ const berechneAlleSperren = ({
             latestRef = latestSession;
         }
 
-        if (latestRef) {
+        if (latestRef && SAME_CASE_DAYS > 0) {
             const sameCaseUntil = addDays(latestRef, SAME_CASE_DAYS);
             if (sameCaseUntil > heute) {
                 const caseTitle = activeCase.tc_title || activeCase.bodyLabel || 'Dieser Case';
@@ -252,7 +339,12 @@ const berechneAlleSperren = ({
                         heute,
                         'same_case',
                         `⏳ ${SAME_CASE_DAYS} Tage · ${caseTitle} · ${refLabel} ${fmtLang(latestRef)}`,
-                        sameCaseUntil
+                        sameCaseUntil,
+                        {
+                            kategorie: 'same_case',
+                            tage: SAME_CASE_DAYS,
+                            case_name: caseTitle,
+                        }
                     )
                 );
             }
@@ -305,7 +397,7 @@ const berechneAlleSperren = ({
         }
 
         const crossCaseUntil = addDays(referenceDate, CROSS_CASE_DAYS);
-        if (crossCaseUntil > heute) {
+        if (CROSS_CASE_DAYS > 0 && crossCaseUntil > heute) {
             const referenceLabel = fmtLang(referenceDate);
             const grund =
                 referenceType === 'Termin'
@@ -314,6 +406,8 @@ const berechneAlleSperren = ({
 
             sperren.push(
                 mkSperre(heute, 'cross_case', grund, crossCaseUntil, {
+                    kategorie: 'cross_case',
+                    tage: CROSS_CASE_DAYS,
                     case_name: caseName,
                 })
             );
@@ -327,7 +421,8 @@ const berechneAlleSperren = ({
                 heute,
                 'global',
                 `☀️ ${UV_INTENSE_DAYS} Tage nach intensiver UV-Exposition`,
-                addDays(heute, UV_INTENSE_DAYS)
+                addDays(heute, UV_INTENSE_DAYS),
+                { kategorie: 'uv', tage: UV_INTENSE_DAYS }
             )
         );
     } else if (normalizedCheck.uv_exposition === 'mittel') {
@@ -336,7 +431,8 @@ const berechneAlleSperren = ({
                 heute,
                 'global',
                 `☀️ ${UV_MODERATE_DAYS} Tage nach mittlerer UV-Exposition`,
-                addDays(heute, UV_MODERATE_DAYS)
+                addDays(heute, UV_MODERATE_DAYS),
+                { kategorie: 'uv', tage: UV_MODERATE_DAYS }
             )
         );
     }
@@ -346,22 +442,48 @@ const berechneAlleSperren = ({
         ? startOfDay(normalizedCheck.medikament_datum)
         : heute;
 
+    const medKategorie = (tage) => ({ kategorie: 'medikament', tage });
+
     if (meds.includes('retinoide')) {
         const until = addDays(intakeDate, MED_RETINOID_DAYS);
         if (until > heute) {
-            sperren.push(mkSperre(heute, 'global', '💊 180 Tage nach Retinoiden', until));
+            sperren.push(
+                mkSperre(
+                    heute,
+                    'global',
+                    `💊 ${MED_RETINOID_DAYS} Tage nach Retinoiden`,
+                    until,
+                    medKategorie(MED_RETINOID_DAYS)
+                )
+            );
         }
     }
     if (meds.includes('antibiotika')) {
         const until = addDays(intakeDate, MED_SHORT_DAYS);
         if (until > heute) {
-            sperren.push(mkSperre(heute, 'global', '💊 14 Tage nach Antibiotika', until));
+            sperren.push(
+                mkSperre(
+                    heute,
+                    'global',
+                    `💊 ${MED_SHORT_DAYS} Tage nach Antibiotika`,
+                    until,
+                    medKategorie(MED_SHORT_DAYS)
+                )
+            );
         }
     }
     if (meds.includes('antidepressiva')) {
         const until = addDays(intakeDate, MED_SHORT_DAYS);
         if (until > heute) {
-            sperren.push(mkSperre(heute, 'global', '💊 14 Tage nach Antidepressiva', until));
+            sperren.push(
+                mkSperre(
+                    heute,
+                    'global',
+                    `💊 ${MED_SHORT_DAYS} Tage nach Antidepressiva`,
+                    until,
+                    medKategorie(MED_SHORT_DAYS)
+                )
+            );
         }
     }
 
@@ -382,14 +504,17 @@ const berechneAlleSperren = ({
         }
     }
 
+    // Stored block dates carry no duration — only the end date is known.
     if (maxUvBlock) {
         sperren.push(
-            mkSperre(heute, 'global', '☀️ UV-Sperre aktiv', maxUvBlock)
+            mkSperre(heute, 'global', '☀️ UV-Sperre aktiv', maxUvBlock, { kategorie: 'uv' })
         );
     }
     if (maxMedBlock) {
         sperren.push(
-            mkSperre(heute, 'global', '💊 Medikamenten-Sperre aktiv', maxMedBlock)
+            mkSperre(heute, 'global', '💊 Medikamenten-Sperre aktiv', maxMedBlock, {
+                kategorie: 'medikament',
+            })
         );
     }
 
@@ -443,6 +568,19 @@ const buildBlockedDates = (from, to, sperren, fruehestes) => {
     return [...blocked].sort();
 };
 
+/** First day that satisfies the studio's minimum lead time. */
+const earliestFromLeadTime = (hours) => {
+    const lead = Number(hours) || 0;
+    if (lead <= 0) {
+        return startOfDay(new Date());
+    }
+    const threshold = new Date(Date.now() + lead * 60 * 60 * 1000);
+    return startOfDay(threshold);
+};
+
+/** Last day customers may book, derived from the studio's booking horizon. */
+const latestFromHorizon = (days) => addDays(new Date(), Math.max(1, Number(days) || 1));
+
 const loadLockoutContext = async (customerId) => {
     const [cases, appointments, sessions] = await Promise.all([
         Case.find({ customer: customerId }).lean(),
@@ -453,9 +591,18 @@ const loadLockoutContext = async (customerId) => {
         Session.find({ customer: customerId, is_draft: false, is_no_show: false }).lean(),
     ]);
 
+    const healed = await reconcileAppointmentsCoveredBySessions(appointments, sessions);
+    const nextAppointments = healed.length
+        ? appointments.map((appointment) => {
+              const id = String(appointment._id);
+              if (!healed.includes(id)) return appointment;
+              return { ...appointment, status: APPOINTMENT_STATUS.COMPLETED };
+          })
+        : appointments;
+
     return {
         cases,
-        appointmentsByCase: groupByCaseId(appointments),
+        appointmentsByCase: groupByCaseId(nextAppointments),
         sessionsByCase: groupByCaseId(sessions),
     };
 };
@@ -467,11 +614,17 @@ const computeAvailability = async ({
     preSessionCheck = {},
     from = null,
     to = null,
+    standortId = null,
 }) => {
     const context = await loadLockoutContext(customerId);
     const activeCase = context.cases.find((c) => c._id.toString() === activeCaseId.toString());
 
-    const { sperren, frei_fenster, fruehestes } = berechneAlleSperren({
+    const { getEffectiveBookingConfig } = require('./configService');
+    const { sperrfristen, termin_einstellungen } = await getEffectiveBookingConfig(
+        activeCase?.studio || null
+    );
+
+    const { sperren, frei_fenster, fruehestes: lockoutEarliest } = berechneAlleSperren({
         activeCaseId,
         cases: context.cases,
         appointmentsByCase: context.appointmentsByCase,
@@ -479,16 +632,91 @@ const computeAvailability = async ({
         preSessionCheck,
         consultationOnly,
         lockoutDisabled: activeCase ? isLockoutDisabled(activeCase) : false,
+        sperrfristen,
     });
+
+    // A studio may require a lead time; it can only push the earliest date later.
+    const leadTimeEarliest = earliestFromLeadTime(termin_einstellungen.min_vorlaufzeit_stunden);
+    const fruehestes = leadTimeEarliest > lockoutEarliest ? leadTimeEarliest : lockoutEarliest;
+
+    let blockedDates = buildBlockedDates(from, to, sperren, fruehestes);
+    let studio_schedule = null;
+    let occupied_times = {};
+    if (from && to && activeCase?.studio) {
+        const Studio = require('../models/studioModel');
+        const Appointment = require('../models/appointmentModel');
+        const { APPOINTMENT_STATUS } = require('../config/constants');
+        const {
+            collectClosedDates,
+            buildStudioScheduleSnapshot,
+            collectOccupiedTimes,
+            resolveStandortSchedule,
+        } = require('./studioHours');
+        const studio = await Studio.findById(activeCase.studio)
+            .select(
+                'oeffnungszeiten oeffnungs_ausnahmen pufferzeit_minuten slot_interval_minuten standorte'
+            )
+            .lean();
+        if (studio) {
+            // Hours, buffer and slot interval of the selected location, falling
+            // back to the studio-wide schedule when it defines no override.
+            const schedule = resolveStandortSchedule(studio, standortId);
+            const closed = collectClosedDates(schedule, from, to);
+            blockedDates = [...new Set([...blockedDates, ...closed])].sort();
+            studio_schedule = buildStudioScheduleSnapshot(schedule);
+            const booked = await Appointment.find({
+                studio: activeCase.studio,
+                status: APPOINTMENT_STATUS.GEBUCHT,
+                date: { $gte: new Date(from), $lte: new Date(to) },
+                // Only this location's bookings occupy its slots. Appointments
+                // without a location predate locations and block every location.
+                ...(standortId ? { standort_id: { $in: [String(standortId), ''] } } : {}),
+            })
+                .select('date time dauer_minuten')
+                .lean();
+            occupied_times = collectOccupiedTimes(
+                booked,
+                studio_schedule.slot_interval_minuten,
+                studio_schedule.pufferzeit_minuten
+            );
+        }
+    }
+
+    const spaetestes = latestFromHorizon(termin_einstellungen.buchung_horizont_tage);
+    if (from && to) {
+        // Everything past the studio's horizon is unbookable, same as a closed day.
+        const beyondHorizon = [];
+        const horizonKey = toDateKey(spaetestes);
+        for (
+            let cursor = startOfDay(from);
+            cursor <= startOfDay(to);
+            cursor.setDate(cursor.getDate() + 1)
+        ) {
+            const key = toDateKey(cursor);
+            if (key > horizonKey) beyondHorizon.push(key);
+        }
+        if (beyondHorizon.length) {
+            blockedDates = [...new Set([...blockedDates, ...beyondHorizon])].sort();
+        }
+    }
 
     return {
         case_id: activeCaseId.toString(),
         consultationOnly,
         preSessionCheck,
         fruehestes: toDateKey(fruehestes),
+        /** Last bookable day per the studio's horizon — clients build their range from this. */
+        spaetestes: toDateKey(spaetestes),
         sperren: sperren.map(serializeSperre),
         frei_fenster: frei_fenster.map(serializeFreeWindow),
-        blocked_dates: buildBlockedDates(from, to, sperren, fruehestes),
+        blocked_dates: blockedDates,
+        studio_schedule,
+        occupied_times,
+        /** Appointment durations, horizon and lead time as configured by the studio. */
+        termin_einstellungen,
+        /** Blocking periods in days as configured by the studio. */
+        sperrfristen,
+        standort_id: standortId ? String(standortId) : '',
     };
 };
 
@@ -518,26 +746,76 @@ const assertBookingDateAllowed = async ({
     caseId,
     customerId,
     date,
+    time = null,
     consultationOnly = false,
     preSessionCheck = {},
+    standortId = null,
 }) => {
-    if (consultationOnly) {
-        return;
-    }
-
     const availability = await computeAvailability({
         activeCaseId: caseId,
         customerId,
-        consultationOnly: false,
-        preSessionCheck,
+        consultationOnly,
+        preSessionCheck: consultationOnly ? {} : preSessionCheck,
         from: date,
         to: date,
+        standortId,
     });
-
-    const result = isBookingDateAllowed(date, availability);
-    if (!result.allowed) {
+    const dayKey = toDateKey(date);
+    if (availability.spaetestes && dayKey > availability.spaetestes) {
         const ApiError = require('./ApiError');
-        throw new ApiError(400, result.message, { fruehestes: result.fruehestes });
+        throw new ApiError(
+            400,
+            `Termine können nur bis ${availability.spaetestes} gebucht werden.`,
+            { spaetestes: availability.spaetestes }
+        );
+    }
+
+    if (availability.blocked_dates.includes(dayKey)) {
+        const ApiError = require('./ApiError');
+        throw new ApiError(400, 'Das Studio ist an diesem Tag geschlossen.');
+    }
+
+    if (!consultationOnly) {
+        const result = isBookingDateAllowed(date, availability);
+        if (!result.allowed) {
+            const ApiError = require('./ApiError');
+            throw new ApiError(400, result.message, { fruehestes: result.fruehestes });
+        }
+    }
+
+    if (time) {
+        const {
+            isSlotOccupied,
+            slotsForStudioDate,
+            resolveStandortSchedule,
+        } = require('./studioHours');
+        const Studio = require('../models/studioModel');
+        const Case = require('../models/caseModel');
+        const caseDoc = await Case.findById(caseId).select('studio').lean();
+        if (caseDoc?.studio) {
+            const studio = await Studio.findById(caseDoc.studio)
+                .select(
+                    'oeffnungszeiten oeffnungs_ausnahmen slot_interval_minuten pufferzeit_minuten standorte'
+                )
+                .lean();
+            if (studio) {
+                const schedule = resolveStandortSchedule(studio, standortId);
+                const generated = slotsForStudioDate(
+                    schedule,
+                    dayKey,
+                    schedule.slot_interval_minuten
+                );
+                const hhmm = String(time).slice(0, 5);
+                if (!generated.time_slots.includes(hhmm)) {
+                    const ApiError = require('./ApiError');
+                    throw new ApiError(400, 'This time is outside studio opening hours.');
+                }
+            }
+        }
+        if (isSlotOccupied(availability.occupied_times, dayKey, time)) {
+            const ApiError = require('./ApiError');
+            throw new ApiError(400, 'This time slot is already booked.');
+        }
     }
 };
 
@@ -548,6 +826,7 @@ module.exports = {
     berechneAlleSperren,
     parsePreSessionCheck,
     normalizePreSessionCheck,
+    resolveSperrfristen,
     loadLockoutContext,
     tagIstGesperrt,
     startOfDay,

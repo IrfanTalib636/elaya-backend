@@ -1,4 +1,3 @@
-const mongoose = require('mongoose');
 const Case = require('../models/caseModel');
 const Session = require('../models/sessionModel');
 const FileAsset = require('../models/fileAssetModel');
@@ -16,7 +15,6 @@ const { readFileBuffer } = require('../services/fileStorageService');
 const {
     FILE_AUDIT_ACTION,
     FILE_STATUS,
-    FILE_PURPOSE,
 } = require('../config/storageConfig');
 const { ELAYA_VERBLASSUNG_SYSTEM } = require('../content/aiPrompts');
 const {
@@ -25,9 +23,12 @@ const {
     isAiEnabled,
 } = require('../services/anthropicService');
 const { syncCaseSessionStats } = require('../utils/sessionHelpers');
-
-const isObjectId = (value) =>
-    typeof value === 'string' && mongoose.Types.ObjectId.isValid(value);
+const {
+    evaluateAndApplySessionLightening,
+    resolvePreviousTreatment,
+    resolveProgressFileIdForSession,
+    resolveZoneBaselinePhotoId,
+} = require('../utils/lighteningSessionService');
 
 const clampPercent = (value) => {
     const n = Number(value);
@@ -51,44 +52,8 @@ const loadPhotoBuffer = async (user, fileId, req, meta = {}) => {
     };
 };
 
-const resolveProgressFileIdForSession = async (sessionDoc) => {
-    if (sessionDoc.fortschritt_foto_file_id) {
-        return String(sessionDoc.fortschritt_foto_file_id);
-    }
-    if (isObjectId(sessionDoc.fortschritt_foto_data)) {
-        return sessionDoc.fortschritt_foto_data;
-    }
-    const linked = await FileAsset.findOne({
-        session: sessionDoc._id,
-        purpose: FILE_PURPOSE.SESSION_PROGRESS,
-        status: { $ne: FILE_STATUS.DELETED },
-    })
-        .sort({ createdAt: -1 })
-        .select('_id')
-        .lean();
-    return linked ? String(linked._id) : null;
-};
-
-const resolveVorherFileId = async (sessionDoc, caseDoc) => {
-    const prev = await Session.findOne({
-        case: sessionDoc.case,
-        _id: { $ne: sessionDoc._id },
-        session_number: { $lt: sessionDoc.session_number },
-        is_no_show: false,
-    })
-        .sort({ session_number: -1 })
-        .lean();
-
-    if (prev) {
-        const fromPrev = await resolveProgressFileIdForSession(prev);
-        if (fromPrev) return fromPrev;
-    }
-
-    if (isObjectId(caseDoc.photo_intake_main)) {
-        return caseDoc.photo_intake_main;
-    }
-    return null;
-};
+const FIRST_SESSION_AI_MESSAGE =
+    'KI-Verblassungsanalyse ist erst ab der zweiten Behandlung möglich. Für die erste Sitzung bitte nur das Vorher-Foto speichern — es wird ab Sitzung 2 für den Vergleich benötigt.';
 
 const mapVerblassungResult = (parsed) => {
     const pct =
@@ -122,9 +87,10 @@ const mapVerblassungResult = (parsed) => {
     };
 };
 
-const formatCustomerKi = (ki) => {
+const formatCustomerKi = (ki, comparison = null) => {
     if (!ki) return null;
-    return {
+    const eligible = comparison?.customer_progress_visible !== false && comparison?.comparison_eligible !== false;
+    const base = {
         status: ki.status || '',
         beurteilung: ki.beurteilung || '',
         fortschritt: ki.fortschritt || '',
@@ -133,16 +99,54 @@ const formatCustomerKi = (ki) => {
         wichtiger_hinweis: ki.wichtiger_hinweis || '',
         farben_analyse: ki.farben_analyse || null,
         analysed_at: ki.analysed_at || null,
+        comparison_eligible: comparison?.comparison_eligible ?? ki.comparison_eligible ?? null,
+        uncertainty_level: comparison?.uncertainty_level || ki.uncertainty_level || null,
+        progress_direction: eligible
+            ? comparison?.progress_direction || ki.progress_direction || null
+            : 'unclear',
+        percent_estimate: eligible ? comparison?.percent_estimate ?? ki.percent_estimate ?? null : null,
+        lightening_note_key: eligible ? null : comparison?.customer_message || 'no_reliable_comparison',
     };
+    if (!eligible) {
+        return {
+            ...base,
+            farben_analyse: null,
+            fortschritt: '',
+            percent_estimate: null,
+            beurteilung:
+                comparison?.customer_message === 'too_early'
+                    ? 'Ein Vergleich ist noch zu früh (unter 14 Tagen). Ein zuverlässiger Verblassungsfortschritt kann noch nicht angezeigt werden.'
+                    : 'Kein zuverlässiger Bildvergleich möglich. Ein Fortschrittswert wird deshalb nicht als sicheres Ergebnis angezeigt.',
+        };
+    }
+    return base;
 };
 
-const formatStudioKi = (ki) => {
+const formatStudioKi = (ki, comparison = null) => {
     if (!ki) return null;
     return {
-        ...formatCustomerKi(ki),
+        status: ki.status || '',
+        beurteilung: ki.beurteilung || '',
+        fortschritt: ki.fortschritt || '',
+        lifestyle_tipps: ki.lifestyle_tipps || '',
+        empfehlung_kunde: ki.empfehlung_kunde || '',
         empfehlung_studio: ki.empfehlung_studio || '',
+        wichtiger_hinweis: ki.wichtiger_hinweis || '',
+        farben_analyse: ki.farben_analyse || null,
+        analysed_at: ki.analysed_at || null,
         foto_vorher_file_id: ki.foto_vorher_file_id || '',
         foto_aktuell_file_id: ki.foto_aktuell_file_id || '',
+        comparison_eligible: comparison?.comparison_eligible ?? ki.comparison_eligible ?? null,
+        uncertainty_level: comparison?.uncertainty_level || ki.uncertainty_level || null,
+        comparison_reasons: comparison?.comparison_reasons || comparison?.reasons || ki.comparison_reasons || [],
+        needs_human_review: comparison?.needs_human_review ?? ki.needs_human_review ?? null,
+        lightening_internal_pct: comparison?.lightening_internal_pct ?? ki.lightening_internal_pct ?? null,
+        lightening_score: comparison?.lightening_score ?? ki.lightening_score ?? null,
+        percent_estimate: comparison?.percent_estimate ?? ki.percent_estimate ?? null,
+        progress_direction: comparison?.progress_direction || ki.progress_direction || null,
+        lightening_confidence: comparison?.confidence || ki.lightening_confidence || null,
+        lightening_factors: comparison?.factors || ki.lightening_factors || null,
+        lightening_note_key: comparison?.customer_message || null,
     };
 };
 
@@ -174,6 +178,10 @@ const analyzeVerblassung = asyncHandler(async (req, res) => {
     if (!caseDoc) throw new ApiError(404, 'Case not found');
     await assertCaseAccess(req.user, caseDoc);
 
+    if (Number(sessionDoc.session_number) < 2) {
+        throw new ApiError(400, FIRST_SESSION_AI_MESSAGE);
+    }
+
     const aktuellId =
         req.body.foto_aktuell_file_id ||
         (await resolveProgressFileIdForSession(sessionDoc));
@@ -184,21 +192,32 @@ const analyzeVerblassung = asyncHandler(async (req, res) => {
         );
     }
 
+    const previous = await resolvePreviousTreatment(sessionDoc);
+    // For a zone, its intake photo is a valid baseline when the previous session
+    // of that zone has no progress photo of its own.
     const vorherId =
-        req.body.foto_vorher_file_id || (await resolveVorherFileId(sessionDoc, caseDoc));
+        req.body.foto_vorher_file_id ||
+        previous.photoId ||
+        (await resolveZoneBaselinePhotoId(sessionDoc));
+    if (!vorherId) {
+        throw new ApiError(400, FIRST_SESSION_AI_MESSAGE);
+    }
+
+    if (req.body.image_quality_ok != null) sessionDoc.image_quality_ok = req.body.image_quality_ok;
+    if (req.body.photo_same_angle != null) sessionDoc.photo_same_angle = req.body.photo_same_angle;
+    if (req.body.photo_same_distance != null) sessionDoc.photo_same_distance = req.body.photo_same_distance;
+    if (req.body.photo_comparable_light != null) {
+        sessionDoc.photo_comparable_light = req.body.photo_comparable_light;
+    }
 
     const aktuell = await loadPhotoBuffer(req.user, aktuellId, req, {
         session_id: String(sessionDoc._id),
         role: 'aktuell',
     });
-
-    let vorher = null;
-    if (vorherId) {
-        vorher = await loadPhotoBuffer(req.user, vorherId, req, {
-            session_id: String(sessionDoc._id),
-            role: 'vorher',
-        });
-    }
+    const vorher = await loadPhotoBuffer(req.user, vorherId, req, {
+        session_id: String(sessionDoc._id),
+        role: 'vorher',
+    });
 
     const persist = req.body.persist !== false;
     const sitzungNr = sessionDoc.session_number || 1;
@@ -210,25 +229,18 @@ const analyzeVerblassung = asyncHandler(async (req, res) => {
     if (!isAiEnabled()) {
         mapped = aiUnavailableFallback();
     } else {
-        const content = [];
-        if (vorher) {
-            content.push(imageContentFromBuffer(vorher.buffer, vorher.mimeType));
-            content.push({
+        const content = [
+            imageContentFromBuffer(vorher.buffer, vorher.mimeType),
+            {
                 type: 'text',
-                text: 'VORHER-BILD: Tattoo vor / nach früherer Laserbehandlung (ältere Referenz)',
-            });
-            content.push(imageContentFromBuffer(aktuell.buffer, aktuell.mimeType));
-            content.push({
+                text: 'VORHER-BILD: Tattoo nach der vorherigen Laserbehandlung (Referenz)',
+            },
+            imageContentFromBuffer(aktuell.buffer, aktuell.mimeType),
+            {
                 type: 'text',
-                text: `NACHHER-BILD: Tattoo aktuell (Sitzung ${sitzungNr} von geschätzt ${estimated}). Analysiere den Verblassungsfortschritt und antworte nur als reines JSON.`,
-            });
-        } else {
-            content.push(imageContentFromBuffer(aktuell.buffer, aktuell.mimeType));
-            content.push({
-                type: 'text',
-                text: `Einzelfoto-Analyse Sitzung ${sitzungNr} von geschätzt ${estimated}. Schätze den Verblassungsgrad (0% = original, 100% = vollständig entfernt). Antworte nur als reines JSON.`,
-            });
-        }
+                text: `NACHHER-BILD: Tattoo aktuell vor Sitzung ${sitzungNr} von geschätzt ${estimated}. Analysiere den Verblassungsfortschritt und antworte nur als reines JSON.`,
+            },
+        ];
 
         const { parsed } = await callClaude({
             system: ELAYA_VERBLASSUNG_SYSTEM,
@@ -240,9 +252,17 @@ const analyzeVerblassung = asyncHandler(async (req, res) => {
         rawAi = {
             parsed,
             model: process.env.ANTHROPIC_MODEL || 'claude-sonnet-4-5',
-            compared: Boolean(vorher),
+            compared: true,
         };
     }
+
+    const assessment = await evaluateAndApplySessionLightening(sessionDoc, caseDoc, {
+        previous,
+        initial_photo_id: vorherId,
+        follow_up_photo_id: aktuellId,
+        visual_fade_pct: mapped.verblassung_prozent,
+        same_region: true,
+    });
 
     const kiPayload = {
         status: mapped.status,
@@ -254,13 +274,21 @@ const analyzeVerblassung = asyncHandler(async (req, res) => {
         farben_analyse: mapped.farben_analyse,
         wichtiger_hinweis: mapped.wichtiger_hinweis,
         analysed_at: new Date(),
-        foto_vorher_file_id: vorher?.id || '',
+        foto_vorher_file_id: vorher.id,
         foto_aktuell_file_id: aktuell.id,
+        comparison_eligible: assessment.comparison_eligible,
+        uncertainty_level: assessment.uncertainty_level,
+        comparison_reasons: assessment.comparison_reasons,
+        needs_human_review: assessment.needs_human_review,
+        lightening_internal_pct: assessment.lightening_internal_pct,
+        percent_estimate: assessment.percent_estimate,
+        lightening_score: assessment.lightening_score,
+        progress_direction: assessment.progress_direction,
+        lightening_confidence: assessment.confidence,
+        lightening_factors: assessment.factors,
     };
 
-    if (persist && mapped.verblassung_prozent != null) {
-        sessionDoc.verblassung_prozent = mapped.verblassung_prozent;
-        sessionDoc.removal_pct = mapped.verblassung_prozent;
+    if (persist) {
         sessionDoc.verblassung_ki = kiPayload;
         sessionDoc.verblassung_raw_ai = rawAi;
         if (!sessionDoc.fortschritt_foto_file_id) {
@@ -268,10 +296,6 @@ const analyzeVerblassung = asyncHandler(async (req, res) => {
         }
         await sessionDoc.save();
         await syncCaseSessionStats(sessionDoc.case);
-    } else if (persist) {
-        sessionDoc.verblassung_ki = kiPayload;
-        sessionDoc.verblassung_raw_ai = rawAi;
-        await sessionDoc.save();
     }
 
     const forStudio = isStudio(req.user.role) || isAdmin(req.user.role);
@@ -282,11 +306,27 @@ const analyzeVerblassung = asyncHandler(async (req, res) => {
         data: {
             session_id: String(sessionDoc._id),
             case_id: String(sessionDoc.case),
-            verblassung_prozent: mapped.verblassung_prozent,
-            compared: Boolean(vorher),
-            foto_vorher_file_id: vorher?.id || null,
+            verblassung_prozent: assessment.customer_progress_visible
+                ? assessment.percent_estimate
+                : forStudio
+                  ? assessment.lightening_internal_pct
+                  : null,
+            percent_estimate: assessment.percent_estimate,
+            lightening_internal_pct: assessment.lightening_internal_pct,
+            lightening_score: assessment.lightening_score,
+            progress_direction: assessment.progress_direction,
+            lightening_confidence: assessment.confidence,
+            comparison_eligible: assessment.comparison_eligible,
+            uncertainty_level: assessment.uncertainty_level,
+            needs_human_review: assessment.needs_human_review,
+            comparison_reasons: assessment.comparison_reasons,
+            lightening_note_key: assessment.customer_message,
+            compared: true,
+            foto_vorher_file_id: vorher.id,
             foto_aktuell_file_id: aktuell.id,
-            result: forStudio ? formatStudioKi(kiPayload) : formatCustomerKi(kiPayload),
+            result: forStudio
+                ? formatStudioKi(kiPayload, assessment)
+                : formatCustomerKi(kiPayload, assessment),
             ai_available: mapped.ai_available !== false,
             persisted: persist,
         },
