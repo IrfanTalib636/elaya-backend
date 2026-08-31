@@ -17,6 +17,7 @@ const {
     updateMe,
     exportMe,
     exportTransferProtocol,
+    deleteMe,
 } = require('../controllers/customerMeController');
 const { USER_ROLES } = require('../config/constants');
 
@@ -147,6 +148,35 @@ router
 
 /**
  * @swagger
+ * /customers/me:
+ *   delete:
+ *     summary: Permanently delete own account and all data (mobile)
+ *     description: |
+ *       **Auth:** Bearer · **Who can call:** customer only
+ *
+ *       Irreversible. Erases the customer profile, all tattoo cases and zones,
+ *       anamnesis, sessions, appointments, aftercare checks, chat history,
+ *       activity events, Elaycoin ledger, every uploaded photo and signature on
+ *       disk, and all credentials (login, refresh and reset tokens).
+ *
+ *       Paid shop orders and studio transfer requests are retained as
+ *       accounting and consent-audit records, with the customer's name,
+ *       address and signature overwritten.
+ *
+ *       After a successful call the access token is rejected with 401 on the
+ *       next request and the client must return to the login screen.
+ *     tags: [Customers]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Account and all associated data permanently deleted
+ *       403:
+ *         description: Caller is not a customer account
+ */
+
+/**
+ * @swagger
  * /customers/me/export:
  *   get:
  *     summary: DSG data export (JSON download)
@@ -188,7 +218,8 @@ router
         authorize(USER_ROLES.CUSTOMER),
         validateMiddleware(updateCustomerMeSchema),
         updateMe
-    );
+    )
+    .delete(protect, authorize(USER_ROLES.CUSTOMER), deleteMe);
 
 router
     .route('/me/export')

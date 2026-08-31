@@ -1,6 +1,6 @@
 {
-  "generatedAt": "2026-08-29T16:46:41.649Z",
-  "durationMs": 12957,
+  "generatedAt": "2026-08-31T08:18:02.744Z",
+  "durationMs": 12695,
   "summary": {
     "pass": 133,
     "fail": 0,
@@ -12,7 +12,7 @@
       "suite": "Setup",
       "name": "POST /auth/register/customer creates a fresh test customer",
       "status": "pass",
-      "detail": "regression+1788021988692@elaya.test"
+      "detail": "regression+1788164270049@elaya.test"
     },
     {
       "suite": "Setup",
@@ -276,7 +276,7 @@
       "suite": "Availability & Blocking Periods",
       "name": "GET /cases/{id}/availability returns the full lockout contract",
       "status": "pass",
-      "detail": "earliest=2026-08-29, 0 lockout(s)"
+      "detail": "earliest=2026-08-31, 0 lockout(s)"
     },
     {
       "suite": "Availability & Blocking Periods",
@@ -306,7 +306,7 @@
       "suite": "Availability & Blocking Periods",
       "name": "POST booking-precheck/preview surfaces a UV lockout",
       "status": "pass",
-      "detail": "hint earliest=2026-08-29"
+      "detail": "hint earliest=2026-08-31"
     },
     {
       "suite": "Anamnesis & Signatures",
@@ -360,7 +360,7 @@
       "suite": "Appointments",
       "name": "POST /appointments books a valid slot at the chosen location",
       "status": "pass",
-      "detail": "booked 2026-08-31 10:00 at Aesch BL"
+      "detail": "booked 2026-09-02 10:00 at Aesch BL"
     },
     {
       "suite": "Appointments",
@@ -384,7 +384,7 @@
       "suite": "Appointments",
       "name": "a booked appointment creates a cross-case lockout on the other case",
       "status": "pass",
-      "detail": "cross-case until 2026-09-28"
+      "detail": "cross-case until 2026-09-30"
     },
     {
       "suite": "Appointments",
@@ -492,7 +492,7 @@
       "suite": "Sessions",
       "name": "a logged session creates a same-case treatment interval",
       "status": "pass",
-      "detail": "blocked until 2026-10-16"
+      "detail": "blocked until 2026-10-18"
     },
     {
       "suite": "Sessions",

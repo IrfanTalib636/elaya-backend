@@ -23,6 +23,7 @@
     "regression:clients": "node scripts/regression/checkClients.mjs",
     "regression:report": "node scripts/regression/buildReport.mjs",
     "migrate:session-zone-index": "node scripts/migrateSessionZoneIndex.js",
+    "verify:account-deletion": "node scripts/verifyAccountDeletion.js",
     "verify:zone-tracking": "node scripts/verifyZoneTracking.js"
   },
   "keywords": [],
