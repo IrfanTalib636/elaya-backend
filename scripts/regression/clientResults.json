@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-29T17:06:36.575Z",
+  "generatedAt": "2026-08-31T08:21:14.127Z",
   "summary": {
     "pass": 24,
     "fail": 0,
@@ -95,19 +95,19 @@
       "suite": "Mobile i18n",
       "name": "de and en cover the same keys",
       "status": "pass",
-      "detail": "1032 keys"
+      "detail": "1060 keys"
     },
     {
       "suite": "Mobile i18n",
       "name": "every literal t() key exists in the locales",
       "status": "pass",
-      "detail": "698 keys referenced"
+      "detail": "716 keys referenced"
     },
     {
       "suite": "Mobile i18n",
       "name": "dynamically built t() keys noted for manual review",
       "status": "skip",
-      "detail": "14 file(s) build keys at runtime"
+      "detail": "15 file(s) build keys at runtime"
     },
     {
       "suite": "Frontend routing",
@@ -131,19 +131,19 @@
       "suite": "Mobile navigation",
       "name": "navigators declare screens",
       "status": "pass",
-      "detail": "39 screen(s)"
+      "detail": "40 screen(s)"
     },
     {
       "suite": "Mobile navigation",
       "name": "every screen name appears in a ParamList type",
       "status": "pass",
-      "detail": "40 typed route(s)"
+      "detail": "41 typed route(s)"
     },
     {
       "suite": "Mobile navigation",
       "name": "every navigate() target resolves to a screen",
       "status": "pass",
-      "detail": "29 target(s)"
+      "detail": "30 target(s)"
     },
     {
       "suite": "Dynamic configuration",

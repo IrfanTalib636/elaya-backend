@@ -16,6 +16,8 @@ const {
     formatFirmaTimeline,
     formatCustomerProfileForMe,
 } = require('../utils/customerProfileHelpers');
+const { deleteCustomerAccount } = require('../services/accountDeletionService');
+const { clearRefreshTokenCookie } = require('../utils/generateTokenAndSetCookies');
 
 const assertCustomerUser = (user) => {
     if (!isCustomer(user.role) || !user.customer_id) {
@@ -500,8 +502,43 @@ const exportTransferProtocol = asyncHandler(async (req, res) => {
     res.status(200).json(protocol);
 });
 
+/**
+ * DELETE /customers/me
+ * Permanently erases the account and everything attached to it. Irreversible,
+ * and required by the App Store privacy policy — the customer must be able to
+ * delete their own data without contacting support.
+ */
+const deleteMe = asyncHandler(async (req, res) => {
+    assertCustomerUser(req.user);
+
+    const customerId = req.user.customer_id;
+    const userId = req.user._id;
+
+    // Deliberately not a 404 when the Customer row is already gone: an earlier
+    // run may have been interrupted after deleting it, and the caller must
+    // still be able to finish removing the User row.
+    const report = await deleteCustomerAccount({ customerId, userId });
+
+    console.info(
+        `[account-deletion] user=${userId} customer=${customerId} ${JSON.stringify(report)}`
+    );
+
+    // The access token stays cryptographically valid until it expires, but
+    // `protect` now rejects it with 401 because the User is gone. Clearing the
+    // refresh cookie needs the module helper — the cookie is path-scoped to
+    // /api/v1/auth, so a bare res.clearCookie would silently no-op.
+    clearRefreshTokenCookie(res);
+
+    res.status(200).json({
+        success: true,
+        message: 'Account and all associated data permanently deleted',
+        data: { deleted: true },
+    });
+});
+
 module.exports = {
     updateMe,
     exportMe,
     exportTransferProtocol,
+    deleteMe,
 };

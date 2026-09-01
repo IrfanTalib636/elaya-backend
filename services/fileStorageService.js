@@ -65,6 +65,21 @@ const removeFile = async (relativeStoragePath) => {
     }
 };
 
+/**
+ * Recursively removes a directory below UPLOAD_ROOT. Used by permanent account
+ * deletion to drop the now-empty per-case and per-session folders. Paths that
+ * would escape UPLOAD_ROOT are refused so a malformed id can never delete
+ * anything outside the upload tree.
+ */
+const removeDirectory = async (relativeDirPath) => {
+    if (!relativeDirPath) return;
+    const absolute = absolutePath(relativeDirPath);
+    const root = path.resolve(UPLOAD_ROOT);
+    const target = path.resolve(absolute);
+    if (target === root || !target.startsWith(root + path.sep)) return;
+    await fs.rm(target, { recursive: true, force: true });
+};
+
 const readFileBuffer = async (relativeStoragePath) =>
     fs.readFile(absolutePath(relativeStoragePath));
 
@@ -86,6 +101,7 @@ module.exports = {
     writeBuffer,
     moveFile,
     removeFile,
+    removeDirectory,
     readFileBuffer,
     stagingExpiry,
     hashBuffer,

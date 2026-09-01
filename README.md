@@ -150,6 +150,7 @@ Cart stays **client-side** (mobile). Admin product CRUD UI → M4.
 | **Profile bootstrap** | ✅ Done | `GET /auth/me` includes `firma_timeline`, `studio` embed, `elaycoins_balance` |
 | **DSG data export** | ✅ Done | `GET /customers/me/export` — live JSON of profile, cases+anamnese, sessions, appointments, coins+tx, shop orders, transfers; filename `{Name}_Meine-Daten_{date}.json` |
 | **Transfer protocol** | ✅ Done | `GET /customers/me/transfer-protocol` — after admin-approved transfer (`genehmigt`) |
+| **Delete account** | ✅ Done | `DELETE /customers/me` — permanent, irreversible erasure of the account (App Store privacy requirement). See [Permanent account deletion](#permanent-account-deletion) |
 
 **Known gaps (post-M2):** Admin dashboard UI for studio approval, zone-level lockout in customer mobile booking, full pricing multipliers UI. Real Stripe/Twint payment later.
 
@@ -314,6 +315,24 @@ A zoned tattoo is one visual tattoo made of several independently treated zones.
 
 **Verify:** `npm run verify:pricing-preview` (breakdown replays to the real price; a zero multiplier is reported) · `npm run verify:examples` still matches the Master Excel prices CHF 90 / 205 / 865.
 
+## Permanent account deletion
+
+`DELETE /customers/me` — customer only, **irreversible**, no grace period. Required by the App Store privacy policy: the customer must be able to erase their own data from inside the app without contacting support. Implemented in `services/accountDeletionService.js`; the controller is a thin wrapper.
+
+| Area | Status | Notes |
+|---|---|---|
+| **Erased collections** | ✅ Done | `Customer`, `User`, `Case`, `CaseZone`, `Anamnesis`, `Session`, `Appointment`, `NachsorgeCheck`, `ChatConversation`, `ChatMessage`, `ActivityEvent`, `FileAsset`, `FileAccessAudit`, `RefreshToken`, `PasswordResetToken` — the Elaycoin ledger and case activity log are embedded documents and die with their parent |
+| **Erased files** | ✅ Done | Every `FileAsset.storage_path`, both case signatures (`signature.jpg`, `signature-anamnese.jpg`, which are not tracked as FileAssets), and the now-empty `cases/{id}` and `sessions/{id}` directories |
+| **File lookup is not customer-only** | ✅ Done | `FileAsset.customer` is optional, so assets are matched by `customer` **or** `case` **or** `session` — a customer-id-only query would leave staged uploads on disk |
+| **Anonymized, not deleted** | ✅ Done | `ShopOrder` (accounting: Stripe intent, commission, Elaya share) and `StudioTransferRequest` (consent audit) keep their rows with the name, address and signature overwritten by `ANONYMIZED_NAME` |
+| **Retained by configuration** | ✅ Done | `CrmNote` / `CrmTask` are studio-authored business records and are left in place |
+| **Dangling refs are safe** | ✅ Done | The shop, CRM and admin formatters already guard `order.customer ? … : ''`, so a retained row renders with an empty name instead of throwing |
+| **No transaction** | ✅ Done | Deployment targets a standalone `mongod`, where multi-document transactions are unavailable. Deletes run sequentially, leaf-first, with `Customer` and `User` **last**, so an interrupted run stays authenticated and the call is safely repeatable |
+| **Credentials revoked** | ✅ Done | All refresh tokens for every device are hard-deleted, the path-scoped refresh cookie is cleared via `clearRefreshTokenCookie`, and live sockets for the user are force-disconnected (socket auth only runs at connect time) |
+| **Fails closed afterwards** | ✅ Done | The access token stays cryptographically valid until it expires but `protect` rejects it with **401 `User no longer exists`**, so the client returns to the login screen |
+
+**Verify:** `npm run verify:account-deletion` — seeds a synthetic customer with a row in every affected collection plus real files on disk, then asserts nothing personal survived, that another customer's data in the same studio is untouched, that retained records kept their accounting fields but lost their personal ones, and that a second run is a safe no-op (34 checks).
+
 ### Changelog
 
 ```
@@ -379,6 +398,7 @@ A zoned tattoo is one visual tattoo made of several independently treated zones.
 [2026-08-29] — POST /config/pricing/preview — live price breakdown (base → multipliers → final) + config sanity check
 [2026-08-29] — Regression harness: npm run regression | regression:clients | regression:report (PDF)
 [2026-08-29] — Fixes: invalid JSON → 400 (was 500), GDPR export zones, group booking dropped cases, zone photos dropped on case update, populated-ref access checks
+[2026-08-31] — DELETE /customers/me — permanent account deletion across 16 collections + uploaded files; shop orders and transfer consents anonymized; npm run verify:account-deletion
 ```
 
 ---
@@ -447,6 +467,7 @@ backend/
 │   ├── verifyLighteningLogic.js
 │   ├── verifyHealingLogic.js
 │   ├── verifyImplementationRules.js
+│   ├── verifyAccountDeletion.js   # Permanent account deletion (DB + files + anonymization)
 │   ├── verifyPricingPreview.js    # Live price breakdown + config sanity check
 │   ├── verifyZoneTracking.js      # Per-zone sessions / aftercare / progress
 │   ├── verifyCaseAvailability.js  # Cross-case recalculation of earliest date
@@ -471,7 +492,10 @@ backend/
 │   ├── studioTransferValidator.js
 │   └── studioValidator.js
 ├── services/
-│   └── emailService.js          # Password reset emails (console / SMTP)
+│   ├── accountDeletionService.js # Permanent account deletion (DELETE /customers/me)
+│   ├── emailService.js          # Password reset emails (console / SMTP)
+│   ├── fileAccessService.js     # FileAsset permissions + linking
+│   └── fileStorageService.js    # Upload paths, unlink, recursive directory removal
 ├── utils/
 │   ├── accessHelpers.js         # Shared Case Layer + role/access checks (cases, sessions, customers)
 │   ├── anamnesisEngine.js       # Medical anamnesis ampel + klaerung-aware effective status
@@ -978,6 +1002,7 @@ Industry pattern: **never auto-create admins on server start**. Run a guarded on
 | `npm run verify:session-preview` | Session prediction preview breakdown |
 | `npm run verify:pricing-preview` | Live price breakdown replays to the engine's price; config sanity check |
 | `npm run verify:zone-tracking` | Per-zone session logging, aftercare, and progress rollup (needs the API running) |
+| `npm run verify:account-deletion` | Permanent account deletion erases every collection and file, anonymizes retained records, and is idempotent |
 | `npm run migrate:session-zone-index` | **One-time** — widen the session unique index to `{case, zonen_id, session_number}` |
 | `npm run regression` | Full API + Socket.io regression suite (needs the API running) |
 | `npm run regression:clients` | Static checks on both client apps — i18n keys, locale drift, hardcoded config |
