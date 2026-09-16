@@ -1,18 +1,18 @@
 {
-  "generatedAt": "2026-08-31T08:18:02.744Z",
-  "durationMs": 12695,
+  "generatedAt": "2026-09-16T06:39:14.138Z",
+  "durationMs": 12294,
   "summary": {
-    "pass": 133,
+    "pass": 134,
     "fail": 0,
     "skip": 3,
-    "total": 136
+    "total": 137
   },
   "results": [
     {
       "suite": "Setup",
       "name": "POST /auth/register/customer creates a fresh test customer",
       "status": "pass",
-      "detail": "regression+1788164270049@elaya.test"
+      "detail": "regression+1789540741844@elaya.test"
     },
     {
       "suite": "Setup",
@@ -126,7 +126,7 @@
       "suite": "Customers",
       "name": "GET /customers as studio is paginated",
       "status": "pass",
-      "detail": "5 customer(s)"
+      "detail": "4 customer(s)"
     },
     {
       "suite": "Customers",
@@ -276,7 +276,7 @@
       "suite": "Availability & Blocking Periods",
       "name": "GET /cases/{id}/availability returns the full lockout contract",
       "status": "pass",
-      "detail": "earliest=2026-08-31, 0 lockout(s)"
+      "detail": "earliest=2026-09-16, 0 lockout(s)"
     },
     {
       "suite": "Availability & Blocking Periods",
@@ -306,7 +306,7 @@
       "suite": "Availability & Blocking Periods",
       "name": "POST booking-precheck/preview surfaces a UV lockout",
       "status": "pass",
-      "detail": "hint earliest=2026-08-31"
+      "detail": "hint earliest=2026-09-16"
     },
     {
       "suite": "Anamnesis & Signatures",
@@ -360,7 +360,7 @@
       "suite": "Appointments",
       "name": "POST /appointments books a valid slot at the chosen location",
       "status": "pass",
-      "detail": "booked 2026-09-02 10:00 at Aesch BL"
+      "detail": "booked 2026-09-18 10:00 at Aesch BL"
     },
     {
       "suite": "Appointments",
@@ -384,7 +384,7 @@
       "suite": "Appointments",
       "name": "a booked appointment creates a cross-case lockout on the other case",
       "status": "pass",
-      "detail": "cross-case until 2026-09-30"
+      "detail": "cross-case until 2026-10-16"
     },
     {
       "suite": "Appointments",
@@ -492,7 +492,7 @@
       "suite": "Sessions",
       "name": "a logged session creates a same-case treatment interval",
       "status": "pass",
-      "detail": "blocked until 2026-10-18"
+      "detail": "blocked until 2026-11-03"
     },
     {
       "suite": "Sessions",
@@ -814,6 +814,12 @@
     },
     {
       "suite": "Realtime — Messaging",
+      "name": "studio inbox room receives messaging:message without joining a thread",
+      "status": "pass",
+      "detail": "inbox delivered"
+    },
+    {
+      "suite": "Realtime — Messaging",
       "name": "a sent message reaches a joined recipient socket in realtime",
       "status": "pass",
       "detail": "delivered"
@@ -822,7 +828,7 @@
       "suite": "Cleanup",
       "name": "remove data created by this run",
       "status": "pass",
-      "detail": "4 appointment(s), 4 session(s), 2 case(s), 1 customer profile(s), 1 user(s)"
+      "detail": "4 appointment(s), 3 session(s), 2 case(s), 1 customer profile(s), 1 user(s)"
     }
   ]
 }

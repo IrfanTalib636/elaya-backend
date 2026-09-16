@@ -16,6 +16,7 @@ const nachsorgeRoute = require('./nachsorgeRoute');
 const verblassungRoute = require('./verblassungRoute');
 const chatRoute = require('./chatRoute');
 const messagingRoute = require('./messagingRoute');
+const platformMessagingRoute = require('./platformMessagingRoute');
 const pushTokenRoute = require('./pushTokenRoute');
 const notificationRoute = require('./notificationRoute');
 
@@ -39,6 +40,8 @@ router.use('/nachsorge', nachsorgeRoute);
 router.use('/verblassung', verblassungRoute);
 router.use('/chat', chatRoute);
 router.use('/messaging', messagingRoute);
+router.use('/platform-messaging', platformMessagingRoute);
+router.use('/admin/crm', require('./adminCrmRoute'));
 router.use('/push-tokens', pushTokenRoute);
 router.use('/notifications', notificationRoute);
 

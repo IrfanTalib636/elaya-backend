@@ -5,6 +5,7 @@ const {
     formatStudioConfig,
     updateStudioConfig,
     getEffectivePricingOverrides,
+    mergeDefaultPricing,
 } = require('../utils/configService');
 const { getEffectiveFeaturesForStudio, FEATURE_CATALOG } = require('../utils/featureService');
 const { isAdmin, isStudio } = require('../utils/accessHelpers');
@@ -40,7 +41,10 @@ const getPlatform = asyncHandler(async (_req, res) => {
     res.status(200).json({
         success: true,
         data: {
-            platform_config: config,
+            platform_config: {
+                ...config,
+                pricing_defaults: mergeDefaultPricing(config),
+            },
             excel_plausibility: runExcelPlausibilityCheck({
                 session_prediction: config.session_prediction,
             }),
@@ -50,6 +54,13 @@ const getPlatform = asyncHandler(async (_req, res) => {
 });
 
 const patchPlatform = asyncHandler(async (req, res) => {
+    // Price formula + session prediction are super-admin only.
+    if (req.body.session_prediction !== undefined || req.body.default_pricing !== undefined) {
+        if (req.user.role !== USER_ROLES.SUPER_ADMIN) {
+            throw new ApiError(403, 'Only super admin can update price calculation or session prediction');
+        }
+    }
+
     const before = await getPlatformConfig();
     const config = await updatePlatformConfig(req.body);
 
@@ -65,7 +76,10 @@ const patchPlatform = asyncHandler(async (req, res) => {
         success: true,
         message: 'Platform config updated',
         data: {
-            platform_config: config,
+            platform_config: {
+                ...config,
+                pricing_defaults: mergeDefaultPricing(config),
+            },
             excel_plausibility: runExcelPlausibilityCheck({
                 session_prediction: config.session_prediction,
             }),
@@ -136,6 +150,12 @@ const patchStudioConfigHandler = asyncHandler(async (req, res) => {
     if (!isAdmin(req.user.role)) {
         delete patch.subscription_plan;
         delete patch.feature_overrides;
+        // Price calculation rules are platform-owned — studios view only.
+        if (patch.studio_pricing !== undefined) {
+            throw new ApiError(403, 'Only super admin can change price calculation rules');
+        }
+    } else if (req.user.role !== USER_ROLES.SUPER_ADMIN && patch.studio_pricing !== undefined) {
+        throw new ApiError(403, 'Only super admin can change price calculation rules');
     }
 
     const studioConfig = await updateStudioConfig(studio._id, patch);

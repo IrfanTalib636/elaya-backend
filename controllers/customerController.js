@@ -116,10 +116,17 @@ const listCustomers = asyncHandler(async (req, res) => {
               .map((c) => refId(c.aktuelle_firma_id))
               .filter(Boolean)
         : [];
-    const aktuelleFirmaNames = transferredOutIds.length
+
+    // Admin list: resolve every customer's current studio name for the table.
+    const adminStudioIds = !studioId
+        ? customers.map((c) => refId(c.aktuelle_firma_id)).filter(Boolean)
+        : [];
+
+    const firmaNameIds = [...new Set([...transferredOutIds, ...adminStudioIds])];
+    const aktuelleFirmaNames = firmaNameIds.length
         ? Object.fromEntries(
               (
-                  await Studio.find({ _id: { $in: [...new Set(transferredOutIds)] } })
+                  await Studio.find({ _id: { $in: firmaNameIds } })
                       .select('firma')
                       .lean()
               ).map((s) => [String(s._id), s.firma ?? ''])
@@ -136,16 +143,19 @@ const listCustomers = asyncHandler(async (req, res) => {
                 ? customerCases.filter((caseDoc) => refId(caseDoc.studio) === studioId).length
                 : customerCases.length;
 
+        const studioName =
+            aktuelleFirmaNames[String(c.aktuelle_firma_id)] ??
+            (relation.wechsel_status === 'transferiert_aus'
+                ? aktuelleFirmaNames[String(c.aktuelle_firma_id)] ?? null
+                : null);
+
         return {
             ...c,
             offene_faelle,
             wechsel_status: relation.wechsel_status,
             transferiert_am: relation.transferiert_am ?? null,
             read_only: !!relation.read_only,
-            aktuelle_firma_name:
-                relation.wechsel_status === 'transferiert_aus'
-                    ? aktuelleFirmaNames[String(c.aktuelle_firma_id)] ?? null
-                    : null,
+            aktuelle_firma_name: studioName,
             elaycoins_balance: c.elaycoins?.balance ?? 0,
         };
     });

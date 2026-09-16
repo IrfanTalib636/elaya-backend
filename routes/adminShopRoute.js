@@ -13,21 +13,25 @@ const {
 
 const router = express.Router();
 const adminRoles = [USER_ROLES.ADMIN, USER_ROLES.SUPER_ADMIN];
+/** Product catalog + commission payouts: super admin only. */
+const shopWriteRoles = [USER_ROLES.SUPER_ADMIN];
 
 router.use(protect, authorize(...adminRoles));
 
 router.get('/products', validate(adminListProductsQuerySchema, 'query'), shopAdminController.listProductsAdmin);
-router.post('/products', validate(adminProductCreateSchema), shopAdminController.createProduct);
-router.patch('/products/:id', validate(adminProductUpdateSchema), shopAdminController.updateProduct);
+router.post('/products', authorize(...shopWriteRoles), validate(adminProductCreateSchema), shopAdminController.createProduct);
+router.patch('/products/:id', authorize(...shopWriteRoles), validate(adminProductUpdateSchema), shopAdminController.updateProduct);
 
 router.get('/orders', validate(adminListOrdersQuerySchema, 'query'), shopAdminController.listOrdersAdmin);
 router.patch(
     '/orders/:id/commission',
+    authorize(...shopWriteRoles),
     validate(patchCommissionSchema),
     shopAdminController.patchOrderCommission
 );
 
 router.get('/finance', shopAdminController.getShopFinanceSummary);
+router.get('/finance/studios/:studioId', shopAdminController.getStudioFinanceDetail);
 router.get('/shipping', shopAdminController.getShippingAdmin);
 
 module.exports = router;

@@ -647,11 +647,12 @@ router.get(
  * @swagger
  * /studio/shop/orders/{id}:
  *   patch:
- *     summary: Update shop order shipping status
+ *     summary: Update shop order shipping status (platform admin only)
  *     description: |
- *       **Auth:** Bearer · **Who can call:** studio_admin, studio_staff, admin, super_admin
+ *       **Auth:** Bearer · **Who can call:** admin, super_admin
  *
- *       Studio may **only** change `status` (bestellt → versendet → geliefert).
+ *       Studios cannot edit shop orders — catalog and commission are managed
+ *       by Elaya platform admin. This endpoint remains for ops only.
  *     tags: [Studio, Shop]
  *     security:
  *       - bearerAuth: []
@@ -674,13 +675,15 @@ router.get(
  *     responses:
  *       200:
  *         description: Updated order
+ *       403:
+ *         description: Studios cannot edit shop orders
  *       404:
  *         description: Order not found
  */
 router.patch(
     '/shop/orders/:id',
     protect,
-    authorize(...studioRoles, ...adminRoles),
+    authorize(...adminRoles),
     validateMiddleware(patchShopOrderStatusSchema),
     patchShopOrderStatus
 );

@@ -12,8 +12,13 @@
 const { Expo } = require('expo-server-sdk');
 const User = require('../models/userModel');
 const { getIO } = require('../sockets/io');
-const { CHAT_SENDER_ROLE } = require('../config/constants');
+const {
+    CHAT_SENDER_ROLE,
+    PLATFORM_CHAT_SENDER_ROLE,
+    USER_ROLES,
+} = require('../config/constants');
 const notificationService = require('./notificationService');
+const platformMessagingService = require('./platformMessagingService');
 
 const expo = new Expo();
 
@@ -216,7 +221,137 @@ const notifyChatMessage = async ({ message, conversation }) => {
     });
 };
 
+/**
+ * Inbox + push when Elaya admin approves or rejects a studio transfer.
+ * Fire-and-forget from studioTransferController (`…catch`).
+ *
+ * @param {{
+ *   customerId: string|import('mongoose').Types.ObjectId,
+ *   transfer: { id?: string, _id?: string, status: string, zu_firma_name?: string, ablehnungsgrund?: string },
+ *   approved: boolean,
+ * }} args
+ */
+const notifyStudioTransferDecision = async ({ customerId, transfer, approved }) => {
+    if (!customerId || !transfer) return;
+
+    const recipients = await User.find({ customer_id: customerId }).select('_id').lean();
+    if (!recipients.length) return;
+
+    const recipientIds = recipients.map((u) => u._id);
+    const transferId = String(transfer.id || transfer._id);
+    const studioName = transfer.zu_firma_name || 'Studio';
+    const type = approved ? 'studio_transfer_approved' : 'studio_transfer_rejected';
+
+    const title = approved ? 'Studio-Wechsel genehmigt' : 'Studio-Wechsel abgelehnt';
+    const body = approved
+        ? `Dein Studio ist jetzt ${studioName}. Tippe, um dein Profil zu öffnen.`
+        : transfer.ablehnungsgrund
+          ? `Dein Studio-Wechsel wurde abgelehnt: ${transfer.ablehnungsgrund}`
+          : 'Dein Studio-Wechsel wurde abgelehnt. Tippe für Details.';
+
+    const data = {
+        type,
+        transfer_id: transferId,
+        status: transfer.status,
+        zu_firma_name: studioName,
+        ablehnungsgrund: transfer.ablehnungsgrund || '',
+    };
+
+    try {
+        await notificationService.createForUsers({
+            userIds: recipientIds,
+            type,
+            title,
+            body,
+            studioTransferId: transferId,
+        });
+    } catch (err) {
+        console.error('Studio transfer notification create failed:', err.message);
+    }
+
+    await sendToUsers(recipientIds, { title, body, data });
+};
+
+/**
+ * In-app inbox (+ optional Expo push) for super-admin ↔ studio Support chat.
+ * Expects `{ message, conversation }` from platformMessagingService.sendMessage.
+ */
+const notifyPlatformChatMessage = async ({ message, conversation }) => {
+    if (!message || !conversation) return;
+
+    const conversationRoom = platformMessagingService.conversationRoom(
+        conversation.id
+    );
+    const studioId = conversation.studio?.id || message.studio_id;
+    const conversationId = String(conversation.id);
+
+    let recipients;
+    let recipientRoom;
+    let title;
+
+    if (message.sender_role === PLATFORM_CHAT_SENDER_ROLE.ADMIN) {
+        // Admin wrote → notify studio users.
+        if (!studioId) return;
+        recipientRoom = platformMessagingService.studioRoom(studioId);
+        title = 'Support chat — Elaya';
+        recipients = await User.find({ studio_id: studioId }).select('_id').lean();
+    } else if (message.sender_role === PLATFORM_CHAT_SENDER_ROLE.STUDIO) {
+        // Studio wrote → notify platform admins.
+        recipientRoom = platformMessagingService.adminRoom();
+        const studioName =
+            conversation.studio?.firma ||
+            conversation.studio?.studio_code ||
+            'Studio';
+        title = `Support chat — ${studioName}`;
+        recipients = await User.find({
+            role: {
+                $in: [
+                    USER_ROLES.ADMIN,
+                    USER_ROLES.SUPER_ADMIN,
+                    USER_ROLES.DEVELOPER,
+                ],
+            },
+        })
+            .select('_id')
+            .lean();
+    } else {
+        return;
+    }
+
+    if (!recipients.length) return;
+    if (isRecipientViewingConversation(conversationRoom, recipientRoom)) return;
+
+    const recipientIds = recipients.map((u) => u._id);
+    const data = {
+        type: 'platform_chat',
+        conversation_id: conversationId,
+        studio_id: studioId ? String(studioId) : '',
+    };
+
+    try {
+        await notificationService.createForUsers({
+            userIds: recipientIds,
+            type: 'platform_chat',
+            title,
+            body: message.text,
+            conversationId: conversation.id,
+            studioId: studioId || null,
+            messageId: null,
+        });
+    } catch (err) {
+        console.error('Platform chat in-app notification create failed:', err.message);
+    }
+
+    await sendToUsers(recipientIds, {
+        title,
+        body: message.text,
+        data,
+    });
+};
+
 module.exports = {
     sendToUsers,
     notifyChatMessage,
+    notifyPlatformChatMessage,
+    notifyStudioTransferDecision,
 };

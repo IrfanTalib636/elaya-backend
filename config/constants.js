@@ -143,6 +143,12 @@ const CHAT_CONVERSATION_STATUS = {
     ARCHIVED: 'archived',
 };
 
+/** Super admin ↔ studio live chat (`/platform-messaging`) */
+const PLATFORM_CHAT_SENDER_ROLE = {
+    ADMIN: 'admin',
+    STUDIO: 'studio',
+};
+
 module.exports = {
     USER_ROLES,
     USER_STATUS,
@@ -166,4 +172,5 @@ module.exports = {
     CHAT_MESSAGE_TYP,
     CHAT_SENDER_ROLE,
     CHAT_CONVERSATION_STATUS,
+    PLATFORM_CHAT_SENDER_ROLE,
 };

@@ -82,6 +82,14 @@ const platformConfigSchema = new mongoose.Schema(
             type: mongoose.Schema.Types.Mixed,
             default: () => JSON.parse(JSON.stringify(DEFAULT_SESSION_PREDICTION)),
         },
+        /**
+         * Platform price-calculation defaults (base CHF + multipliers).
+         * Super admin edits these; studios view effective rules read-only.
+         */
+        default_pricing: {
+            type: mongoose.Schema.Types.Mixed,
+            default: {},
+        },
     },
     {
         timestamps: true,

@@ -73,6 +73,8 @@ const patchPlatformConfigSchema = z
             })
             .strict()
             .optional(),
+        /** Platform price calculation defaults (base CHF + multipliers). */
+        default_pricing: z.record(z.string(), z.number().min(0).max(100000)).optional(),
     })
     .strict();
 

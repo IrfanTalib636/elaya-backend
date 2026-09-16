@@ -13,6 +13,27 @@ const { DEFAULT_PRICING_CONFIG } = require('../config/pricingDefaults');
 const { mergeSessionPrediction } = require('../config/sessionPredictionDefaults');
 const { ELAYCOIN_SITUATIONS } = require('../config/elaycoinConfig');
 
+const STUDIO_PRICING_KEYS = Object.keys(DEFAULT_PRICING_CONFIG).filter(
+    (k) => !PLATFORM_GROUP_KEYS.includes(k)
+);
+
+const pickStudioPricing = (raw = {}) => {
+    const picked = {};
+    for (const key of STUDIO_PRICING_KEYS) {
+        if (raw[key] !== undefined && raw[key] !== null && raw[key] !== '') {
+            const n = Number(raw[key]);
+            if (Number.isFinite(n)) picked[key] = n;
+        }
+    }
+    return picked;
+};
+
+/** Static code defaults ← platform default_pricing overrides. */
+const mergeDefaultPricing = (platform) => ({
+    ...DEFAULT_PRICING_CONFIG,
+    ...pickStudioPricing(platform?.default_pricing || {}),
+});
+
 /** Three-layer merge for one numeric settings block: defaults → platform → studio. */
 const mergeNumericBlock = (block, platform, studioDoc) => ({
     ...PLATFORM_CONFIG_DEFAULTS[block],
@@ -53,6 +74,7 @@ const mergePlatformConfig = (doc) => {
         },
         feature_global: merged.feature_global || {},
         session_prediction: mergeSessionPrediction(merged.session_prediction),
+        default_pricing: pickStudioPricing(merged.default_pricing || {}),
     };
 };
 
@@ -254,6 +276,17 @@ const validatePlatformPatch = (patch, current = PLATFORM_CONFIG_DEFAULTS) => {
             throw new ApiError(400, 'min_sessions must not exceed max_sessions');
         }
     }
+
+    if (patch.default_pricing !== undefined) {
+        if (
+            typeof patch.default_pricing !== 'object' ||
+            Array.isArray(patch.default_pricing) ||
+            patch.default_pricing == null
+        ) {
+            throw new ApiError(400, 'default_pricing must be an object');
+        }
+        validateNumberMap(pickStudioPricing(patch.default_pricing), 'default_pricing');
+    }
 };
 
 const updatePlatformConfig = async (patch) => {
@@ -286,6 +319,12 @@ const updatePlatformConfig = async (patch) => {
                 ...(patch.session_prediction.aftercare_extra_max || {}),
             },
         });
+    }
+    if (patch.default_pricing !== undefined) {
+        setFields.default_pricing = {
+            ...pickStudioPricing(current.default_pricing || {}),
+            ...pickStudioPricing(patch.default_pricing),
+        };
     }
 
     const doc = await PlatformConfig.findOneAndUpdate(
@@ -353,20 +392,6 @@ const getPublicConfig = async (studioId = null) => {
     };
 };
 
-const STUDIO_PRICING_KEYS = Object.keys(DEFAULT_PRICING_CONFIG).filter(
-    (k) => !PLATFORM_GROUP_KEYS.includes(k)
-);
-
-const pickStudioPricing = (raw = {}) => {
-    const picked = {};
-    for (const key of STUDIO_PRICING_KEYS) {
-        if (raw[key] !== undefined) {
-            picked[key] = raw[key];
-        }
-    }
-    return picked;
-};
-
 const validateStudioCoinWert = (coinWert, platform) => {
     if (coinWert === undefined || coinWert === null) {
         return;
@@ -408,9 +433,11 @@ const validateElaycoinStudioCfg = (cfg = {}) => {
 const getEffectivePricingOverrides = async (studioId) => {
     const platform = await getPlatformConfig();
     const groupOverrides = platform.gruppen_groessen || {};
+    const base = mergeDefaultPricing(platform);
 
     if (!studioId) {
         return {
+            ...base,
             ...groupOverrides,
             session_prediction: platform.session_prediction,
         };
@@ -418,6 +445,7 @@ const getEffectivePricingOverrides = async (studioId) => {
 
     const studio = await Studio.findById(studioId).select('studio_pricing').lean();
     return {
+        ...base,
         ...pickStudioPricing(studio?.studio_pricing || {}),
         ...groupOverrides,
         session_prediction: platform.session_prediction,
@@ -443,10 +471,8 @@ const formatStudioConfig = (studio, platform) => {
         firma: doc.firma,
         coin_wert: coinWert,
         studio_pricing: pickStudioPricing(doc.studio_pricing || {}),
-        /** Platform defaults for every studio-editable pricing key — UI placeholders. */
-        pricing_defaults: Object.fromEntries(
-            STUDIO_PRICING_KEYS.map((key) => [key, DEFAULT_PRICING_CONFIG[key]])
-        ),
+        /** Platform price rules (code defaults ← platform default_pricing). */
+        pricing_defaults: mergeDefaultPricing(platform),
         elaycoin_studio_cfg: doc.elaycoin_studio_cfg || {},
         subscription_plan: doc.subscription_plan || 'professional',
         feature_overrides: doc.feature_overrides || {},
@@ -541,5 +567,6 @@ module.exports = {
     formatStudioConfig,
     updateStudioConfig,
     pickStudioPricing,
+    mergeDefaultPricing,
     STUDIO_PRICING_KEYS,
 };

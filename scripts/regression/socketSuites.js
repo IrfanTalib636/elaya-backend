@@ -255,10 +255,23 @@ const runSocketSuites = async (ctx) => {
         return 'inbox notified';
     });
 
+    await test('studio inbox room receives messaging:message without joining a thread', async () => {
+        if (!ctx.conversationId) return 'skip';
+        const incoming = waitForEvent(studioSocket, 'messaging:message', 6000);
+        const sent = await request('POST', `/messaging/conversations/${ctx.conversationId}/messages`, {
+            session: ctx.customer,
+            body: { text: 'studio inbox realtime ping' },
+        });
+        if (sent.status >= 400) return 'skip';
+        assert(
+            await incoming,
+            'studio never received messaging:message on the studio inbox room'
+        );
+        return 'inbox delivered';
+    });
+
     await test('a sent message reaches a joined recipient socket in realtime', async () => {
         if (!ctx.conversationId) return 'skip';
-        // messaging:message is scoped to the conversation room, which the studio
-        // chat page joins when it opens a thread — mirror that here.
         studioSocket.emit('messaging:join', { conversation_id: ctx.conversationId });
         await new Promise((r) => setTimeout(r, 600));
 

@@ -1,6 +1,7 @@
 const { Server } = require('socket.io');
 const { socketAuthMiddleware } = require('./auth');
 const { registerChatHandlers } = require('./chatHandler');
+const { registerPlatformChatHandlers } = require('./platformChatHandler');
 const { PLATFORM_CONFIG_ROOM } = require('./configEmit');
 const { availabilityStudioRoom } = require('./studioScheduleEmit');
 const { availabilityCustomerRoom } = require('./availabilityEmit');
@@ -95,6 +96,7 @@ const initSocket = (httpServer) => {
         // All authenticated clients receive platform session-prediction updates
         socket.join(PLATFORM_CONFIG_ROOM);
         registerChatHandlers(io, socket);
+        registerPlatformChatHandlers(io, socket);
 
         void joinAvailabilityRooms(socket).catch(() => {
             // booking refresh still works via pull/refetch
