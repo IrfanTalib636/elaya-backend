@@ -184,59 +184,118 @@ const runApiSuites = async (ctx) => {
         ctx.studioConfig = cfg;
     });
 
-    await test('PATCH /config/studio round-trips a sperrfrist override', async () => {
-        const current = ctx.studioConfig?.sperrfristen?.cross_case_tage;
-        assert(typeof current === 'number', `cross_case_tage not numeric: ${current}`);
-        const probe = current === 30 ? 29 : 30;
+    await test('PATCH /config/studio rejects studio write of sperrfristen (super-admin only)', async () => {
+        assertStatus(
+            await request('PATCH', '/config/studio', {
+                session: studio,
+                body: { sperrfristen: { cross_case_tage: 30 } },
+            }),
+            403,
+            'studio cannot patch medical lockouts'
+        );
+    });
+
+    await test('Config lifecycle: draft → publish → versions (sperrfristen)', async () => {
+        const lifeBefore = assertStatus(
+            await request('GET', '/config/platform/sperrfristen/lifecycle', { session: admin }),
+            200
+        );
+        const published = lifeBefore.body?.data?.published || ctx.platformConfig?.sperrfristen || {};
+        const probe = Number(published.cross_case_tage) === 42 ? 43 : 42;
+
+        assertStatus(
+            await request('PUT', '/config/platform/sperrfristen/draft', {
+                session: admin,
+                body: { data: { ...published, cross_case_tage: probe }, note: 'regression draft' },
+            }),
+            200,
+            'super admin can save sperrfristen draft'
+        );
+
+        const publishedRes = assertStatus(
+            await request('POST', '/config/platform/sperrfristen/publish', {
+                session: admin,
+                body: { reason: 'regression publish sperrfristen' },
+            }),
+            200,
+            'super admin can publish sperrfristen draft'
+        );
+        assert(
+            publishedRes.body?.data?.version >= 1,
+            `expected published version >= 1, got ${publishedRes.body?.data?.version}`
+        );
+
+        const versions = assertStatus(
+            await request('GET', '/config/platform/sperrfristen/versions', { session: admin }),
+            200
+        );
+        assert(
+            Array.isArray(versions.body?.data?.versions) && versions.body.data.versions.length > 0,
+            'version history should include the publish'
+        );
+
+        // Restore previous live value so later suites stay stable.
+        assertStatus(
+            await request('PUT', '/config/platform/sperrfristen/draft', {
+                session: admin,
+                body: { data: published, note: 'regression restore' },
+            }),
+            200
+        );
+        assertStatus(
+            await request('POST', '/config/platform/sperrfristen/publish', {
+                session: admin,
+                body: { reason: 'regression restore sperrfristen' },
+            }),
+            200
+        );
+    });
+
+    await test('PATCH /config/studio round-trips termin_einstellungen (studio-owned)', async () => {
+        const current = ctx.studioConfig?.termin_einstellungen?.min_vorlaufzeit_stunden;
+        assert(typeof current === 'number', `min_vorlaufzeit_stunden not numeric: ${current}`);
+        const probe = current === 2 ? 3 : 2;
 
         const patched = assertStatus(
             await request('PATCH', '/config/studio', {
                 session: studio,
-                body: { sperrfristen: { cross_case_tage: probe } },
+                body: { termin_einstellungen: { min_vorlaufzeit_stunden: probe } },
             }),
             200,
-            'patch'
+            'patch termin'
         );
         assertEqual(
-            (unwrap(patched, 'studio_config') || {}).sperrfristen?.cross_case_tage,
+            (unwrap(patched, 'studio_config') || {}).termin_einstellungen?.min_vorlaufzeit_stunden,
             probe,
-            'patched cross_case_tage'
+            'patched min_vorlaufzeit_stunden'
         );
 
-        const reread = assertStatus(await request('GET', '/config/studio', { session: studio }), 200, 'reread');
-        assertEqual(
-            (unwrap(reread, 'studio_config') || {}).sperrfristen?.cross_case_tage,
-            probe,
-            'persisted cross_case_tage'
-        );
-
-        // Restore so later suites see the original blocking rules.
         assertStatus(
             await request('PATCH', '/config/studio', {
                 session: studio,
-                body: { sperrfristen: { cross_case_tage: current } },
+                body: { termin_einstellungen: { min_vorlaufzeit_stunden: current } },
             }),
             200,
-            'restore'
+            'restore termin'
         );
         return `${current} -> ${probe} -> ${current}`;
     });
 
-    await test('PATCH /config/studio rejects an out-of-range value', async () => {
+    await test('PATCH /config/studio rejects an out-of-range termin value', async () => {
         assertStatus(
             await request('PATCH', '/config/studio', {
                 session: studio,
-                body: { sperrfristen: { cross_case_tage: -5 } },
+                body: { termin_einstellungen: { min_vorlaufzeit_stunden: -5 } },
             }),
             [400, 422]
         );
     });
 
-    await test('PATCH /config/studio rejects an unknown key', async () => {
+    await test('PATCH /config/studio rejects an unknown termin key', async () => {
         assertStatus(
             await request('PATCH', '/config/studio', {
                 session: studio,
-                body: { sperrfristen: { totally_made_up_key: 12 } },
+                body: { termin_einstellungen: { totally_made_up_key: 12 } },
             }),
             [400, 422]
         );
@@ -246,7 +305,7 @@ const runApiSuites = async (ctx) => {
         assertStatus(
             await request('PATCH', '/config/studio', {
                 session: customer,
-                body: { sperrfristen: { cross_case_tage: 1 } },
+                body: { termin_einstellungen: { min_vorlaufzeit_stunden: 1 } },
             }),
             [401, 403]
         );
@@ -1529,6 +1588,365 @@ const runApiSuites = async (ctx) => {
         const res = await request('POST', '/chat', { session: studio, body: { message: 'hello' } });
         assertStatus(res, [200, 400, 422, 503]);
         return `status ${res.status}`;
+    });
+
+    // ── Laser master catalog ──────────────────────────────────────────────
+    suite('Laser Catalog');
+
+    await test('GET /lasers returns the platform catalog for admin', async () => {
+        const res = assertStatus(await request('GET', '/lasers', { session: admin }), 200);
+        const devices = res.body?.data?.devices || [];
+        assert(Array.isArray(devices) && devices.length > 0, 'catalog should be seeded');
+        ctx.laserDeviceId = devices[0].id;
+        return `${devices.length} device(s)`;
+    });
+
+    await test('studios only see active catalog entries', async () => {
+        const res = assertStatus(await request('GET', '/lasers', { session: studio }), 200);
+        const devices = res.body?.data?.devices || [];
+        assert(
+            devices.every((d) => d.active),
+            'studio received an inactive laser'
+        );
+        return `${devices.length} active device(s)`;
+    });
+
+    await test('super admin can create and update a laser device', async () => {
+        const created = assertStatus(
+            await request('POST', '/lasers', {
+                session: admin,
+                body: {
+                    manufacturer: 'Regression',
+                    model: `Probe-${Date.now()}`,
+                    wavelengths_nm: [532, 1064],
+                },
+            }),
+            201
+        );
+        const device = created.body?.data?.device;
+        assert(device?.id, 'no device id returned');
+        ctx.createdLaserIds = ctx.createdLaserIds || [];
+        ctx.createdLaserIds.push(device.id);
+
+        const patched = assertStatus(
+            await request('PATCH', `/lasers/${device.id}`, {
+                session: admin,
+                body: { active: false },
+            }),
+            200
+        );
+        assertEqual(patched.body?.data?.device?.active, false, 'active flag');
+        return `v=${device.label}`;
+    });
+
+    await test('a studio cannot write to the master catalog', async () => {
+        assertStatus(
+            await request('POST', '/lasers', {
+                session: studio,
+                body: { manufacturer: 'Studio', model: 'Rogue' },
+            }),
+            403
+        );
+    });
+
+    await test('a studio can request a new laser for admin approval', async () => {
+        const res = assertStatus(
+            await request('POST', '/lasers/requests', {
+                session: studio,
+                body: {
+                    manufacturer: 'Regression',
+                    model: `Request-${Date.now()}`,
+                    wavelengths_nm: [694],
+                },
+            }),
+            201
+        );
+        ctx.laserRequestId = res.body?.data?.request?.id;
+        assert(ctx.laserRequestId, 'no request id');
+        return `status ${res.body?.data?.request?.status}`;
+    });
+
+    await test('a customer cannot read the laser catalog', async () => {
+        assertStatus(await request('GET', '/lasers', { session: customer }), 403);
+    });
+
+    // ── AI configuration ──────────────────────────────────────────────────
+    suite('AI Configuration');
+
+    await test('GET /ai-config returns the live prompts for admin', async () => {
+        const res = assertStatus(await request('GET', '/ai-config', { session: admin }), 200);
+        const cfg = res.body?.data?.ai_config;
+        assert(cfg?.prompts?.nachsorge, 'nachsorge prompt missing');
+        assert(cfg?.prompts?.studio_chat, 'studio_chat prompt missing');
+        ctx.aiPromptBaseline = cfg.prompts.studio_chat;
+        return `model=${cfg.model_name}`;
+    });
+
+    await test('PATCH /ai-config round-trips a prompt edit', async () => {
+        const probe = `${ctx.aiPromptBaseline}\n\nREGRESSION MARKER`;
+        const patched = assertStatus(
+            await request('PATCH', '/ai-config', {
+                session: admin,
+                body: { prompts: { studio_chat: probe }, reason: 'regression probe' },
+            }),
+            200
+        );
+        assertEqual(
+            patched.body?.data?.ai_config?.prompts?.studio_chat,
+            probe,
+            'prompt not stored'
+        );
+
+        // restore so later AI calls behave as before
+        assertStatus(
+            await request('PATCH', '/ai-config', {
+                session: admin,
+                body: {
+                    prompts: { studio_chat: ctx.aiPromptBaseline },
+                    reason: 'regression restore',
+                },
+            }),
+            200
+        );
+    });
+
+    await test('studio and customer cannot read or write AI config', async () => {
+        assertStatus(await request('GET', '/ai-config', { session: studio }), 403);
+        assertStatus(await request('GET', '/ai-config', { session: customer }), 403);
+    });
+
+    // ── Admin IAM ─────────────────────────────────────────────────────────
+    suite('Admin IAM');
+
+    await test('GET /admin/users lists platform admins with the permission catalog', async () => {
+        const res = assertStatus(await request('GET', '/admin/users', { session: admin }), 200);
+        const users = res.body?.data?.users || [];
+        const perms = res.body?.data?.permission_catalog || [];
+        assert(users.length > 0, 'no admin users returned');
+        assert(perms.length > 0, 'permission catalog empty');
+        return `${users.length} admin(s), ${perms.length} permission(s)`;
+    });
+
+    await test('studio cannot reach the admin user directory', async () => {
+        assertStatus(await request('GET', '/admin/users', { session: studio }), 403);
+    });
+
+    // ── Staff profiles vs user accounts ───────────────────────────────────
+    suite('Studio Team (profiles vs logins)');
+
+    await test('GET /studio/team/seats reports the plan login limit', async () => {
+        const res = assertStatus(
+            await request('GET', '/studio/team/seats', { session: studio }),
+            200
+        );
+        const seat = res.body?.data?.seat_status;
+        assert(seat && typeof seat.used === 'number', 'seat status missing');
+        assert(seat.plan, 'plan missing');
+        assert(
+            seat.unlimited || typeof seat.limit === 'number',
+            'limit must be a number unless unlimited'
+        );
+        ctx.seatStatus = seat;
+        return `${seat.plan}: ${seat.used}/${seat.unlimited ? '∞' : seat.limit}`;
+    });
+
+    await test('GET /studio/team/logins lists studio accounts with their roles', async () => {
+        const res = assertStatus(
+            await request('GET', '/studio/team/logins', { session: studio }),
+            200
+        );
+        const users = res.body?.data?.users || [];
+        assert(users.length > 0, 'studio should have at least the owner login');
+        assert(
+            users.every((u) => u.studio_account_role),
+            'every login needs an account role'
+        );
+        return `${users.length} login(s)`;
+    });
+
+    await test('staff profiles stay unlimited and separate from logins', async () => {
+        const res = assertStatus(await request('GET', '/studio/settings', { session: studio }), 200);
+        const settings = unwrap(res, 'settings') || {};
+        assert(Array.isArray(settings.mitarbeiter), 'mitarbeiter roster missing');
+        const logins = assertStatus(
+            await request('GET', '/studio/team/logins', { session: studio }),
+            200
+        );
+        const loginCount = (logins.body?.data?.users || []).length;
+        return `${settings.mitarbeiter.length} profile(s) vs ${loginCount} login(s)`;
+    });
+
+    await test('a customer cannot read studio team data', async () => {
+        assertStatus(await request('GET', '/studio/team/logins', { session: customer }), 403);
+        assertStatus(await request('GET', '/studio/team/seats', { session: customer }), 403);
+    });
+
+    await test('admin sees staff profiles and logins across studios', async () => {
+        const profiles = assertStatus(
+            await request('GET', '/studio/team/admin/staff-profiles', { session: admin }),
+            200
+        );
+        const logins = assertStatus(
+            await request('GET', '/studio/team/admin/logins', { session: admin }),
+            200
+        );
+        assert(Array.isArray(profiles.body?.data?.profiles), 'profiles not a list');
+        assert(Array.isArray(logins.body?.data?.users), 'logins not a list');
+        return `${profiles.body.data.profiles.length} profile(s), ${logins.body.data.users.length} login(s)`;
+    });
+
+    await test('seat limits are centrally configurable per plan', async () => {
+        const res = assertStatus(
+            await request('GET', '/config/features/catalog', { session: admin }),
+            200
+        );
+        const limits = res.body?.data?.subscription_seat_limits || {};
+        assert('basic' in limits, 'basic seat limit missing');
+        assert('professional' in limits, 'professional seat limit missing');
+        assert('enterprise' in limits, 'enterprise seat limit missing');
+        return `basic=${limits.basic}, pro=${limits.professional}, ent=${limits.enterprise ?? 'unlimited'}`;
+    });
+
+    await test('inviting an employee login consumes a seat and can be deactivated', async () => {
+        const before = assertStatus(
+            await request('GET', '/studio/team/seats', { session: studio }),
+            200
+        ).body.data.seat_status;
+
+        if (!before.can_invite) return 'studio already at its seat limit';
+
+        const email = `regression.login+${Date.now()}@elaya.test`;
+        const invited = assertStatus(
+            await request('POST', '/studio/team/logins/invite', {
+                session: studio,
+                body: { email, name: 'Regression Staff', studio_account_role: 'reception' },
+            }),
+            201
+        );
+        const created = invited.body?.data?.user;
+        assert(created?.id, 'no login created');
+        assertEqual(created.studio_account_role, 'reception', 'account role');
+        ctx.invitedLoginId = created.id;
+        ctx.invitedLoginEmail = email;
+
+        const after = invited.body?.data?.seat_status;
+        assertEqual(after.used, before.used + 1, 'seat usage did not increase');
+
+        const deactivated = assertStatus(
+            await request('PATCH', `/studio/team/logins/${created.id}`, {
+                session: studio,
+                body: { status: 'gesperrt' },
+            }),
+            200
+        );
+        assertEqual(
+            deactivated.body?.data?.seat_status?.used,
+            before.used,
+            'deactivating should free the seat'
+        );
+        return `${before.used} -> ${after.used} -> ${before.used}`;
+    });
+
+    await test('a duplicate email is refused instead of burning a seat', async () => {
+        if (!ctx.invitedLoginEmail) return 'no invite in this run';
+        assertStatus(
+            await request('POST', '/studio/team/logins/invite', {
+                session: studio,
+                body: { email: ctx.invitedLoginEmail, studio_account_role: 'reception' },
+            }),
+            409
+        );
+    });
+
+    await test('an appointment can be assigned to a staff profile', async () => {
+        const settings = assertStatus(
+            await request('GET', '/studio/settings', { session: studio }),
+            200
+        );
+        const roster = (unwrap(settings, 'settings')?.mitarbeiter || []).filter(
+            (m) => m.aktiv !== false
+        );
+        if (!roster.length) return 'studio has no active staff profile';
+        if (!ctx.caseA) return 'no case from the earlier suite';
+
+        const avail = await request('GET', `/cases/${ctx.caseA}/availability`, {
+            session: studio,
+        });
+        const earliest = avail.body?.data?.fruehestes || iso(addDays(3));
+
+        const res = await request('POST', '/appointments', {
+            session: studio,
+            body: {
+                case_id: ctx.caseA,
+                date: bookableDate(earliest, ctx.closedWeekdays || [0]),
+                time: '11:00',
+                type: 'treatment',
+                mitarbeiter_id: roster[0].id,
+                preSessionCheck: CLEAN_PRECHECK,
+            },
+        });
+        assertStatus(res, [201, 400, 409, 422], 'staff-assigned booking');
+        if (res.status !== 201) return `booking refused (${res.status}) — lockout, not a staff bug`;
+
+        const appt = unwrapList(res, 'appointments')[0];
+        assert(appt, 'create returned no appointment');
+        ctx.createdAppointments.push(idOf(appt));
+        assertEqual(String(appt.mitarbeiter_id), String(roster[0].id), 'staff not stored');
+        assert(appt.mitarbeiter_name, 'staff name not resolved from the profile');
+        return `assigned to ${appt.mitarbeiter_name}`;
+    });
+
+    await test('config lifecycle covers pricing and session prediction too', async () => {
+        for (const domain of ['default_pricing', 'session_prediction']) {
+            const life = assertStatus(
+                await request('GET', `/config/platform/${domain}/lifecycle`, { session: admin }),
+                200
+            );
+            const data = life.body?.data;
+            assertEqual(data.domain, domain, 'domain echo');
+            assert(data.published, `${domain} has no published snapshot`);
+
+            const versions = assertStatus(
+                await request('GET', `/config/platform/${domain}/versions`, { session: admin }),
+                200
+            );
+            assert(Array.isArray(versions.body?.data?.versions), `${domain} history not a list`);
+        }
+        return 'pricing + prediction expose draft/version endpoints';
+    });
+
+    await test('publishing requires a reason and super admin', async () => {
+        assertStatus(
+            await request('POST', '/config/platform/sperrfristen/publish', {
+                session: admin,
+                body: { reason: '' },
+            }),
+            400
+        );
+        assertStatus(
+            await request('PUT', '/config/platform/sperrfristen/draft', {
+                session: studio,
+                body: { data: { cross_case_tage: 5 } },
+            }),
+            403
+        );
+    });
+
+    await test('a documented session records who performed and who documented it', async () => {
+        assert(ctx.sessionA, 'no session from the earlier suite');
+        const res = assertStatus(
+            await request('GET', `/sessions/${ctx.sessionA}`, { session: studio }),
+            200
+        );
+        const s = unwrap(res, 'session') || {};
+        assert('mitarbeiter_id' in s, 'performed-by field missing');
+        assert(s.documented_by_user, 'documented_by_user was not auto-filled');
+        assertEqual(
+            String(s.documented_by_user),
+            String(studio.user.id),
+            'documented_by_user should be the logged-in account'
+        );
+        return `documented by ${s.documented_by_email || s.documented_by_user}`;
     });
 
     // ── Input hardening ───────────────────────────────────────────────────

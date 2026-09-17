@@ -89,8 +89,46 @@ const emitPlatformMessageCreated = (payload) => {
     }
 };
 
+/**
+ * Live toast fan-out for studio transfer events (admin + affected studios).
+ * @param {{
+ *   event: 'requested'|'approved'|'rejected',
+ *   transfer: object,
+ * }} payload
+ */
+const emitStudioTransferEvent = ({ event, transfer }) => {
+    try {
+        const io = getIO();
+        if (!io || !transfer) return;
+        const envelope = { event, transfer };
+        io.to(platformMessagingService.adminRoom()).emit(
+            'studio_transfer:updated',
+            envelope
+        );
+        if (event === 'approved') {
+            const fromId = transfer.von_firma_id;
+            const toId = transfer.zu_firma_id;
+            if (fromId) {
+                io.to(platformMessagingService.studioRoom(fromId)).emit(
+                    'studio_transfer:updated',
+                    envelope
+                );
+            }
+            if (toId) {
+                io.to(platformMessagingService.studioRoom(toId)).emit(
+                    'studio_transfer:updated',
+                    envelope
+                );
+            }
+        }
+    } catch {
+        // ignore
+    }
+};
+
 module.exports = {
     emitMessageCreated,
     emitConversationRead,
     emitPlatformMessageCreated,
+    emitStudioTransferEvent,
 };

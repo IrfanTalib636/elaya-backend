@@ -61,13 +61,22 @@ const listCustomers = asyncHandler(async (req, res) => {
     const { search, pipeline_stufe } = req.query;
 
     const filter = {};
-    const studioId = isStudio(req.user.role) ? refId(req.user.studio_id) : null;
+    let studioId = isStudio(req.user.role) ? refId(req.user.studio_id) : null;
 
-    // Studio: current customers + former customers who transferred out (firma_history)
+    // Admin support workspace: optional studio scope (same relation rules as studio view).
+    if (!studioId && isAdmin(req.user.role) && req.query.studio_id) {
+        const sid = String(req.query.studio_id).trim();
+        if (!/^[a-f\d]{24}$/i.test(sid)) {
+            throw new ApiError(400, 'Invalid studio_id');
+        }
+        studioId = sid;
+    }
+
+    // Studio (or admin scoped to a studio): current customers + former who transferred out
     if (studioId) {
         filter.$or = [
-            { aktuelle_firma_id: req.user.studio_id },
-            { 'firma_history.firma_id': req.user.studio_id },
+            { aktuelle_firma_id: studioId },
+            { 'firma_history.firma_id': studioId },
         ];
     }
 

@@ -223,38 +223,165 @@ const notifyChatMessage = async ({ message, conversation }) => {
 
 /**
  * Inbox + push when Elaya admin approves or rejects a studio transfer.
+ * Approve also notifies the source studio (customer left) and target studio
+ * (customer joined). Reject notifies the customer only.
  * Fire-and-forget from studioTransferController (`…catch`).
- *
- * @param {{
- *   customerId: string|import('mongoose').Types.ObjectId,
- *   transfer: { id?: string, _id?: string, status: string, zu_firma_name?: string, ablehnungsgrund?: string },
- *   approved: boolean,
- * }} args
  */
 const notifyStudioTransferDecision = async ({ customerId, transfer, approved }) => {
     if (!customerId || !transfer) return;
 
-    const recipients = await User.find({ customer_id: customerId }).select('_id').lean();
+    const transferId = String(transfer.id || transfer._id);
+    const studioName = transfer.zu_firma_name || 'Studio';
+    const customerName = String(transfer.kunde_name || '').trim() || 'Customer';
+    const fromName = transfer.von_firma_name || 'previous studio';
+    const toName = transfer.zu_firma_name || 'new studio';
+
+    // ── Customer (approve + reject) ──────────────────────────────────────
+    const customerUsers = await User.find({ customer_id: customerId })
+        .select('_id')
+        .lean();
+    if (customerUsers.length) {
+        const recipientIds = customerUsers.map((u) => u._id);
+        const type = approved
+            ? 'studio_transfer_approved'
+            : 'studio_transfer_rejected';
+        const title = approved
+            ? 'Studio-Wechsel genehmigt'
+            : 'Studio-Wechsel abgelehnt';
+        const body = approved
+            ? `Dein Studio ist jetzt ${studioName}. Tippe, um dein Profil zu öffnen.`
+            : transfer.ablehnungsgrund
+              ? `Dein Studio-Wechsel wurde abgelehnt: ${transfer.ablehnungsgrund}`
+              : 'Dein Studio-Wechsel wurde abgelehnt. Tippe für Details.';
+        const data = {
+            type,
+            transfer_id: transferId,
+            status: transfer.status,
+            zu_firma_name: studioName,
+            ablehnungsgrund: transfer.ablehnungsgrund || '',
+        };
+
+        try {
+            await notificationService.createForUsers({
+                userIds: recipientIds,
+                type,
+                title,
+                body,
+                studioTransferId: transferId,
+            });
+        } catch (err) {
+            console.error('Studio transfer customer notification failed:', err.message);
+        }
+
+        await sendToUsers(recipientIds, { title, body, data });
+    }
+
+    // Reject stops here — studios are not notified.
+    if (!approved) return;
+
+    // ── Source studio: customer left ─────────────────────────────────────
+    const fromStudioId = transfer.von_firma_id;
+    if (fromStudioId) {
+        const leftUsers = await User.find({ studio_id: fromStudioId })
+            .select('_id')
+            .lean();
+        if (leftUsers.length) {
+            const recipientIds = leftUsers.map((u) => u._id);
+            const type = 'studio_transfer_left';
+            const title = 'Customer left studio';
+            const body = `${customerName} has switched from your studio to ${toName}.`;
+            const data = {
+                type,
+                transfer_id: transferId,
+                studio_id: String(fromStudioId),
+                customer_name: customerName,
+            };
+
+            try {
+                await notificationService.createForUsers({
+                    userIds: recipientIds,
+                    type,
+                    title,
+                    body,
+                    studioTransferId: transferId,
+                    studioId: fromStudioId,
+                });
+            } catch (err) {
+                console.error('Studio transfer left notification failed:', err.message);
+            }
+
+            await sendToUsers(recipientIds, { title, body, data });
+        }
+    }
+
+    // ── Target studio: customer joined ───────────────────────────────────
+    const toStudioId = transfer.zu_firma_id;
+    if (toStudioId) {
+        const joinedUsers = await User.find({ studio_id: toStudioId })
+            .select('_id')
+            .lean();
+        if (joinedUsers.length) {
+            const recipientIds = joinedUsers.map((u) => u._id);
+            const type = 'studio_transfer_joined';
+            const title = 'New customer joined';
+            const body = `${customerName} has joined your studio (from ${fromName}).`;
+            const data = {
+                type,
+                transfer_id: transferId,
+                studio_id: String(toStudioId),
+                customer_name: customerName,
+            };
+
+            try {
+                await notificationService.createForUsers({
+                    userIds: recipientIds,
+                    type,
+                    title,
+                    body,
+                    studioTransferId: transferId,
+                    studioId: toStudioId,
+                });
+            } catch (err) {
+                console.error('Studio transfer joined notification failed:', err.message);
+            }
+
+            await sendToUsers(recipientIds, { title, body, data });
+        }
+    }
+};
+
+/**
+ * When a customer submits a studio-change request → notify platform admins.
+ */
+const notifyStudioTransferRequested = async ({ transfer }) => {
+    if (!transfer) return;
+
+    const recipients = await User.find({
+        role: {
+            $in: [
+                USER_ROLES.ADMIN,
+                USER_ROLES.SUPER_ADMIN,
+                USER_ROLES.DEVELOPER,
+            ],
+        },
+    })
+        .select('_id')
+        .lean();
     if (!recipients.length) return;
 
     const recipientIds = recipients.map((u) => u._id);
     const transferId = String(transfer.id || transfer._id);
-    const studioName = transfer.zu_firma_name || 'Studio';
-    const type = approved ? 'studio_transfer_approved' : 'studio_transfer_rejected';
-
-    const title = approved ? 'Studio-Wechsel genehmigt' : 'Studio-Wechsel abgelehnt';
-    const body = approved
-        ? `Dein Studio ist jetzt ${studioName}. Tippe, um dein Profil zu öffnen.`
-        : transfer.ablehnungsgrund
-          ? `Dein Studio-Wechsel wurde abgelehnt: ${transfer.ablehnungsgrund}`
-          : 'Dein Studio-Wechsel wurde abgelehnt. Tippe für Details.';
-
+    const customerName = String(transfer.kunde_name || '').trim() || 'Customer';
+    const fromName = transfer.von_firma_name || 'previous studio';
+    const toName = transfer.zu_firma_name || 'new studio';
+    const type = 'studio_transfer_requested';
+    const title = 'Studio change request';
+    const body = `${customerName} wants to switch from ${fromName} to ${toName}.`;
     const data = {
         type,
         transfer_id: transferId,
-        status: transfer.status,
-        zu_firma_name: studioName,
-        ablehnungsgrund: transfer.ablehnungsgrund || '',
+        von_firma_id: transfer.von_firma_id ? String(transfer.von_firma_id) : '',
+        zu_firma_id: transfer.zu_firma_id ? String(transfer.zu_firma_id) : '',
     };
 
     try {
@@ -264,9 +391,10 @@ const notifyStudioTransferDecision = async ({ customerId, transfer, approved }) 
             title,
             body,
             studioTransferId: transferId,
+            studioId: transfer.zu_firma_id || null,
         });
     } catch (err) {
-        console.error('Studio transfer notification create failed:', err.message);
+        console.error('Studio transfer request notification failed:', err.message);
     }
 
     await sendToUsers(recipientIds, { title, body, data });
@@ -354,4 +482,5 @@ module.exports = {
     notifyChatMessage,
     notifyPlatformChatMessage,
     notifyStudioTransferDecision,
+    notifyStudioTransferRequested,
 };

@@ -74,6 +74,12 @@ const behandlungsraumSchema = new mongoose.Schema(
         aktiv: { type: Boolean, default: true },
         laser_brand: { type: String, default: '', trim: true },
         laser_model: { type: String, default: '', trim: true },
+        /** Optional link to platform LaserDevice catalog. */
+        laser_device_id: {
+            type: mongoose.Schema.Types.ObjectId,
+            ref: 'LaserDevice',
+            default: null,
+        },
         /** Owning location (`standorte._id`). Empty means available at every location. */
         standort_id: { type: String, default: '', trim: true },
     },

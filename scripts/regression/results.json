@@ -1,18 +1,18 @@
 {
-  "generatedAt": "2026-09-16T06:39:14.138Z",
-  "durationMs": 12294,
+  "generatedAt": "2026-09-17T13:40:31.154Z",
+  "durationMs": 7151,
   "summary": {
-    "pass": 134,
+    "pass": 159,
     "fail": 0,
     "skip": 3,
-    "total": 137
+    "total": 162
   },
   "results": [
     {
       "suite": "Setup",
       "name": "POST /auth/register/customer creates a fresh test customer",
       "status": "pass",
-      "detail": "regression+1789540741844@elaya.test"
+      "detail": "regression+1789652424003@elaya.test"
     },
     {
       "suite": "Setup",
@@ -100,19 +100,31 @@
     },
     {
       "suite": "Configuration",
-      "name": "PATCH /config/studio round-trips a sperrfrist override",
-      "status": "pass",
-      "detail": "28 -> 30 -> 28"
-    },
-    {
-      "suite": "Configuration",
-      "name": "PATCH /config/studio rejects an out-of-range value",
+      "name": "PATCH /config/studio rejects studio write of sperrfristen (super-admin only)",
       "status": "pass",
       "detail": ""
     },
     {
       "suite": "Configuration",
-      "name": "PATCH /config/studio rejects an unknown key",
+      "name": "Config lifecycle: draft → publish → versions (sperrfristen)",
+      "status": "pass",
+      "detail": ""
+    },
+    {
+      "suite": "Configuration",
+      "name": "PATCH /config/studio round-trips termin_einstellungen (studio-owned)",
+      "status": "pass",
+      "detail": "0 -> 2 -> 0"
+    },
+    {
+      "suite": "Configuration",
+      "name": "PATCH /config/studio rejects an out-of-range termin value",
+      "status": "pass",
+      "detail": ""
+    },
+    {
+      "suite": "Configuration",
+      "name": "PATCH /config/studio rejects an unknown termin key",
       "status": "pass",
       "detail": ""
     },
@@ -276,7 +288,7 @@
       "suite": "Availability & Blocking Periods",
       "name": "GET /cases/{id}/availability returns the full lockout contract",
       "status": "pass",
-      "detail": "earliest=2026-09-16, 0 lockout(s)"
+      "detail": "earliest=2026-09-17, 0 lockout(s)"
     },
     {
       "suite": "Availability & Blocking Periods",
@@ -306,7 +318,7 @@
       "suite": "Availability & Blocking Periods",
       "name": "POST booking-precheck/preview surfaces a UV lockout",
       "status": "pass",
-      "detail": "hint earliest=2026-09-16"
+      "detail": "hint earliest=2026-09-17"
     },
     {
       "suite": "Anamnesis & Signatures",
@@ -360,7 +372,7 @@
       "suite": "Appointments",
       "name": "POST /appointments books a valid slot at the chosen location",
       "status": "pass",
-      "detail": "booked 2026-09-18 10:00 at Aesch BL"
+      "detail": "booked 2026-09-19 10:00 at Aesch BL"
     },
     {
       "suite": "Appointments",
@@ -384,7 +396,7 @@
       "suite": "Appointments",
       "name": "a booked appointment creates a cross-case lockout on the other case",
       "status": "pass",
-      "detail": "cross-case until 2026-10-16"
+      "detail": "cross-case until 2026-10-17"
     },
     {
       "suite": "Appointments",
@@ -492,7 +504,7 @@
       "suite": "Sessions",
       "name": "a logged session creates a same-case treatment interval",
       "status": "pass",
-      "detail": "blocked until 2026-11-03"
+      "detail": "blocked until 2026-11-04"
     },
     {
       "suite": "Sessions",
@@ -723,6 +735,144 @@
       "detail": "status 200"
     },
     {
+      "suite": "Laser Catalog",
+      "name": "GET /lasers returns the platform catalog for admin",
+      "status": "pass",
+      "detail": "4 device(s)"
+    },
+    {
+      "suite": "Laser Catalog",
+      "name": "studios only see active catalog entries",
+      "status": "pass",
+      "detail": "4 active device(s)"
+    },
+    {
+      "suite": "Laser Catalog",
+      "name": "super admin can create and update a laser device",
+      "status": "pass",
+      "detail": "v=Regression Probe-1789652426407"
+    },
+    {
+      "suite": "Laser Catalog",
+      "name": "a studio cannot write to the master catalog",
+      "status": "pass",
+      "detail": ""
+    },
+    {
+      "suite": "Laser Catalog",
+      "name": "a studio can request a new laser for admin approval",
+      "status": "pass",
+      "detail": "status pending"
+    },
+    {
+      "suite": "Laser Catalog",
+      "name": "a customer cannot read the laser catalog",
+      "status": "pass",
+      "detail": ""
+    },
+    {
+      "suite": "AI Configuration",
+      "name": "GET /ai-config returns the live prompts for admin",
+      "status": "pass",
+      "detail": "model=claude-sonnet-4-20250514"
+    },
+    {
+      "suite": "AI Configuration",
+      "name": "PATCH /ai-config round-trips a prompt edit",
+      "status": "pass",
+      "detail": ""
+    },
+    {
+      "suite": "AI Configuration",
+      "name": "studio and customer cannot read or write AI config",
+      "status": "pass",
+      "detail": ""
+    },
+    {
+      "suite": "Admin IAM",
+      "name": "GET /admin/users lists platform admins with the permission catalog",
+      "status": "pass",
+      "detail": "1 admin(s), 6 permission(s)"
+    },
+    {
+      "suite": "Admin IAM",
+      "name": "studio cannot reach the admin user directory",
+      "status": "pass",
+      "detail": ""
+    },
+    {
+      "suite": "Studio Team (profiles vs logins)",
+      "name": "GET /studio/team/seats reports the plan login limit",
+      "status": "pass",
+      "detail": "professional: 1/4"
+    },
+    {
+      "suite": "Studio Team (profiles vs logins)",
+      "name": "GET /studio/team/logins lists studio accounts with their roles",
+      "status": "pass",
+      "detail": "1 login(s)"
+    },
+    {
+      "suite": "Studio Team (profiles vs logins)",
+      "name": "staff profiles stay unlimited and separate from logins",
+      "status": "pass",
+      "detail": "1 profile(s) vs 1 login(s)"
+    },
+    {
+      "suite": "Studio Team (profiles vs logins)",
+      "name": "a customer cannot read studio team data",
+      "status": "pass",
+      "detail": ""
+    },
+    {
+      "suite": "Studio Team (profiles vs logins)",
+      "name": "admin sees staff profiles and logins across studios",
+      "status": "pass",
+      "detail": "4 profile(s), 2 login(s)"
+    },
+    {
+      "suite": "Studio Team (profiles vs logins)",
+      "name": "seat limits are centrally configurable per plan",
+      "status": "pass",
+      "detail": "basic=2, pro=4, ent=unlimited"
+    },
+    {
+      "suite": "Studio Team (profiles vs logins)",
+      "name": "inviting an employee login consumes a seat and can be deactivated",
+      "status": "pass",
+      "detail": "1 -> 2 -> 1"
+    },
+    {
+      "suite": "Studio Team (profiles vs logins)",
+      "name": "a duplicate email is refused instead of burning a seat",
+      "status": "pass",
+      "detail": ""
+    },
+    {
+      "suite": "Studio Team (profiles vs logins)",
+      "name": "an appointment can be assigned to a staff profile",
+      "status": "pass",
+      "detail": "booking refused (400) — lockout, not a staff bug"
+    },
+    {
+      "suite": "Studio Team (profiles vs logins)",
+      "name": "config lifecycle covers pricing and session prediction too",
+      "status": "pass",
+      "detail": "pricing + prediction expose draft/version endpoints"
+    },
+    {
+      "suite": "Studio Team (profiles vs logins)",
+      "name": "publishing requires a reason and super admin",
+      "status": "pass",
+      "detail": ""
+    },
+    {
+      "suite": "Studio Team (profiles vs logins)",
+      "name": "a documented session records who performed and who documented it",
+      "status": "pass",
+      "detail": "documented by studio@inkfree.ch"
+    },
+    {
       "suite": "Input Validation & Hardening",
       "name": "malformed ObjectId is rejected cleanly, not with a 500",
       "status": "pass",
@@ -828,7 +978,7 @@
       "suite": "Cleanup",
       "name": "remove data created by this run",
       "status": "pass",
-      "detail": "4 appointment(s), 3 session(s), 2 case(s), 1 customer profile(s), 1 user(s)"
+      "detail": "4 appointment(s), 3 session(s), 2 case(s), 1 customer profile(s), 1 user(s), 1 studio login(s), 1 laser device(s), 1 laser request(s)"
     }
   ]
 }

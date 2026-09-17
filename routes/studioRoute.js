@@ -6,6 +6,7 @@ const {
     patchStudioSettings,
     listStudiosAdmin,
     patchStudioStatus,
+    openStudioWorkspace,
 } = require('../controllers/studioController');
 const {
     getCrmPipeline,
@@ -119,6 +120,17 @@ router.patch(
     authorize(...adminRoles),
     validateMiddleware(patchStudioStatusSchema),
     patchStudioStatus
+);
+
+/**
+ * POST /studio/admin/studios/:studioId/workspace/open
+ * Open support workspace for a studio (admin identity preserved; audit logged).
+ */
+router.post(
+    '/admin/studios/:studioId/workspace/open',
+    protect,
+    authorize(...adminRoles),
+    openStudioWorkspace
 );
 
 /**

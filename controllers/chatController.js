@@ -17,6 +17,8 @@ const {
     callClaude,
     isAiEnabled,
 } = require('../services/anthropicService');
+const { getAiSystemPrompt } = require('../utils/aiConfigService');
+const { assertAiFeatureAllowed } = require('../utils/aiFeatureGate');
 const {
     buildCustomerChatContext,
     buildStudioChatContext,
@@ -97,10 +99,12 @@ const sendChat = asyncHandler(async (req, res) => {
     let studioCasesOnly = false;
 
     if (customerUser) {
-        systemPrompt = ELAYA_ASSISTANT_SYSTEM;
+        systemPrompt =
+            (await getAiSystemPrompt('customer_chat')) || ELAYA_ASSISTANT_SYSTEM;
         contextText = await buildCustomerChatContext(req.user.customer_id, caseId);
     } else {
-        systemPrompt = ELAYA_STUDIO_ASSISTANT_SYSTEM;
+        systemPrompt =
+            (await getAiSystemPrompt('studio_chat')) || ELAYA_STUDIO_ASSISTANT_SYSTEM;
         const studioId = req.user.studio_id;
         if (!studioId && !isAdmin(req.user.role)) {
             throw new ApiError(400, 'Studio context missing');
@@ -133,7 +137,8 @@ const sendChat = asyncHandler(async (req, res) => {
             : `Heute: ${new Date().toLocaleDateString('de-CH')}\nAdmin-Modus — kein Studio-Kontext geladen.`;
     }
 
-    if (!isAiEnabled()) {
+    const featureGate = await assertAiFeatureAllowed(req.user, 'ai_chat');
+    if (!featureGate.allowed || !isAiEnabled()) {
         return res.status(200).json({
             success: true,
             data: {

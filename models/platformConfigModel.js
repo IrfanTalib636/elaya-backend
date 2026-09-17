@@ -72,6 +72,11 @@ const platformConfigSchema = new mongoose.Schema(
             type: mongoose.Schema.Types.Mixed,
             default: () => ({ ...PLATFORM_CONFIG_DEFAULTS.subscription_plans }),
         },
+        /** Max active studio logins per plan (null = unlimited). */
+        subscription_seat_limits: {
+            type: mongoose.Schema.Types.Mixed,
+            default: () => ({ ...PLATFORM_CONFIG_DEFAULTS.subscription_seat_limits }),
+        },
         /** Global feature kill-switches: { [featureKey]: false } disables everywhere */
         feature_global: {
             type: mongoose.Schema.Types.Mixed,
@@ -89,6 +94,19 @@ const platformConfigSchema = new mongoose.Schema(
         default_pricing: {
             type: mongoose.Schema.Types.Mixed,
             default: {},
+        },
+        /**
+         * Unpublished drafts per versioned domain (sperrfristen / pricing / prediction).
+         * Live fields above remain the published source of truth until publish.
+         */
+        drafts: {
+            type: mongoose.Schema.Types.Mixed,
+            default: () => ({}),
+        },
+        /** Latest published version number per domain. */
+        current_versions: {
+            type: mongoose.Schema.Types.Mixed,
+            default: () => ({}),
         },
     },
     {

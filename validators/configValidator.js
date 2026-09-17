@@ -48,6 +48,9 @@ const patchPlatformConfigSchema = z
         sperrfristen: sperrfristenSchema,
         termin_einstellungen: terminEinstellungenSchema,
         subscription_plans: z.record(z.string(), z.array(z.string())).optional(),
+        subscription_seat_limits: z
+            .record(z.string(), z.number().int().min(0).nullable())
+            .optional(),
         feature_global: z.record(z.string(), z.boolean()).optional(),
         session_prediction: z
             .object({
@@ -147,9 +150,40 @@ const patchStudioConfigSchema = z
     })
     .strict();
 
+const versionedDomainParam = z.enum([
+    'sperrfristen',
+    'default_pricing',
+    'session_prediction',
+]);
+
+const configDraftBodySchema = z
+    .object({
+        data: z.record(z.string(), z.any()),
+        note: z.string().max(2000).optional(),
+    })
+    .strict();
+
+const configPublishBodySchema = z
+    .object({
+        reason: z.string().trim().min(1).max(2000),
+        /** Optional: publish this payload instead of the saved draft. */
+        data: z.record(z.string(), z.any()).optional(),
+    })
+    .strict();
+
+const configRollbackBodySchema = z
+    .object({
+        reason: z.string().trim().min(1).max(2000),
+    })
+    .strict();
+
 module.exports = {
     patchPlatformConfigSchema,
     patchStudioConfigSchema,
     sessionPredictionPreviewSchema,
     pricingPreviewSchema,
+    versionedDomainParam,
+    configDraftBodySchema,
+    configPublishBodySchema,
+    configRollbackBodySchema,
 };

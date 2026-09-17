@@ -19,8 +19,8 @@ const PLATFORM_CONFIG_DEFAULTS = {
         gruppen_rabatt: 0.15,
     },
     /**
-     * Blocking periods (Sperrfristen) in days. Every value is overridable per
-     * studio, so medical wait times never require a code change.
+     * Blocking periods (Sperrfristen) in days — platform / super-admin only.
+     * Studios see effective values but cannot change them.
      */
     sperrfristen: {
         same_case_tage: 49,
@@ -76,6 +76,16 @@ const PLATFORM_CONFIG_DEFAULTS = {
             'studio_transfer',
         ],
     },
+    /**
+     * Max active ELAYA logins per subscription plan.
+     * null / missing = unlimited. Staff profiles stay unlimited separately.
+     * Maps: basic≈small(2), professional≈medium(4), enterprise≈large(unlimited).
+     */
+    subscription_seat_limits: {
+        basic: 2,
+        professional: 4,
+        enterprise: null,
+    },
 };
 
 /**
@@ -107,8 +117,14 @@ const PLATFORM_GROUP_KEYS = [
  */
 const NUMERIC_CONFIG_BLOCKS = ['gruppen_groessen', 'sperrfristen', 'termin_einstellungen'];
 
-/** Blocks a studio may override through its own dashboard. */
-const STUDIO_OVERRIDABLE_BLOCKS = ['gruppen_groessen', 'sperrfristen', 'termin_einstellungen'];
+/**
+ * Blocks a studio may override through its own dashboard.
+ * Medical lockouts (`sperrfristen`) are platform / super-admin only.
+ */
+const STUDIO_OVERRIDABLE_BLOCKS = ['gruppen_groessen', 'termin_einstellungen'];
+
+/** Blocks only super_admin may write (platform defaults or per-studio override). */
+const SUPER_ADMIN_ONLY_CONFIG_BLOCKS = ['sperrfristen'];
 
 const blockKeys = (block) => Object.keys(PLATFORM_CONFIG_DEFAULTS[block]);
 
@@ -118,5 +134,6 @@ module.exports = {
     PLATFORM_GROUP_KEYS,
     NUMERIC_CONFIG_BLOCKS,
     STUDIO_OVERRIDABLE_BLOCKS,
+    SUPER_ADMIN_ONLY_CONFIG_BLOCKS,
     blockKeys,
 };

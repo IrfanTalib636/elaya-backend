@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-31T08:21:14.127Z",
+  "generatedAt": "2026-09-17T13:40:31.529Z",
   "summary": {
     "pass": 24,
     "fail": 0,
@@ -29,19 +29,19 @@
       "suite": "Frontend i18n",
       "name": "de and en cover the same keys",
       "status": "pass",
-      "detail": "2178 keys"
+      "detail": "2420 keys"
     },
     {
       "suite": "Frontend i18n",
       "name": "every literal t() key exists in the locales",
       "status": "pass",
-      "detail": "325 keys referenced"
+      "detail": "348 keys referenced"
     },
     {
       "suite": "Frontend i18n",
       "name": "dynamically built t() keys noted for manual review",
       "status": "skip",
-      "detail": "14 file(s) build keys at runtime"
+      "detail": "16 file(s) build keys at runtime"
     },
     {
       "suite": "Frontend content bundles",
@@ -95,13 +95,13 @@
       "suite": "Mobile i18n",
       "name": "de and en cover the same keys",
       "status": "pass",
-      "detail": "1060 keys"
+      "detail": "1071 keys"
     },
     {
       "suite": "Mobile i18n",
       "name": "every literal t() key exists in the locales",
       "status": "pass",
-      "detail": "716 keys referenced"
+      "detail": "727 keys referenced"
     },
     {
       "suite": "Mobile i18n",
@@ -113,13 +113,13 @@
       "suite": "Frontend routing",
       "name": "App.jsx declares routes",
       "status": "pass",
-      "detail": "39 route(s)"
+      "detail": "52 route(s)"
     },
     {
       "suite": "Frontend routing",
       "name": "every routed element is imported",
       "status": "pass",
-      "detail": "32 element(s)"
+      "detail": "45 element(s)"
     },
     {
       "suite": "Frontend routing",
@@ -131,19 +131,19 @@
       "suite": "Mobile navigation",
       "name": "navigators declare screens",
       "status": "pass",
-      "detail": "40 screen(s)"
+      "detail": "41 screen(s)"
     },
     {
       "suite": "Mobile navigation",
       "name": "every screen name appears in a ParamList type",
       "status": "pass",
-      "detail": "41 typed route(s)"
+      "detail": "42 typed route(s)"
     },
     {
       "suite": "Mobile navigation",
       "name": "every navigate() target resolves to a screen",
       "status": "pass",
-      "detail": "30 target(s)"
+      "detail": "31 target(s)"
     },
     {
       "suite": "Dynamic configuration",

@@ -7,6 +7,7 @@ const {
     PLATFORM_GROUP_KEYS,
     NUMERIC_CONFIG_BLOCKS,
     STUDIO_OVERRIDABLE_BLOCKS,
+    SUPER_ADMIN_ONLY_CONFIG_BLOCKS,
     blockKeys,
 } = require('../config/platformDefaults');
 const { DEFAULT_PRICING_CONFIG } = require('../config/pricingDefaults');
@@ -71,6 +72,10 @@ const mergePlatformConfig = (doc) => {
         subscription_plans: {
             ...PLATFORM_CONFIG_DEFAULTS.subscription_plans,
             ...(merged.subscription_plans || {}),
+        },
+        subscription_seat_limits: {
+            ...PLATFORM_CONFIG_DEFAULTS.subscription_seat_limits,
+            ...(merged.subscription_seat_limits || {}),
         },
         feature_global: merged.feature_global || {},
         session_prediction: mergeSessionPrediction(merged.session_prediction),
@@ -488,7 +493,7 @@ const formatStudioConfig = (studio, platform) => {
         /** Points per size category — read-only, so the UI can label each tier. */
         gruppen_punkte: GRUPPEN_PUNKTE,
         ...Object.fromEntries(
-            STUDIO_OVERRIDABLE_BLOCKS.flatMap((block) => [
+            NUMERIC_CONFIG_BLOCKS.flatMap((block) => [
                 [block, mergeNumericBlock(block, platform, doc)],
                 // Platform values, so the UI can show what a cleared field falls back to.
                 [`${block}_defaults`, mergeNumericBlock(block, platform, null)],
@@ -538,6 +543,17 @@ const updateStudioConfig = async (studioId, patch) => {
         studio.markModified(block);
     }
 
+    // Medical lockouts: only applied when the controller has already authorized
+    // the caller as super_admin (studio users never reach this with sperrfristen).
+    for (const block of SUPER_ADMIN_ONLY_CONFIG_BLOCKS) {
+        if (patch[block] === undefined) continue;
+        assertNumericBlockPatch(block, patch[block]);
+        const next = { ...(studio[block] || {}), ...patch[block] };
+        assertBlockInvariants(block, next);
+        studio[block] = next;
+        studio.markModified(block);
+    }
+
     if (patch.feature_overrides !== undefined) {
         if (typeof patch.feature_overrides !== 'object' || Array.isArray(patch.feature_overrides)) {
             throw new ApiError(400, 'feature_overrides must be an object');
@@ -548,6 +564,251 @@ const updateStudioConfig = async (studioId, patch) => {
 
     await studio.save();
     return formatStudioConfig(studio, platform);
+};
+
+const {
+    PlatformConfigVersion,
+    VERSIONED_CONFIG_DOMAINS,
+} = require('../models/platformConfigVersionModel');
+
+const assertVersionedDomain = (domain) => {
+    if (!VERSIONED_CONFIG_DOMAINS.includes(domain)) {
+        throw new ApiError(
+            400,
+            `Invalid domain. Allowed: ${VERSIONED_CONFIG_DOMAINS.join(', ')}`
+        );
+    }
+};
+
+const cloneDomainSnapshot = (domain, value) => {
+    if (domain === 'sperrfristen') {
+        return {
+            ...PLATFORM_CONFIG_DEFAULTS.sperrfristen,
+            ...(value || {}),
+        };
+    }
+    if (domain === 'default_pricing') {
+        return pickStudioPricing(value || {});
+    }
+    return mergeSessionPrediction(value || {});
+};
+
+const normalizeDomainPatch = (domain, data, currentLive) => {
+    const patch = { [domain]: data };
+    validatePlatformPatch(patch, {
+        ...PLATFORM_CONFIG_DEFAULTS,
+        [domain]: currentLive,
+    });
+
+    if (domain === 'sperrfristen') {
+        return {
+            ...PLATFORM_CONFIG_DEFAULTS.sperrfristen,
+            ...(currentLive || {}),
+            ...data,
+        };
+    }
+    if (domain === 'default_pricing') {
+        return {
+            ...pickStudioPricing(currentLive || {}),
+            ...pickStudioPricing(data),
+        };
+    }
+    return mergeSessionPrediction({
+        ...(currentLive || {}),
+        ...data,
+        tattoo_deltas: {
+            ...(currentLive?.tattoo_deltas || {}),
+            ...(data?.tattoo_deltas || {}),
+        },
+        lifestyle_scores: {
+            ...(currentLive?.lifestyle_scores || {}),
+            ...(data?.lifestyle_scores || {}),
+        },
+        aftercare_extra_max: {
+            ...(currentLive?.aftercare_extra_max || {}),
+            ...(data?.aftercare_extra_max || {}),
+        },
+    });
+};
+
+const getPlatformConfigDoc = async () => {
+    let doc = await PlatformConfig.findOne({ key: 'platform' });
+    if (!doc) {
+        doc = await PlatformConfig.create({ key: 'platform' });
+    }
+    return doc;
+};
+
+const getConfigLifecycle = async (domain) => {
+    assertVersionedDomain(domain);
+    const doc = await getPlatformConfigDoc();
+    const live = mergePlatformConfig(doc);
+    const draftEntry = doc.drafts?.[domain] || null;
+    return {
+        domain,
+        published: cloneDomainSnapshot(domain, live[domain]),
+        draft: draftEntry
+            ? {
+                  data: draftEntry.data,
+                  updated_at: draftEntry.updated_at || null,
+                  updated_by: draftEntry.updated_by || null,
+                  note: draftEntry.note || '',
+              }
+            : null,
+        current_version: Number(doc.current_versions?.[domain]) || 0,
+        has_draft: Boolean(draftEntry?.data),
+    };
+};
+
+const saveConfigDraft = async (domain, data, { userId = null, note = '' } = {}) => {
+    assertVersionedDomain(domain);
+    if (!data || typeof data !== 'object' || Array.isArray(data)) {
+        throw new ApiError(400, 'Draft data must be an object');
+    }
+
+    const live = await getPlatformConfig();
+    const normalized = normalizeDomainPatch(domain, data, live[domain]);
+    const draftPayload = {
+        data: normalized,
+        updated_by: userId || null,
+        updated_at: new Date(),
+        note: String(note || '').trim().slice(0, 2000),
+    };
+
+    await PlatformConfig.findOneAndUpdate(
+        { key: 'platform' },
+        { $set: { [`drafts.${domain}`]: draftPayload } },
+        { upsert: true, new: true }
+    );
+
+    return getConfigLifecycle(domain);
+};
+
+const discardConfigDraft = async (domain) => {
+    assertVersionedDomain(domain);
+    await PlatformConfig.findOneAndUpdate(
+        { key: 'platform' },
+        { $unset: { [`drafts.${domain}`]: 1 } },
+        { upsert: true, new: true }
+    );
+    return getConfigLifecycle(domain);
+};
+
+const listConfigVersions = async (domain, { limit = 50 } = {}) => {
+    assertVersionedDomain(domain);
+    const rows = await PlatformConfigVersion.find({ domain })
+        .sort({ version: -1 })
+        .limit(Math.min(Math.max(Number(limit) || 50, 1), 100))
+        .populate('published_by', 'email role name')
+        .lean();
+    return rows.map((row) => ({
+        domain: row.domain,
+        version: row.version,
+        snapshot: row.snapshot,
+        note: row.note || '',
+        published_at: row.published_at,
+        published_by: row.published_by
+            ? {
+                  id: row.published_by._id,
+                  email: row.published_by.email,
+                  role: row.published_by.role,
+                  name: row.published_by.name,
+              }
+            : null,
+        rolled_back_from: row.rolled_back_from ?? null,
+    }));
+};
+
+const publishConfigDomain = async (
+    domain,
+    { userId = null, reason = '', data = null, rolledBackFrom = null } = {}
+) => {
+    assertVersionedDomain(domain);
+    const reasonTrimmed = String(reason || '').trim();
+    if (!reasonTrimmed) {
+        throw new ApiError(400, 'Publish reason is required');
+    }
+
+    const doc = await getPlatformConfigDoc();
+    const live = mergePlatformConfig(doc);
+    const draftEntry = doc.drafts?.[domain] || null;
+
+    let toPublish;
+    if (rolledBackFrom != null && data && typeof data === 'object') {
+        // Exact snapshot restore (no merge with current live extras).
+        toPublish = cloneDomainSnapshot(domain, data);
+        validatePlatformPatch({ [domain]: toPublish }, live);
+    } else if (data && typeof data === 'object' && !Array.isArray(data)) {
+        toPublish = normalizeDomainPatch(domain, data, live[domain]);
+    } else if (draftEntry?.data) {
+        toPublish = normalizeDomainPatch(domain, draftEntry.data, live[domain]);
+    } else {
+        throw new ApiError(400, 'No draft to publish. Save a draft first.');
+    }
+
+    const before = cloneDomainSnapshot(domain, live[domain]);
+    const nextVersion = (Number(doc.current_versions?.[domain]) || 0) + 1;
+    const after = cloneDomainSnapshot(domain, toPublish);
+
+    const updatedDoc = await PlatformConfig.findOneAndUpdate(
+        { key: 'platform' },
+        {
+            $set: {
+                [domain]: after,
+                [`current_versions.${domain}`]: nextVersion,
+            },
+            $unset: { [`drafts.${domain}`]: 1 },
+        },
+        { upsert: true, new: true, runValidators: true }
+    );
+
+    await PlatformConfigVersion.create({
+        domain,
+        version: nextVersion,
+        snapshot: after,
+        note: reasonTrimmed.slice(0, 2000),
+        published_by: userId || null,
+        published_at: new Date(),
+        rolled_back_from: rolledBackFrom ?? null,
+    });
+
+    const updated = mergePlatformConfig(updatedDoc);
+
+    return {
+        domain,
+        version: nextVersion,
+        published: after,
+        before,
+        current_version: nextVersion,
+        has_draft: false,
+        draft: null,
+        rolled_back_from: rolledBackFrom ?? null,
+        platform_config: updated,
+    };
+};
+
+const rollbackConfigVersion = async (domain, version, { userId = null, reason = '' } = {}) => {
+    assertVersionedDomain(domain);
+    const versionNum = Number(version);
+    if (!Number.isInteger(versionNum) || versionNum < 1) {
+        throw new ApiError(400, 'Invalid version number');
+    }
+    const reasonTrimmed = String(reason || '').trim();
+    if (!reasonTrimmed) {
+        throw new ApiError(400, 'Rollback reason is required');
+    }
+
+    const row = await PlatformConfigVersion.findOne({ domain, version: versionNum }).lean();
+    if (!row) {
+        throw new ApiError(404, `Version ${versionNum} not found for ${domain}`);
+    }
+
+    return publishConfigDomain(domain, {
+        userId,
+        reason: reasonTrimmed,
+        data: row.snapshot,
+        rolledBackFrom: versionNum,
+    });
 };
 
 module.exports = {
@@ -569,4 +830,11 @@ module.exports = {
     pickStudioPricing,
     mergeDefaultPricing,
     STUDIO_PRICING_KEYS,
+    VERSIONED_CONFIG_DOMAINS,
+    getConfigLifecycle,
+    saveConfigDraft,
+    discardConfigDraft,
+    listConfigVersions,
+    publishConfigDomain,
+    rollbackConfigVersion,
 };

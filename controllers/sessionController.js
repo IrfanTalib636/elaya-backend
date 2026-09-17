@@ -131,6 +131,11 @@ const formatSession = (doc, role, options = {}) => {
         standort_name: s.standort_name,
         mitarbeiter_id: s.mitarbeiter_id,
         mitarbeiter_name: s.mitarbeiter_name,
+        documented_by_user: s.documented_by_user
+            ? String(s.documented_by_user)
+            : null,
+        documented_by_name: s.documented_by_name || '',
+        documented_by_email: s.documented_by_email || '',
         raum_id: s.raum_id,
         raum_name: s.raum_name,
         dauer_minuten: s.dauer_minuten,
@@ -304,8 +309,30 @@ const createSession = asyncHandler(async (req, res) => {
     const zonenId = await resolveSessionZone(caseDoc, fields.zonen_id);
     const session_number = await getNextSessionNumber(caseDoc._id, zonenId);
 
+    // Resolve Staff Profile name if only id provided
+    let mitarbeiter_id = fields.mitarbeiter_id || '';
+    let mitarbeiter_name = fields.mitarbeiter_name || '';
+    if (mitarbeiter_id && !mitarbeiter_name && caseDoc.studio) {
+        const Studio = require('../models/studioModel');
+        const studio = await Studio.findById(caseDoc.studio).select('mitarbeiter').lean();
+        const m = (studio?.mitarbeiter || []).find((x) => String(x._id) === String(mitarbeiter_id));
+        if (m) {
+            mitarbeiter_name = `${m.vorname || ''} ${m.nachname || ''}`.trim();
+        }
+    }
+
+    const documentedName =
+        req.user.name ||
+        req.user.email?.split('@')[0] ||
+        '';
+
     const session = await Session.create({
         ...fields,
+        mitarbeiter_id,
+        mitarbeiter_name,
+        documented_by_user: req.user._id,
+        documented_by_name: documentedName,
+        documented_by_email: req.user.email || '',
         case: caseDoc._id,
         customer: caseDoc.customer,
         studio: caseDoc.studio,
@@ -316,6 +343,25 @@ const createSession = asyncHandler(async (req, res) => {
             : `s${session_number}-${caseDoc._id.toString().slice(-6)}`,
         appointment: linkedAppointment,
         ...(zahlung ? { zahlung } : {}),
+    });
+
+    void require('../utils/activityLog').recordActivityFromUser(req.user, {
+        studio: caseDoc.studio,
+        customer: caseDoc.customer,
+        case: caseDoc._id,
+        session: session._id,
+        appointment: linkedAppointment || null,
+        category: require('../config/activityConfig').ACTIVITY_CATEGORY.SESSIONS,
+        type: 'session_documented',
+        title: `Sitzung ${session_number} dokumentiert`,
+        details: mitarbeiter_name
+            ? `Behandlung durch ${mitarbeiter_name}`
+            : '',
+        source_key: `session:${session._id}:created`,
+        payload: {
+            mitarbeiter_id,
+            documented_by_user: String(req.user._id),
+        },
     });
 
     const enteredFade = fields.verblassung_prozent ?? fields.removal_pct;

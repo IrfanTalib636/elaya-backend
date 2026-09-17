@@ -59,6 +59,8 @@ const formatAppointment = (doc) => {
         dauer_minuten: a.dauer_minuten,
         standort_id: a.standort_id,
         standort_name: a.standort_name,
+        mitarbeiter_id: a.mitarbeiter_id || '',
+        mitarbeiter_name: a.mitarbeiter_name || '',
         gruppen_termin: a.gruppen_termin,
         gruppen_id: a.gruppen_id,
         gruppen_cases: a.gruppen_cases,
@@ -213,47 +215,59 @@ const isTreatmentBooking = (body, fallbackConsultationOnly = false) => {
 };
 
 const resolvePreSessionForCustomerBooking = async (caseDoc, body, user, { persist = true } = {}) => {
-    if (!isCustomer(user.role) || !isTreatmentBooking(body)) {
-        return body.preSessionCheck ?? {};
+    // Consultations never apply treatment lockouts from pre-session answers.
+    if (!isTreatmentBooking(body)) {
+        return {};
     }
 
-    if (!body.booking_precheck) {
-        throw new ApiError(400, 'booking_precheck is required for customer treatment bookings');
+    // Customers must complete the booking pre-check questionnaire.
+    if (isCustomer(user.role)) {
+        if (!body.booking_precheck) {
+            throw new ApiError(400, 'booking_precheck is required for customer treatment bookings');
+        }
+
+        if (persist) {
+            const { preSessionCheck } = await applyBookingPrecheckToCase(
+                caseDoc,
+                body.booking_precheck
+            );
+            return preSessionCheck;
+        }
+
+        const anamnesis = await Anamnesis.findOne({ case: caseDoc._id });
+        const { validateBookingPrecheck } = require('../utils/bookingPrecheckEngine');
+        const {
+            pre_session: preSession = {},
+            ko_answers: koAnswers = {},
+            wiederholungen = {},
+            wiederholungen_confirmed: wiederholungenConfirmed = false,
+            ko_signature: koSignature = null,
+        } = body.booking_precheck;
+
+        const { getEffectiveSperrfristen } = require('../utils/configService');
+        const result = validateBookingPrecheck({
+            caseDoc,
+            anamnesis,
+            consultationOnly: false,
+            preSession,
+            koAnswers,
+            wiederholungen,
+            wiederholungenConfirmed,
+            koSignature,
+            sperrfristen: await getEffectiveSperrfristen(caseDoc.studio),
+        });
+
+        if (!result.can_proceed) {
+            throw new ApiError(400, 'Booking pre-check failed', { blocks: result.blocks });
+        }
+
+        return result.pre_session_check;
     }
 
-    if (persist) {
-        const { preSessionCheck } = await applyBookingPrecheckToCase(caseDoc, body.booking_precheck);
-        return preSessionCheck;
-    }
-
-    const anamnesis = await Anamnesis.findOne({ case: caseDoc._id });
-    const { validateBookingPrecheck } = require('../utils/bookingPrecheckEngine');
-    const {
-        pre_session: preSession = {},
-        ko_answers: koAnswers = {},
-        wiederholungen = {},
-        wiederholungen_confirmed: wiederholungenConfirmed = false,
-        ko_signature: koSignature = null,
-    } = body.booking_precheck;
-
-    const { getEffectiveSperrfristen } = require('../utils/configService');
-    const result = validateBookingPrecheck({
-        caseDoc,
-        anamnesis,
-        consultationOnly: false,
-        preSession,
-        koAnswers,
-        wiederholungen,
-        wiederholungenConfirmed,
-        koSignature,
-        sperrfristen: await getEffectiveSperrfristen(caseDoc.studio),
-    });
-
-    if (!result.can_proceed) {
-        throw new ApiError(400, 'Booking pre-check failed', { blocks: result.blocks });
-    }
-
-    return result.pre_session_check;
+    // Studio / admin treatment booking: same calendar lockout engine applies.
+    // Prefer explicit preSessionCheck from the studio UI (UV / meds).
+    // Same-case / cross-case history lockouts still apply even if this is empty.
+    return body.preSessionCheck ?? {};
 };
 
 const createAppointment = asyncHandler(async (req, res) => {
@@ -310,6 +324,18 @@ const createAppointment = asyncHandler(async (req, res) => {
     const standort = await resolveStandortForBooking(primaryCase, body, req.user);
     body.standort_id = standort.standort_id;
     body.standort_name = standort.standort_name;
+
+    // Optional Staff Profile assignment (studio bookings)
+    if (body.mitarbeiter_id && !body.mitarbeiter_name && primaryCase.studio) {
+        const Studio = require('../models/studioModel');
+        const studio = await Studio.findById(primaryCase.studio).select('mitarbeiter').lean();
+        const m = (studio?.mitarbeiter || []).find(
+            (x) => String(x._id) === String(body.mitarbeiter_id)
+        );
+        if (m) {
+            body.mitarbeiter_name = `${m.vorname || ''} ${m.nachname || ''}`.trim();
+        }
+    }
 
     const { getEffectiveBookingConfig } = require('../utils/configService');
     const { termin_einstellungen } = await getEffectiveBookingConfig(primaryCase.studio);
@@ -482,9 +508,16 @@ const updateAppointment = asyncHandler(async (req, res) => {
     if (isReschedule) {
         const caseDoc = await Case.findById(appointment.case);
         if (caseDoc) {
-            const preSessionCheck = isCustomer(req.user.role)
-                ? await resolvePreSessionForCustomerBooking(caseDoc, req.body, req.user, { persist: false })
-                : (req.body.preSessionCheck ?? {});
+            const preSessionCheck = await resolvePreSessionForCustomerBooking(
+                caseDoc,
+                {
+                    ...req.body,
+                    type: req.body.type ?? appointment.type,
+                    consultationOnly: false,
+                },
+                req.user,
+                { persist: false }
+            );
 
             await assertBookingDateAllowed({
                 caseId: caseDoc._id,

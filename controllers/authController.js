@@ -167,6 +167,7 @@ const registerStudio = asyncHandler(async (req, res) => {
             email,
             password,
             role: USER_ROLES.STUDIO_ADMIN,
+            studio_account_role: 'owner',
             status: USER_STATUS.AUSSTEHEND,
         });
 
@@ -254,8 +255,12 @@ const login = asyncHandler(async (req, res) => {
             user: {
                 id: user._id,
                 email: user.email,
+                name: user.name || '',
                 role: user.role,
                 status: user.status,
+                permissions: Array.isArray(user.permissions) ? user.permissions : [],
+                studio_account_role: user.studio_account_role || null,
+                staff_profile_id: user.staff_profile_id || null,
                 studio_id: user.studio_id,
                 customer_id: user.customer_id,
             },
@@ -399,8 +404,12 @@ const getMe = asyncHandler(async (req, res) => {
             user: {
                 id: user._id,
                 email: user.email,
+                name: user.name || '',
                 role: user.role,
                 status: user.status,
+                permissions: Array.isArray(user.permissions) ? user.permissions : [],
+                studio_account_role: user.studio_account_role || null,
+                staff_profile_id: user.staff_profile_id || null,
                 studio_id: user.studio_id,
                 customer_id: user.customer_id,
                 last_login: user.last_login,

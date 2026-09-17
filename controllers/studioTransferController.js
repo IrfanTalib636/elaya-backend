@@ -11,6 +11,7 @@ const {
     AKQUISE_QUELLE,
 } = require('../config/constants');
 const pushService = require('../services/pushService');
+const { emitStudioTransferEvent } = require('../sockets/emitHelpers');
 
 const formatTransfer = (doc, { includeSignature = false, studioNames = {} } = {}) => {
     const t = doc.toObject ? doc.toObject() : doc;
@@ -174,10 +175,18 @@ const createTransfer = asyncHandler(async (req, res) => {
         einwilligung_datum: now,
     });
 
+    const transferPayload = formatTransfer(request);
+    pushService
+        .notifyStudioTransferRequested({ transfer: transferPayload })
+        .catch((err) =>
+            console.error('Studio transfer request notification failed:', err.message)
+        );
+    emitStudioTransferEvent({ event: 'requested', transfer: transferPayload });
+
     res.status(201).json({
         success: true,
         message: 'Studio transfer request submitted',
-        data: { transfer: formatTransfer(request) },
+        data: { transfer: transferPayload },
     });
 });
 
@@ -310,6 +319,7 @@ const approveTransfer = asyncHandler(async (req, res) => {
         .catch((err) =>
             console.error('Studio transfer approve notification failed:', err.message)
         );
+    emitStudioTransferEvent({ event: 'approved', transfer: transferPayload });
 
     res.json({
         success: true,
@@ -347,6 +357,7 @@ const rejectTransfer = asyncHandler(async (req, res) => {
         .catch((err) =>
             console.error('Studio transfer reject notification failed:', err.message)
         );
+    emitStudioTransferEvent({ event: 'rejected', transfer: transferPayload });
 
     res.json({
         success: true,

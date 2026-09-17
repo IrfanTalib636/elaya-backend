@@ -17,8 +17,11 @@ const appNotificationSchema = new mongoose.Schema(
             enum: [
                 'chat',
                 'platform_chat',
+                'studio_transfer_requested',
                 'studio_transfer_approved',
                 'studio_transfer_rejected',
+                'studio_transfer_left',
+                'studio_transfer_joined',
             ],
             required: true,
             index: true,
