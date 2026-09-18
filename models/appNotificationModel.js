@@ -14,7 +14,15 @@ const appNotificationSchema = new mongoose.Schema(
         },
         type: {
             type: String,
-            enum: ['chat'],
+            enum: [
+                'chat',
+                'platform_chat',
+                'studio_transfer_requested',
+                'studio_transfer_approved',
+                'studio_transfer_rejected',
+                'studio_transfer_left',
+                'studio_transfer_joined',
+            ],
             required: true,
             index: true,
         },
@@ -36,6 +44,12 @@ const appNotificationSchema = new mongoose.Schema(
             default: null,
             index: true,
         },
+        studio: {
+            type: mongoose.Schema.Types.ObjectId,
+            ref: 'Studio',
+            default: null,
+            index: true,
+        },
         case_id: {
             type: mongoose.Schema.Types.ObjectId,
             ref: 'Case',
@@ -45,6 +59,12 @@ const appNotificationSchema = new mongoose.Schema(
             type: mongoose.Schema.Types.ObjectId,
             ref: 'ChatMessage',
             default: null,
+        },
+        studio_transfer: {
+            type: mongoose.Schema.Types.ObjectId,
+            ref: 'StudioTransferRequest',
+            default: null,
+            index: true,
         },
         read_at: {
             type: Date,

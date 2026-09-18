@@ -61,13 +61,22 @@ const listCustomers = asyncHandler(async (req, res) => {
     const { search, pipeline_stufe } = req.query;
 
     const filter = {};
-    const studioId = isStudio(req.user.role) ? refId(req.user.studio_id) : null;
+    let studioId = isStudio(req.user.role) ? refId(req.user.studio_id) : null;
 
-    // Studio: current customers + former customers who transferred out (firma_history)
+    // Admin support workspace: optional studio scope (same relation rules as studio view).
+    if (!studioId && isAdmin(req.user.role) && req.query.studio_id) {
+        const sid = String(req.query.studio_id).trim();
+        if (!/^[a-f\d]{24}$/i.test(sid)) {
+            throw new ApiError(400, 'Invalid studio_id');
+        }
+        studioId = sid;
+    }
+
+    // Studio (or admin scoped to a studio): current customers + former who transferred out
     if (studioId) {
         filter.$or = [
-            { aktuelle_firma_id: req.user.studio_id },
-            { 'firma_history.firma_id': req.user.studio_id },
+            { aktuelle_firma_id: studioId },
+            { 'firma_history.firma_id': studioId },
         ];
     }
 
@@ -116,10 +125,17 @@ const listCustomers = asyncHandler(async (req, res) => {
               .map((c) => refId(c.aktuelle_firma_id))
               .filter(Boolean)
         : [];
-    const aktuelleFirmaNames = transferredOutIds.length
+
+    // Admin list: resolve every customer's current studio name for the table.
+    const adminStudioIds = !studioId
+        ? customers.map((c) => refId(c.aktuelle_firma_id)).filter(Boolean)
+        : [];
+
+    const firmaNameIds = [...new Set([...transferredOutIds, ...adminStudioIds])];
+    const aktuelleFirmaNames = firmaNameIds.length
         ? Object.fromEntries(
               (
-                  await Studio.find({ _id: { $in: [...new Set(transferredOutIds)] } })
+                  await Studio.find({ _id: { $in: firmaNameIds } })
                       .select('firma')
                       .lean()
               ).map((s) => [String(s._id), s.firma ?? ''])
@@ -136,16 +152,19 @@ const listCustomers = asyncHandler(async (req, res) => {
                 ? customerCases.filter((caseDoc) => refId(caseDoc.studio) === studioId).length
                 : customerCases.length;
 
+        const studioName =
+            aktuelleFirmaNames[String(c.aktuelle_firma_id)] ??
+            (relation.wechsel_status === 'transferiert_aus'
+                ? aktuelleFirmaNames[String(c.aktuelle_firma_id)] ?? null
+                : null);
+
         return {
             ...c,
             offene_faelle,
             wechsel_status: relation.wechsel_status,
             transferiert_am: relation.transferiert_am ?? null,
             read_only: !!relation.read_only,
-            aktuelle_firma_name:
-                relation.wechsel_status === 'transferiert_aus'
-                    ? aktuelleFirmaNames[String(c.aktuelle_firma_id)] ?? null
-                    : null,
+            aktuelle_firma_name: studioName,
             elaycoins_balance: c.elaycoins?.balance ?? 0,
         };
     });

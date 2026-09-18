@@ -67,6 +67,7 @@ const behandlungsraumSchema = z
         aktiv: z.boolean().optional(),
         laser_brand: z.string().trim().optional(),
         laser_model: z.string().trim().optional(),
+        laser_device_id: z.string().trim().nullable().optional(),
         /** Empty means the room is used at every location. */
         standort_id: z.string().trim().optional(),
     })
@@ -90,6 +91,7 @@ const mitarbeiterSchema = z
         /** Empty means the staff member works at every location. */
         standort_id: z.string().trim().optional(),
         aktiv: z.boolean().optional(),
+        user_id: z.string().trim().nullable().optional(),
     })
     .strict();
 

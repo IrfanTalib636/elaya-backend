@@ -17,6 +17,8 @@ const {
     imageContentFromBuffer,
     isAiEnabled,
 } = require('../services/anthropicService');
+const { getAiSystemPrompt } = require('../utils/aiConfigService');
+const { assertAiFeatureAllowed } = require('../utils/aiFeatureGate');
 const { vergebeElaycoins } = require('../utils/elaycoinEngine');
 const { parsePagination, buildPaginationMeta } = require('../utils/pagination');
 
@@ -321,11 +323,26 @@ const photoCheck = asyncHandler(async (req, res) => {
         });
     }
 
+    const featureGate = await assertAiFeatureAllowed(req.user, 'ai_nachsorge');
+    if (!featureGate.allowed) {
+        return res.status(200).json({
+            success: true,
+            data: {
+                ...aiUnavailableFallback('photo'),
+                tage_nach_sitzung: tage,
+                feature_disabled: true,
+            },
+        });
+    }
+
+    const nachsorgeSystem =
+        (await getAiSystemPrompt('nachsorge')) || ELAYA_NACHSORGE_SYSTEM;
+
     const tageLabel =
         tage !== null && tage >= 0 ? `${tage} Tage` : 'unbekannte Zeit';
 
     const { parsed } = await callClaude({
-        system: ELAYA_NACHSORGE_SYSTEM,
+        system: nachsorgeSystem,
         maxTokens: 2048,
         messages: [
             {
@@ -383,11 +400,18 @@ const createCheck = asyncHandler(async (req, res) => {
         photoStage = aiUnavailableFallback('photo');
         combined = aiUnavailableFallback('combined');
     } else {
+        const featureGate = await assertAiFeatureAllowed(req.user, 'ai_nachsorge');
+        if (!featureGate.allowed) {
+            photoStage = { ...aiUnavailableFallback('photo'), feature_disabled: true };
+            combined = { ...aiUnavailableFallback('combined'), feature_disabled: true };
+        } else {
+        const nachsorgeSystem =
+            (await getAiSystemPrompt('nachsorge')) || ELAYA_NACHSORGE_SYSTEM;
         const tageLabel =
             tage !== null && tage >= 0 ? `${tage} Tage` : 'unbekannte Zeit';
 
         const photoCall = await callClaude({
-            system: ELAYA_NACHSORGE_SYSTEM,
+            system: nachsorgeSystem,
             maxTokens: 2048,
             messages: [
                 {
@@ -417,7 +441,7 @@ Auffälligkeiten: ${(photoStage.foto_auffaelligkeiten || []).join(', ') || 'kein
             tage !== null ? `${tage} Tage seit letzter Sitzung` : 'Zeitraum unbekannt';
 
         const combinedCall = await callClaude({
-            system: ELAYA_NACHSORGE_SYSTEM,
+            system: nachsorgeSystem,
             maxTokens: 2048,
             messages: [
                 {
@@ -439,6 +463,7 @@ Auffälligkeiten: ${(photoStage.foto_auffaelligkeiten || []).join(', ') || 'kein
             combined: combinedCall.parsed,
             model: process.env.ANTHROPIC_MODEL || 'claude-sonnet-4-5',
         };
+        } // featureGate.allowed
     }
 
     const healing = computeHealingAssessment({

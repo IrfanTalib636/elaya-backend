@@ -7,6 +7,9 @@ const {
     patchStudioConfigSchema,
     sessionPredictionPreviewSchema,
     pricingPreviewSchema,
+    configDraftBodySchema,
+    configPublishBodySchema,
+    configRollbackBodySchema,
 } = require('../validators/configValidator');
 const { USER_ROLES } = require('../config/constants');
 
@@ -20,6 +23,56 @@ const allAuthenticatedRoles = [
     ...adminRoles,
 ];
 const studioAndAdminRoles = [...studioRoles, ...adminRoles];
+const superAdminOnly = [USER_ROLES.SUPER_ADMIN];
+
+/**
+ * Config lifecycle: Draft → Publish → History / Rollback
+ * Domains: sperrfristen | default_pricing | session_prediction
+ */
+router.get(
+    '/platform/:domain/lifecycle',
+    protect,
+    authorize(...adminRoles),
+    configController.getConfigDomainLifecycle
+);
+
+router.put(
+    '/platform/:domain/draft',
+    protect,
+    authorize(...superAdminOnly),
+    validate(configDraftBodySchema),
+    configController.putConfigDomainDraft
+);
+
+router.delete(
+    '/platform/:domain/draft',
+    protect,
+    authorize(...superAdminOnly),
+    configController.deleteConfigDomainDraft
+);
+
+router.post(
+    '/platform/:domain/publish',
+    protect,
+    authorize(...superAdminOnly),
+    validate(configPublishBodySchema),
+    configController.publishConfigDomainHandler
+);
+
+router.get(
+    '/platform/:domain/versions',
+    protect,
+    authorize(...adminRoles),
+    configController.listConfigDomainVersions
+);
+
+router.post(
+    '/platform/:domain/versions/:version/rollback',
+    protect,
+    authorize(...superAdminOnly),
+    validate(configRollbackBodySchema),
+    configController.rollbackConfigDomainHandler
+);
 
 /**
  * @swagger

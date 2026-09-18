@@ -110,7 +110,7 @@ const listShopOrders = asyncHandler(async (req, res) => {
     });
 });
 
-/** PATCH /studio/shop/orders/:id — studio may only change shipping status */
+/** PATCH /studio/shop/orders/:id — platform admin only (studios are read-only) */
 const patchShopOrderStatus = asyncHandler(async (req, res) => {
     const studioId = resolveStudioId(req);
     const order = await ShopOrder.findOne({ _id: req.params.id, studio: studioId });

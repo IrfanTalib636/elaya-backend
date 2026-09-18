@@ -38,6 +38,7 @@ const formatRaum = (doc) => {
         aktiv: r.aktiv !== false,
         laser_brand: r.laser_brand ?? '',
         laser_model: r.laser_model ?? '',
+        laser_device_id: r.laser_device_id ? String(r.laser_device_id) : null,
         standort_id: r.standort_id ?? '',
     };
 };
@@ -150,16 +151,32 @@ const mapStandorteInput = (standorte = []) =>
         slot_interval_minuten: s.slot_interval_minuten ?? null,
     }));
 
-const mapRoomsInput = (rooms = []) =>
-    rooms.map((r) => ({
-        ...(r.id && mongoose.Types.ObjectId.isValid(r.id) ? { _id: r.id } : {}),
-        name: r.name,
-        farbe: r.farbe ?? '#3B8BD4',
-        aktiv: r.aktiv !== false,
-        laser_brand: r.laser_brand ?? '',
-        laser_model: r.laser_model ?? '',
-        standort_id: r.standort_id ?? '',
-    }));
+const mapRoomsInput = async (rooms = []) => {
+    const { assertActiveLaserDeviceId } = require('../utils/laserCatalogService');
+    const mapped = [];
+    for (const r of rooms) {
+        let laserBrand = r.laser_brand ?? '';
+        let laserModel = r.laser_model ?? '';
+        let laserDeviceId = r.laser_device_id || null;
+        if (laserDeviceId) {
+            const device = await assertActiveLaserDeviceId(laserDeviceId);
+            laserBrand = device.manufacturer;
+            laserModel = device.model;
+            laserDeviceId = device.id;
+        }
+        mapped.push({
+            ...(r.id && mongoose.Types.ObjectId.isValid(r.id) ? { _id: r.id } : {}),
+            name: r.name,
+            farbe: r.farbe ?? '#3B8BD4',
+            aktiv: r.aktiv !== false,
+            laser_brand: laserBrand,
+            laser_model: laserModel,
+            laser_device_id: laserDeviceId,
+            standort_id: r.standort_id ?? '',
+        });
+    }
+    return mapped;
+};
 
 const mapStaffInput = (staff = []) =>
     staff.map((m) => ({
@@ -170,6 +187,12 @@ const mapStaffInput = (staff = []) =>
         raum_id: m.raum_id ?? '',
         standort_id: m.standort_id ?? '',
         aktiv: m.aktiv !== false,
+        // Preserve optional link to a User Account when the client sends it.
+        ...(m.user_id && mongoose.Types.ObjectId.isValid(m.user_id)
+            ? { user_id: m.user_id }
+            : m.user_id === null
+              ? { user_id: null }
+              : {}),
     }));
 
 const validateStaffRoomRefs = (rooms, staff) => {
@@ -245,7 +268,7 @@ const patchStudioSettings = asyncHandler(async (req, res) => {
     }
 
     if (behandlungsraeume !== undefined) {
-        studio.behandlungsraeume = mapRoomsInput(behandlungsraeume);
+        studio.behandlungsraeume = await mapRoomsInput(behandlungsraeume);
     }
 
     if (mitarbeiter !== undefined) {
@@ -447,6 +470,90 @@ const patchStudioStatus = asyncHandler(async (req, res) => {
     });
 });
 
+/**
+ * POST /studio/admin/studios/:studioId/workspace/open
+ * Super-admin / admin opens a support workspace for a studio (no impersonation).
+ * Records an audit row and returns studio summary for the UI shell.
+ */
+const openStudioWorkspace = asyncHandler(async (req, res) => {
+    if (!isAdmin(req.user.role)) {
+        throw new ApiError(403, 'Only Elaya admins can open a studio workspace');
+    }
+
+    const studioId = req.params.studioId;
+    if (!mongoose.Types.ObjectId.isValid(studioId)) {
+        throw new ApiError(400, 'Invalid studio id');
+    }
+
+    const studio = await Studio.findById(studioId)
+        .select('firma studio_code email status ort plz strasse land telefon')
+        .lean();
+    if (!studio) throw new ApiError(404, 'Studio not found');
+
+    const Customer = require('../models/customerModel');
+    const Case = require('../models/caseModel');
+    const Appointment = require('../models/appointmentModel');
+
+    const [customerCount, caseCount, upcomingAppointments] = await Promise.all([
+        Customer.countDocuments({
+            $or: [
+                { aktuelle_firma_id: studio._id },
+                { 'firma_history.firma_id': studio._id },
+            ],
+        }),
+        Case.countDocuments({ studio: studio._id }),
+        Appointment.countDocuments({
+            studio: studio._id,
+            date: { $gte: new Date(new Date().setHours(0, 0, 0, 0)) },
+            status: { $nin: ['storniert', 'cancelled'] },
+        }),
+    ]);
+
+    const {
+        logPlatformAudit,
+        PLATFORM_AUDIT_ACTION,
+    } = require('../services/platformAuditService');
+    void logPlatformAudit({
+        actor: req.user,
+        action: PLATFORM_AUDIT_ACTION.STUDIO_WORKSPACE_OPEN,
+        targetType: 'studio',
+        targetId: String(studio._id),
+        studioId: studio._id,
+        reason: req.body?.reason || '',
+        meta: {
+            studio_code: studio.studio_code,
+            firma: studio.firma,
+        },
+        ip: req.ip,
+    });
+
+    res.status(200).json({
+        success: true,
+        message: 'Studio workspace opened',
+        data: {
+            studio: {
+                id: String(studio._id),
+                firma: studio.firma || '',
+                studio_code: studio.studio_code || '',
+                email: studio.email || '',
+                status: studio.status,
+                ort: studio.ort || '',
+                plz: studio.plz || '',
+                strasse: studio.strasse || '',
+                land: studio.land || '',
+                telefon: studio.telefon || '',
+            },
+            counts: {
+                customers: customerCount,
+                cases: caseCount,
+                upcoming_appointments: upcomingAppointments,
+            },
+            // Explicit: admin remains admin — no studio JWT / impersonation.
+            acting_as: 'elaya_admin',
+        },
+    });
+});
+
 module.exports = {
     formatStudioSettings,
     formatPublicStudio,
@@ -455,4 +562,5 @@ module.exports = {
     listStudiosAdmin,
     listPublicStudios,
     patchStudioStatus,
+    openStudioWorkspace,
 };

@@ -5,6 +5,14 @@ const {
     formatStudioConfig,
     updateStudioConfig,
     getEffectivePricingOverrides,
+    mergeDefaultPricing,
+    getConfigLifecycle,
+    saveConfigDraft,
+    discardConfigDraft,
+    listConfigVersions,
+    publishConfigDomain,
+    rollbackConfigVersion,
+    VERSIONED_CONFIG_DOMAINS,
 } = require('../utils/configService');
 const { getEffectiveFeaturesForStudio, FEATURE_CATALOG } = require('../utils/featureService');
 const { isAdmin, isStudio } = require('../utils/accessHelpers');
@@ -21,6 +29,12 @@ const { mergeSessionPrediction } = require('../config/sessionPredictionDefaults'
 const { emitSessionPredictionUpdated } = require('../sockets/configEmit');
 const { EXCEL_PLAUSIBILITY_EXAMPLES } = require('../config/excelPlausibilityExamples');
 
+const assertSuperAdmin = (user) => {
+    if (user?.role !== USER_ROLES.SUPER_ADMIN) {
+        throw new ApiError(403, 'Only super admin can manage config drafts and publish');
+    }
+};
+
 const assertValidStudioId = (studioId) => {
     if (
         !studioId ||
@@ -36,11 +50,19 @@ const assertValidStudioId = (studioId) => {
 
 const getPlatform = asyncHandler(async (_req, res) => {
     const config = await getPlatformConfig();
+    const lifecycle = {};
+    for (const domain of VERSIONED_CONFIG_DOMAINS) {
+        lifecycle[domain] = await getConfigLifecycle(domain);
+    }
 
     res.status(200).json({
         success: true,
         data: {
-            platform_config: config,
+            platform_config: {
+                ...config,
+                pricing_defaults: mergeDefaultPricing(config),
+            },
+            config_lifecycle: lifecycle,
             excel_plausibility: runExcelPlausibilityCheck({
                 session_prediction: config.session_prediction,
             }),
@@ -50,6 +72,98 @@ const getPlatform = asyncHandler(async (_req, res) => {
 });
 
 const patchPlatform = asyncHandler(async (req, res) => {
+    // Core medical / pricing / prediction rules are super-admin only.
+    const superAdminOnlyKeys = [
+        'session_prediction',
+        'default_pricing',
+        'sperrfristen',
+    ];
+    const touchesSuperAdminOnly = superAdminOnlyKeys.some(
+        (key) => req.body[key] !== undefined
+    );
+    if (touchesSuperAdminOnly && req.user.role !== USER_ROLES.SUPER_ADMIN) {
+        throw new ApiError(
+            403,
+            'Only super admin can update medical lockouts, price calculation, or session prediction'
+        );
+    }
+
+    // Versioned domains must go through draft → publish (or explicit publish reason).
+    const versionedTouched = VERSIONED_CONFIG_DOMAINS.filter(
+        (key) => req.body[key] !== undefined
+    );
+    if (versionedTouched.length > 1) {
+        throw new ApiError(
+            400,
+            'Publish one versioned domain at a time (sperrfristen, default_pricing, or session_prediction)'
+        );
+    }
+    if (versionedTouched.length === 1) {
+        const domain = versionedTouched[0];
+        const otherKeys = Object.keys(req.body).filter(
+            (k) =>
+                k !== domain &&
+                k !== 'reason' &&
+                k !== 'audit_reason' &&
+                req.body[k] !== undefined
+        );
+        if (otherKeys.length) {
+            throw new ApiError(
+                400,
+                `Cannot mix ${domain} with other fields in one patch (${otherKeys.join(', ')}). Publish versioned domains separately.`
+            );
+        }
+        const reason =
+            req.body.audit_reason ||
+            req.body.reason ||
+            'Published via platform config patch';
+        const result = await publishConfigDomain(domain, {
+            userId: req.user._id || req.user.id,
+            reason,
+            data: req.body[domain],
+        });
+
+        if (domain === 'session_prediction') {
+            emitSessionPredictionUpdated({
+                session_prediction: result.published,
+                previous_base_sessions: result.before?.base_sessions ?? null,
+                base_sessions: result.published?.base_sessions ?? null,
+            });
+        }
+
+        const {
+            logPlatformAudit,
+            PLATFORM_AUDIT_ACTION,
+        } = require('../services/platformAuditService');
+        void logPlatformAudit({
+            actor: req.user,
+            action: PLATFORM_AUDIT_ACTION.CONFIG_PUBLISH,
+            targetType: 'platform',
+            targetId: `config:${domain}:v${result.version}`,
+            reason,
+            before: { [domain]: result.before },
+            after: { [domain]: result.published },
+            meta: { keys: [domain], version: result.version, via: 'patch' },
+            ip: req.ip,
+        });
+
+        return res.status(200).json({
+            success: true,
+            message: `Platform config published (${domain} v${result.version})`,
+            data: {
+                platform_config: {
+                    ...result.platform_config,
+                    pricing_defaults: mergeDefaultPricing(result.platform_config),
+                },
+                version: result.version,
+                domain,
+                excel_plausibility: runExcelPlausibilityCheck({
+                    session_prediction: result.platform_config.session_prediction,
+                }),
+            },
+        });
+    }
+
     const before = await getPlatformConfig();
     const config = await updatePlatformConfig(req.body);
 
@@ -61,11 +175,41 @@ const patchPlatform = asyncHandler(async (req, res) => {
         });
     }
 
+    if (touchesSuperAdminOnly) {
+        const {
+            logPlatformAudit,
+            PLATFORM_AUDIT_ACTION,
+        } = require('../services/platformAuditService');
+        const changedKeys = superAdminOnlyKeys.filter((k) => req.body[k] !== undefined);
+        const beforeSlice = {};
+        const afterSlice = {};
+        for (const key of changedKeys) {
+            beforeSlice[key] = before[key] ?? null;
+            afterSlice[key] = config[key] ?? null;
+        }
+        void logPlatformAudit({
+            actor: req.user,
+            action: req.body.sperrfristen
+                ? PLATFORM_AUDIT_ACTION.SPERRFRISTEN_PATCH
+                : PLATFORM_AUDIT_ACTION.PLATFORM_CONFIG_PATCH,
+            targetType: 'platform',
+            targetId: 'platform_config',
+            reason: req.body.audit_reason || req.body.reason || '',
+            before: beforeSlice,
+            after: afterSlice,
+            meta: { keys: changedKeys },
+            ip: req.ip,
+        });
+    }
+
     res.status(200).json({
         success: true,
         message: 'Platform config updated',
         data: {
-            platform_config: config,
+            platform_config: {
+                ...config,
+                pricing_defaults: mergeDefaultPricing(config),
+            },
             excel_plausibility: runExcelPlausibilityCheck({
                 session_prediction: config.session_prediction,
             }),
@@ -136,9 +280,62 @@ const patchStudioConfigHandler = asyncHandler(async (req, res) => {
     if (!isAdmin(req.user.role)) {
         delete patch.subscription_plan;
         delete patch.feature_overrides;
+        // Price calculation rules are platform-owned — studios view only.
+        if (patch.studio_pricing !== undefined) {
+            throw new ApiError(403, 'Only super admin can change price calculation rules');
+        }
+        // Medical lockouts are platform-owned — studios view only.
+        if (patch.sperrfristen !== undefined) {
+            throw new ApiError(
+                403,
+                'Only super admin can change medical lockout (Sperrfristen) rules'
+            );
+        }
+    } else if (req.user.role !== USER_ROLES.SUPER_ADMIN) {
+        if (patch.studio_pricing !== undefined) {
+            throw new ApiError(403, 'Only super admin can change price calculation rules');
+        }
+        if (patch.sperrfristen !== undefined) {
+            throw new ApiError(
+                403,
+                'Only super admin can change medical lockout (Sperrfristen) rules'
+            );
+        }
     }
 
+    const beforeCfg = await formatStudioConfig(studio, await getPlatformConfig());
     const studioConfig = await updateStudioConfig(studio._id, patch);
+
+    if (patch.sperrfristen !== undefined || patch.studio_pricing !== undefined) {
+        const {
+            logPlatformAudit,
+            PLATFORM_AUDIT_ACTION,
+        } = require('../services/platformAuditService');
+        void logPlatformAudit({
+            actor: req.user,
+            action: patch.sperrfristen
+                ? PLATFORM_AUDIT_ACTION.SPERRFRISTEN_PATCH
+                : PLATFORM_AUDIT_ACTION.STUDIO_CONFIG_PATCH,
+            targetType: 'studio',
+            targetId: String(studio._id),
+            studioId: studio._id,
+            reason: req.body.audit_reason || req.body.reason || '',
+            before: {
+                sperrfristen: beforeCfg.sperrfristen,
+                studio_pricing: beforeCfg.studio_pricing,
+            },
+            after: {
+                sperrfristen: studioConfig.sperrfristen,
+                studio_pricing: studioConfig.studio_pricing,
+            },
+            meta: {
+                keys: Object.keys(patch).filter((k) =>
+                    ['sperrfristen', 'studio_pricing'].includes(k)
+                ),
+            },
+            ip: req.ip,
+        });
+    }
 
     res.status(200).json({
         success: true,
@@ -155,6 +352,7 @@ const getFeatureCatalog = asyncHandler(async (_req, res) => {
         data: {
             catalog: FEATURE_CATALOG,
             subscription_plans: platform.subscription_plans,
+            subscription_seat_limits: platform.subscription_seat_limits,
             feature_global: platform.feature_global || {},
             shop_provision_prozent: platform.shop_provision_prozent,
             stripe_connect_enabled: Boolean(
@@ -314,6 +512,181 @@ const previewPricingHandler = asyncHandler(async (req, res) => {
     });
 });
 
+const getConfigDomainLifecycle = asyncHandler(async (req, res) => {
+    const lifecycle = await getConfigLifecycle(req.params.domain);
+    res.status(200).json({ success: true, data: lifecycle });
+});
+
+const putConfigDomainDraft = asyncHandler(async (req, res) => {
+    assertSuperAdmin(req.user);
+    const domain = req.params.domain;
+    const lifecycle = await saveConfigDraft(domain, req.body.data, {
+        userId: req.user._id || req.user.id,
+        note: req.body.note || '',
+    });
+
+    const { logPlatformAudit, PLATFORM_AUDIT_ACTION } = require('../services/platformAuditService');
+    void logPlatformAudit({
+        actor: req.user,
+        action: PLATFORM_AUDIT_ACTION.CONFIG_DRAFT_SAVE,
+        targetType: 'platform',
+        targetId: `config_draft:${domain}`,
+        reason: req.body.note || '',
+        before: null,
+        after: lifecycle.draft?.data ?? null,
+        meta: { domain },
+        ip: req.ip,
+    });
+
+    res.status(200).json({
+        success: true,
+        message: 'Draft saved',
+        data: lifecycle,
+    });
+});
+
+const deleteConfigDomainDraft = asyncHandler(async (req, res) => {
+    assertSuperAdmin(req.user);
+    const domain = req.params.domain;
+    const before = await getConfigLifecycle(domain);
+    const lifecycle = await discardConfigDraft(domain);
+
+    const { logPlatformAudit, PLATFORM_AUDIT_ACTION } = require('../services/platformAuditService');
+    void logPlatformAudit({
+        actor: req.user,
+        action: PLATFORM_AUDIT_ACTION.CONFIG_DRAFT_DISCARD,
+        targetType: 'platform',
+        targetId: `config_draft:${domain}`,
+        reason: req.body?.reason || '',
+        before: before.draft?.data ?? null,
+        after: null,
+        meta: { domain },
+        ip: req.ip,
+    });
+
+    res.status(200).json({
+        success: true,
+        message: 'Draft discarded',
+        data: lifecycle,
+    });
+});
+
+const publishConfigDomainHandler = asyncHandler(async (req, res) => {
+    assertSuperAdmin(req.user);
+    const domain = req.params.domain;
+    const result = await publishConfigDomain(domain, {
+        userId: req.user._id || req.user.id,
+        reason: req.body.reason,
+        data: req.body.data,
+    });
+
+    if (domain === 'session_prediction') {
+        emitSessionPredictionUpdated({
+            session_prediction: result.published,
+            previous_base_sessions: result.before?.base_sessions ?? null,
+            base_sessions: result.published?.base_sessions ?? null,
+        });
+    }
+
+    const { logPlatformAudit, PLATFORM_AUDIT_ACTION } = require('../services/platformAuditService');
+    void logPlatformAudit({
+        actor: req.user,
+        action: PLATFORM_AUDIT_ACTION.CONFIG_PUBLISH,
+        targetType: 'platform',
+        targetId: `config:${domain}:v${result.version}`,
+        reason: req.body.reason || '',
+        before: result.before,
+        after: result.published,
+        meta: {
+            domain,
+            version: result.version,
+            rolled_back_from: result.rolled_back_from,
+        },
+        ip: req.ip,
+    });
+
+    res.status(200).json({
+        success: true,
+        message: `Published ${domain} as version ${result.version}`,
+        data: {
+            ...result,
+            platform_config: {
+                ...result.platform_config,
+                pricing_defaults: mergeDefaultPricing(result.platform_config),
+            },
+            excel_plausibility: runExcelPlausibilityCheck({
+                session_prediction: result.platform_config.session_prediction,
+            }),
+        },
+    });
+});
+
+const listConfigDomainVersions = asyncHandler(async (req, res) => {
+    const versions = await listConfigVersions(req.params.domain, {
+        limit: req.query.limit,
+    });
+    const lifecycle = await getConfigLifecycle(req.params.domain);
+    res.status(200).json({
+        success: true,
+        data: {
+            domain: req.params.domain,
+            current_version: lifecycle.current_version,
+            has_draft: lifecycle.has_draft,
+            versions,
+        },
+    });
+});
+
+const rollbackConfigDomainHandler = asyncHandler(async (req, res) => {
+    assertSuperAdmin(req.user);
+    const domain = req.params.domain;
+    const version = Number(req.params.version);
+    const result = await rollbackConfigVersion(domain, version, {
+        userId: req.user._id || req.user.id,
+        reason: req.body.reason,
+    });
+
+    if (domain === 'session_prediction') {
+        emitSessionPredictionUpdated({
+            session_prediction: result.published,
+            previous_base_sessions: result.before?.base_sessions ?? null,
+            base_sessions: result.published?.base_sessions ?? null,
+        });
+    }
+
+    const { logPlatformAudit, PLATFORM_AUDIT_ACTION } = require('../services/platformAuditService');
+    void logPlatformAudit({
+        actor: req.user,
+        action: PLATFORM_AUDIT_ACTION.CONFIG_ROLLBACK,
+        targetType: 'platform',
+        targetId: `config:${domain}:v${result.version}`,
+        reason: req.body.reason || '',
+        before: result.before,
+        after: result.published,
+        meta: {
+            domain,
+            version: result.version,
+            rolled_back_from: version,
+        },
+        ip: req.ip,
+    });
+
+    res.status(200).json({
+        success: true,
+        message: `Rolled back ${domain} to version ${version} (published as v${result.version})`,
+        data: {
+            ...result,
+            platform_config: {
+                ...result.platform_config,
+                pricing_defaults: mergeDefaultPricing(result.platform_config),
+            },
+            excel_plausibility: runExcelPlausibilityCheck({
+                session_prediction: result.platform_config.session_prediction,
+            }),
+        },
+    });
+});
+
 module.exports = {
     getPlatform,
     patchPlatform,
@@ -325,4 +698,10 @@ module.exports = {
     listStudioFeaturesAdmin,
     previewSessionPredictionHandler,
     previewPricingHandler,
+    getConfigDomainLifecycle,
+    putConfigDomainDraft,
+    deleteConfigDomainDraft,
+    publishConfigDomainHandler,
+    listConfigDomainVersions,
+    rollbackConfigDomainHandler,
 };

@@ -1,4 +1,5 @@
 const messagingService = require('../services/messagingService');
+const platformMessagingService = require('../services/platformMessagingService');
 const pushService = require('../services/pushService');
 const { getIO } = require('./io');
 
@@ -13,21 +14,22 @@ const emitMessageCreated = (payload) => {
         const io = getIO();
         if (!io) return;
         const { message, conversation } = payload;
+        const envelope = { message, conversation };
         const room = messagingService.conversationRoom(conversation.id);
-        io.to(room).emit('messaging:message', { message, conversation });
+        io.to(room).emit('messaging:message', envelope);
         const studioId = conversation.studio?.id || message.studio_id;
         if (studioId) {
-            io.to(messagingService.studioRoom(studioId)).emit(
-                'messaging:conversation_updated',
-                { conversation }
-            );
+            const studioRoom = messagingService.studioRoom(studioId);
+            // Studio dashboards join the studio inbox room on connect — they
+            // should receive live messages even before messaging:join on a thread.
+            io.to(studioRoom).emit('messaging:message', envelope);
+            io.to(studioRoom).emit('messaging:conversation_updated', { conversation });
         }
         const customerId = conversation.customer?.id || message.customer_id;
         if (customerId) {
-            io.to(messagingService.userRoom(`customer:${customerId}`)).emit(
-                'messaging:conversation_updated',
-                { conversation }
-            );
+            const customerRoom = messagingService.userRoom(`customer:${customerId}`);
+            io.to(customerRoom).emit('messaging:message', envelope);
+            io.to(customerRoom).emit('messaging:conversation_updated', { conversation });
         }
     } catch {
         // REST / socket send still succeeds if fan-out fails
@@ -50,7 +52,83 @@ const emitConversationRead = (conversationId, payload) => {
     }
 };
 
+const emitPlatformMessageCreated = (payload) => {
+    // Inbox notifications for the receiving side (skipped when they already
+    // have the support thread open). Best effort — never block socket fan-out.
+    pushService
+        .notifyPlatformChatMessage(payload)
+        .catch((err) =>
+            console.error('Platform chat notification failed:', err.message)
+        );
+
+    try {
+        const io = getIO();
+        if (!io) return;
+        const { message, conversation } = payload;
+        const envelope = { message, conversation };
+        const room = platformMessagingService.conversationRoom(conversation.id);
+        io.to(room).emit('platform_messaging:message', envelope);
+
+        // Fan out to inbox rooms so dashboards (and notification bells) receive
+        // live messages even before platform_messaging:join on a thread.
+        const studioId = conversation.studio?.id || message.studio_id;
+        if (studioId) {
+            const studioRoom = platformMessagingService.studioRoom(studioId);
+            io.to(studioRoom).emit('platform_messaging:message', envelope);
+            io.to(studioRoom).emit('platform_messaging:conversation_updated', {
+                conversation,
+            });
+        }
+        const adminRoom = platformMessagingService.adminRoom();
+        io.to(adminRoom).emit('platform_messaging:message', envelope);
+        io.to(adminRoom).emit('platform_messaging:conversation_updated', {
+            conversation,
+        });
+    } catch {
+        // ignore
+    }
+};
+
+/**
+ * Live toast fan-out for studio transfer events (admin + affected studios).
+ * @param {{
+ *   event: 'requested'|'approved'|'rejected',
+ *   transfer: object,
+ * }} payload
+ */
+const emitStudioTransferEvent = ({ event, transfer }) => {
+    try {
+        const io = getIO();
+        if (!io || !transfer) return;
+        const envelope = { event, transfer };
+        io.to(platformMessagingService.adminRoom()).emit(
+            'studio_transfer:updated',
+            envelope
+        );
+        if (event === 'approved') {
+            const fromId = transfer.von_firma_id;
+            const toId = transfer.zu_firma_id;
+            if (fromId) {
+                io.to(platformMessagingService.studioRoom(fromId)).emit(
+                    'studio_transfer:updated',
+                    envelope
+                );
+            }
+            if (toId) {
+                io.to(platformMessagingService.studioRoom(toId)).emit(
+                    'studio_transfer:updated',
+                    envelope
+                );
+            }
+        }
+    } catch {
+        // ignore
+    }
+};
+
 module.exports = {
     emitMessageCreated,
     emitConversationRead,
+    emitPlatformMessageCreated,
+    emitStudioTransferEvent,
 };

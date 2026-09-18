@@ -43,6 +43,8 @@ const updateCustomerSchema = z.object({
 const listCustomersQuerySchema = z.object({
     search:         optionalStr,
     pipeline_stufe: pipelineEnum,
+    /** Admin only — filter customers currently (or historically) tied to a studio. */
+    studio_id:      optionalStr,
     ...paginationQueryFields,
 });
 

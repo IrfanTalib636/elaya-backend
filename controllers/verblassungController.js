@@ -22,6 +22,8 @@ const {
     imageContentFromBuffer,
     isAiEnabled,
 } = require('../services/anthropicService');
+const { getAiSystemPrompt } = require('../utils/aiConfigService');
+const { assertAiFeatureAllowed } = require('../utils/aiFeatureGate');
 const { syncCaseSessionStats } = require('../utils/sessionHelpers');
 const {
     evaluateAndApplySessionLightening,
@@ -229,6 +231,12 @@ const analyzeVerblassung = asyncHandler(async (req, res) => {
     if (!isAiEnabled()) {
         mapped = aiUnavailableFallback();
     } else {
+        const featureGate = await assertAiFeatureAllowed(req.user, 'ai_verblassung');
+        if (!featureGate.allowed) {
+            mapped = { ...aiUnavailableFallback(), feature_disabled: true };
+        } else {
+        const verblassungSystem =
+            (await getAiSystemPrompt('verblassung')) || ELAYA_VERBLASSUNG_SYSTEM;
         const content = [
             imageContentFromBuffer(vorher.buffer, vorher.mimeType),
             {
@@ -243,7 +251,7 @@ const analyzeVerblassung = asyncHandler(async (req, res) => {
         ];
 
         const { parsed } = await callClaude({
-            system: ELAYA_VERBLASSUNG_SYSTEM,
+            system: verblassungSystem,
             maxTokens: 2048,
             messages: [{ role: 'user', content }],
         });
@@ -254,6 +262,7 @@ const analyzeVerblassung = asyncHandler(async (req, res) => {
             model: process.env.ANTHROPIC_MODEL || 'claude-sonnet-4-5',
             compared: true,
         };
+        }
     }
 
     const assessment = await evaluateAndApplySessionLightening(sessionDoc, caseDoc, {

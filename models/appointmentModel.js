@@ -40,6 +40,9 @@ const appointmentSchema = new mongoose.Schema(
         dauer_minuten: { type: Number, default: null, min: 0 },
         standort_id: { type: String, default: '' },
         standort_name: { type: String, default: '' },
+        /** Staff Profile who will / did perform the treatment (optional). */
+        mitarbeiter_id: { type: String, default: '' },
+        mitarbeiter_name: { type: String, default: '' },
         gruppen_termin: { type: Boolean, default: false },
         gruppen_id: { type: String, default: null },
         gruppen_cases: {

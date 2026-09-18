@@ -54,6 +54,15 @@ const sessionSchema = new mongoose.Schema(
         standort_name: { type: String, default: '' },
         mitarbeiter_id: { type: String, default: '' },
         mitarbeiter_name: { type: String, default: '' },
+        /** Logged-in ELAYA user who entered this session (auto-set). */
+        documented_by_user: {
+            type: mongoose.Schema.Types.ObjectId,
+            ref: 'User',
+            default: null,
+            index: true,
+        },
+        documented_by_name: { type: String, default: '' },
+        documented_by_email: { type: String, default: '' },
         raum_id: { type: String, default: '' },
         raum_name: { type: String, default: '' },
         dauer_minuten: { type: Number, default: null, min: 0 },

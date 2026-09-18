@@ -327,6 +327,150 @@ const getShopFinanceSummary = asyncHandler(async (req, res) => {
     });
 });
 
+/** GET /admin/shop/finance/studios/:studioId — studio KPIs + products sold */
+const getStudioFinanceDetail = asyncHandler(async (req, res) => {
+    const studioId = req.params.studioId;
+    if (!studioId || !/^[a-f\d]{24}$/i.test(String(studioId))) {
+        throw new ApiError(400, 'Invalid studio id');
+    }
+
+    const studio = await Studio.findById(studioId).select('firma studio_code').lean();
+    if (!studio) throw new ApiError(404, 'Studio not found');
+
+    const platform = await getPlatformConfig();
+    const match = { studio: studio._id };
+    if (req.query.from || req.query.to) {
+        match.createdAt = {};
+        if (req.query.from) match.createdAt.$gte = new Date(req.query.from);
+        if (req.query.to) {
+            const end = new Date(req.query.to);
+            end.setHours(23, 59, 59, 999);
+            match.createdAt.$lte = end;
+        }
+    }
+
+    const [summaryRows, productRows] = await Promise.all([
+        ShopOrder.aggregate([
+            { $match: match },
+            {
+                $group: {
+                    _id: '$studio',
+                    order_count: { $sum: 1 },
+                    revenue: { $sum: '$total_chf' },
+                    provision_total: { $sum: { $ifNull: ['$provision_betrag', 0] } },
+                    elaya_total: { $sum: { $ifNull: ['$elaya_anteil_chf', 0] } },
+                    pending_provision: {
+                        $sum: {
+                            $cond: [
+                                { $eq: ['$commission_status', 'pending'] },
+                                { $ifNull: ['$provision_betrag', 0] },
+                                0,
+                            ],
+                        },
+                    },
+                    paid_provision: {
+                        $sum: {
+                            $cond: [
+                                { $eq: ['$commission_status', 'paid'] },
+                                { $ifNull: ['$provision_betrag', 0] },
+                                0,
+                            ],
+                        },
+                    },
+                },
+            },
+        ]),
+        ShopOrder.aggregate([
+            { $match: match },
+            { $unwind: '$produkte' },
+            {
+                $group: {
+                    _id: {
+                        produkt_id: '$produkte.produkt_id',
+                        produkt_name: '$produkte.produkt_name',
+                    },
+                    quantity: { $sum: { $ifNull: ['$produkte.menge', 0] } },
+                    revenue: {
+                        $sum: {
+                            $multiply: [
+                                { $ifNull: ['$produkte.menge', 0] },
+                                { $ifNull: ['$produkte.preis_chf', 0] },
+                            ],
+                        },
+                    },
+                    commission: {
+                        $sum: {
+                            $multiply: [
+                                { $ifNull: ['$produkte.menge', 0] },
+                                { $ifNull: ['$produkte.preis_chf', 0] },
+                                {
+                                    $divide: [
+                                        { $ifNull: ['$provision_prozent', 0] },
+                                        100,
+                                    ],
+                                },
+                            ],
+                        },
+                    },
+                    order_count: { $addToSet: '$_id' },
+                },
+            },
+            {
+                $project: {
+                    _id: 0,
+                    product_id: '$_id.produkt_id',
+                    product_name: '$_id.produkt_name',
+                    quantity: 1,
+                    revenue: 1,
+                    commission: 1,
+                    order_count: { $size: '$order_count' },
+                },
+            },
+            { $sort: { revenue: -1 } },
+        ]),
+    ]);
+
+    const summary = summaryRows[0] || {
+        order_count: 0,
+        revenue: 0,
+        provision_total: 0,
+        elaya_total: 0,
+        pending_provision: 0,
+        paid_provision: 0,
+    };
+
+    const provisionPercent =
+        platform.shop_provision_prozent ?? DEFAULT_SHOP_PROVISION_PROZENT;
+
+    const products = productRows.map((p) => ({
+        product_id: p.product_id ? String(p.product_id) : null,
+        product_name: p.product_name || '—',
+        quantity: p.quantity || 0,
+        revenue: round2(p.revenue),
+        commission: round2(p.commission || 0),
+        order_count: p.order_count || 0,
+    }));
+
+    res.json({
+        success: true,
+        data: {
+            provision_percent_default: provisionPercent,
+            studio: {
+                studio_id: String(studio._id),
+                studio_name: studio.firma || '',
+                studio_code: studio.studio_code || '',
+                order_count: summary.order_count || 0,
+                revenue: round2(summary.revenue || 0),
+                provision_total: round2(summary.provision_total || 0),
+                elaya_total: round2(summary.elaya_total || 0),
+                pending_provision: round2(summary.pending_provision || 0),
+                paid_provision: round2(summary.paid_provision || 0),
+            },
+            products,
+        },
+    });
+});
+
 /** GET /admin/shop/shipping */
 const getShippingAdmin = asyncHandler(async (_req, res) => {
     res.json({
@@ -346,6 +490,7 @@ module.exports = {
     listOrdersAdmin,
     patchOrderCommission,
     getShopFinanceSummary,
+    getStudioFinanceDetail,
     getShippingAdmin,
     formatProduct,
     formatAdminOrder,

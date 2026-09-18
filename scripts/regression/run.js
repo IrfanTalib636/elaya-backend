@@ -31,6 +31,7 @@ const main = async () => {
         createdAppointments: [],
         createdSessions: [],
         createdUserIds: [],
+        createdLaserIds: [],
     };
 
     console.log('\n=== ELAYA BACKEND REGRESSION ===\n');
@@ -122,6 +123,22 @@ const cleanup = async (ctx) => {
         if (ctx.customerEmail) {
             const u = await models.User.deleteMany({ email: ctx.customerEmail });
             removed.push(`${u.deletedCount} user(s)`);
+        }
+        if (ctx.invitedLoginEmail) {
+            const u = await models.User.deleteMany({ email: ctx.invitedLoginEmail });
+            removed.push(`${u.deletedCount} studio login(s)`);
+        }
+        if (ctx.createdLaserIds?.length) {
+            const LaserDevice = require('../../models/laserDeviceModel');
+            const r = await LaserDevice.deleteMany({
+                _id: { $in: ctx.createdLaserIds.filter(Boolean) },
+            });
+            removed.push(`${r.deletedCount} laser device(s)`);
+        }
+        if (ctx.laserRequestId) {
+            const LaserRequest = require('../../models/laserRequestModel');
+            const r = await LaserRequest.deleteMany({ _id: ctx.laserRequestId });
+            removed.push(`${r.deletedCount} laser request(s)`);
         }
 
         await mongoose.disconnect();
