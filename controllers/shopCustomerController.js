@@ -250,8 +250,13 @@ const createOrder = asyncHandler(async (req, res) => {
 
     const { versandkosten, land } = calculateShipping(lieferadresse.land, warenwert);
     const platform = await getPlatformConfig();
-    const provision_prozent =
-        platform.shop_provision_prozent ?? DEFAULT_SHOP_PROVISION_PROZENT;
+    const Studio = require('../models/studioModel');
+    const { resolveStudioFinanceTerms } = require('../config/subscriptionPackages');
+    const studioDoc = await Studio.findById(customer.aktuelle_firma_id)
+        .select('subscription_plan preis_override shop_provision_override')
+        .lean();
+    const terms = resolveStudioFinanceTerms(studioDoc || {}, platform.shop_provision_prozent);
+    const provision_prozent = terms.shop_provision_studio_prozent;
     const provision_betrag = round2(warenwert * (provision_prozent / 100));
     const elaya_anteil_chf = round2(warenwert - provision_betrag);
 

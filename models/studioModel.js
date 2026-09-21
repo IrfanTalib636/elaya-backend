@@ -268,6 +268,30 @@ const studioSchema = new mongoose.Schema(
             index: true,
         },
         /**
+         * Finance Sonderkonditionen (prototype elaya_studio_konditionen).
+         * null = use package default (Starter/Pro/Network mapped from subscription_plan).
+         */
+        preis_override: {
+            type: Number,
+            default: null,
+            min: 0,
+        },
+        shop_provision_override: {
+            type: Number,
+            default: null,
+            min: 0,
+            max: 100,
+        },
+        override_grund: {
+            type: String,
+            default: '',
+            maxlength: 2000,
+        },
+        override_datum: {
+            type: Date,
+            default: null,
+        },
+        /**
          * Per-feature overrides on top of plan defaults.
          * true = force enable, false = force disable, omit = use plan.
          */
