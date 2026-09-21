@@ -46,6 +46,7 @@ router.use('/platform-messaging', platformMessagingRoute);
 router.use('/admin/crm', require('./adminCrmRoute'));
 router.use('/admin/documents', require('./adminDocumentsRoute'));
 router.use('/admin/users', require('./adminUserRoute'));
+router.use('/admin/audit', require('./adminAuditRoute'));
 router.use('/lasers', require('./laserRoute'));
 router.use('/ai-config', require('./aiConfigRoute'));
 router.use('/push-tokens', pushTokenRoute);
