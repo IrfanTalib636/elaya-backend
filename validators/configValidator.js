@@ -146,6 +146,44 @@ const patchPlatformConfigSchema = z
         subscription_seat_limits: z
             .record(z.string(), z.number().int().min(0).nullable())
             .optional(),
+        subscription_packages: z
+            .array(
+                z.object({
+                    id: z.string().trim().min(1).max(80),
+                    name: z.string().trim().min(1).max(120).optional(),
+                    name_de: z.string().trim().min(1).max(120).optional(),
+                    name_en: z.string().trim().min(1).max(120).optional(),
+                    beschreibung: z.string().max(500).optional().default(''),
+                    preis_monat: z.number().min(0).max(100000),
+                    plan: z.enum(['basic', 'professional', 'enterprise']).optional(),
+                    features: z.array(z.string().trim().min(1).max(80)).max(80).optional(),
+                    limits: z
+                        .object({
+                            mitarbeiter_max: z.number().min(0).nullable().optional(),
+                            standorte_max: z.number().min(0).nullable().optional(),
+                            standort_aufpreis_chf: z.number().min(0).nullable().optional(),
+                            shop_provision_prozent: z.number().min(0).max(100).nullable().optional(),
+                            ki_kontingent_monat: z.number().min(0).nullable().optional(),
+                            datenaufbewahrung_monate: z.number().min(0).nullable().optional(),
+                        })
+                        .optional(),
+                    max_standorte: z.number().min(0).nullable().optional(),
+                    max_mitarbeiter: z.number().min(0).nullable().optional(),
+                    shop_provision_studio_prozent: z.number().min(0).max(100).optional(),
+                    ki_kontingent_einheiten_monat: z.number().min(0).nullable().optional(),
+                })
+            )
+            .min(1)
+            .max(40)
+            .optional(),
+        ki_gewichtungen: z
+            .object({
+                nachsorge: z.number().min(0).max(1000).optional(),
+                verblassung: z.number().min(0).max(1000).optional(),
+                kundenchat: z.number().min(0).max(1000).optional(),
+                studio_ki_chat: z.number().min(0).max(1000).optional(),
+            })
+            .optional(),
         feature_global: z.record(z.string(), z.boolean()).optional(),
         session_prediction: z
             .object({

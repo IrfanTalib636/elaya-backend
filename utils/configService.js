@@ -10,6 +10,11 @@ const {
     SUPER_ADMIN_ONLY_CONFIG_BLOCKS,
     blockKeys,
 } = require('../config/platformDefaults');
+const {
+    normalizePackagesList,
+    normalizeKiGewichtungen,
+    derivePlanConfigFromPackages,
+} = require('../config/subscriptionPackages');
 const { DEFAULT_PRICING_CONFIG } = require('../config/pricingDefaults');
 const { mergeSessionPrediction } = require('../config/sessionPredictionDefaults');
 const { ELAYCOIN_SITUATIONS } = require('../config/elaycoinConfig');
@@ -147,6 +152,14 @@ const mergePlatformConfig = (doc) => {
             ...PLATFORM_CONFIG_DEFAULTS.subscription_seat_limits,
             ...(merged.subscription_seat_limits || {}),
         },
+        subscription_packages: normalizePackagesList(
+            Array.isArray(merged.subscription_packages) && merged.subscription_packages.length
+                ? merged.subscription_packages
+                : PLATFORM_CONFIG_DEFAULTS.subscription_packages
+        ),
+        ki_gewichtungen: normalizeKiGewichtungen(
+            merged.ki_gewichtungen || PLATFORM_CONFIG_DEFAULTS.ki_gewichtungen
+        ),
         feature_global: merged.feature_global || {},
         session_prediction: mergeSessionPrediction(merged.session_prediction),
         default_pricing: pickStudioPricing(merged.default_pricing || {}),
@@ -452,6 +465,22 @@ const updatePlatformConfig = async (patch) => {
             version: Number(next.version) || 1,
             kategorien: next.kategorien,
         };
+    }
+    if (Array.isArray(patch.subscription_packages)) {
+        const nextPkgs = normalizePackagesList(patch.subscription_packages);
+        setFields.subscription_packages = nextPkgs;
+        const derived = derivePlanConfigFromPackages(nextPkgs);
+        setFields.subscription_plans = derived.subscription_plans;
+        setFields.subscription_seat_limits = {
+            ...(current.subscription_seat_limits || {}),
+            ...derived.subscription_seat_limits,
+        };
+    }
+    if (patch.ki_gewichtungen && typeof patch.ki_gewichtungen === 'object') {
+        setFields.ki_gewichtungen = normalizeKiGewichtungen({
+            ...(current.ki_gewichtungen || PLATFORM_CONFIG_DEFAULTS.ki_gewichtungen),
+            ...patch.ki_gewichtungen,
+        });
     }
 
     const doc = await PlatformConfig.findOneAndUpdate(

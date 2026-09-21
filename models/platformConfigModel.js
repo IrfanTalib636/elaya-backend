@@ -96,6 +96,17 @@ const platformConfigSchema = new mongoose.Schema(
             type: mongoose.Schema.Types.Mixed,
             default: () => ({ ...PLATFORM_CONFIG_DEFAULTS.subscription_seat_limits }),
         },
+        /** Editable subscription packages (Starter / Pro / Network + custom). */
+        subscription_packages: {
+            type: mongoose.Schema.Types.Mixed,
+            default: () =>
+                JSON.parse(JSON.stringify(PLATFORM_CONFIG_DEFAULTS.subscription_packages)),
+        },
+        /** KI kontingent unit weights per feature use. */
+        ki_gewichtungen: {
+            type: mongoose.Schema.Types.Mixed,
+            default: () => ({ ...PLATFORM_CONFIG_DEFAULTS.ki_gewichtungen }),
+        },
         /** Global feature kill-switches: { [featureKey]: false } disables everywhere */
         feature_global: {
             type: mongoose.Schema.Types.Mixed,

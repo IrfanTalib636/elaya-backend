@@ -79,6 +79,8 @@ const patchPlatform = asyncHandler(async (req, res) => {
         'sperrfristen',
         'elaycoin_regeln',
         'automatisierungen',
+        'subscription_packages',
+        'ki_gewichtungen',
         'coinWert',
         'verfallMonate',
         'deckelProzent',
@@ -91,7 +93,7 @@ const patchPlatform = asyncHandler(async (req, res) => {
     if (touchesSuperAdminOnly && req.user.role !== USER_ROLES.SUPER_ADMIN) {
         throw new ApiError(
             403,
-            'Only super admin can update medical lockouts, price calculation, session prediction, Elaycoin rules, or automations'
+            'Only super admin can update medical lockouts, price calculation, session prediction, Elaycoin rules, automations, packages, or KI weightings'
         );
     }
 
@@ -370,6 +372,8 @@ const getFeatureCatalog = asyncHandler(async (_req, res) => {
             catalog: FEATURE_CATALOG,
             subscription_plans: platform.subscription_plans,
             subscription_seat_limits: platform.subscription_seat_limits,
+            subscription_packages: platform.subscription_packages,
+            ki_gewichtungen: platform.ki_gewichtungen,
             feature_global: platform.feature_global || {},
             shop_provision_prozent: platform.shop_provision_prozent,
             stripe_connect_enabled: Boolean(

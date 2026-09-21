@@ -255,7 +255,11 @@ const createOrder = asyncHandler(async (req, res) => {
     const studioDoc = await Studio.findById(customer.aktuelle_firma_id)
         .select('subscription_plan preis_override shop_provision_override')
         .lean();
-    const terms = resolveStudioFinanceTerms(studioDoc || {}, platform.shop_provision_prozent);
+    const terms = resolveStudioFinanceTerms(
+        studioDoc || {},
+        platform.shop_provision_prozent,
+        platform.subscription_packages
+    );
     const provision_prozent = terms.shop_provision_studio_prozent;
     const provision_betrag = round2(warenwert * (provision_prozent / 100));
     const elaya_anteil_chf = round2(warenwert - provision_betrag);

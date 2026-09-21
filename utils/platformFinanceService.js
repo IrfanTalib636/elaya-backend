@@ -117,7 +117,11 @@ async function getPlatformFinanceOverview() {
     let paidSumme = 0;
 
     const rows = studios.map((s) => {
-        const terms = resolveStudioFinanceTerms(s, platform.shop_provision_prozent);
+        const terms = resolveStudioFinanceTerms(
+            s,
+            platform.shop_provision_prozent,
+            platform.subscription_packages
+        );
         const sid = String(s._id);
         const shop = shopMap[sid] || {};
         const sess = sessMap[sid] || {};
@@ -166,7 +170,7 @@ async function getPlatformFinanceOverview() {
             to: to.toISOString(),
             label: `${from.getFullYear()}-${String(from.getMonth() + 1).padStart(2, '0')}`,
         },
-        packages: SUBSCRIPTION_PACKAGES,
+        packages: platform.subscription_packages || SUBSCRIPTION_PACKAGES,
         package_counts,
         provision_percent_default: platform.shop_provision_prozent ?? 20,
         stripe_connect_enabled: Boolean(
@@ -209,7 +213,11 @@ async function getStudioFinanceDetail(studioId) {
         .lean();
     if (!studio) throw new ApiError(404, 'Studio not found');
 
-    const terms = resolveStudioFinanceTerms(studio, platform.shop_provision_prozent);
+    const terms = resolveStudioFinanceTerms(
+        studio,
+        platform.shop_provision_prozent,
+        platform.subscription_packages
+    );
     const { from, to } = currentMonthRange();
 
     const [customers, shopAgg, sessionAgg, products, akquise] = await Promise.all([

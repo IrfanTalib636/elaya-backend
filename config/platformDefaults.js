@@ -3,6 +3,10 @@
  */
 const { DEFAULT_ELAYCOIN_REGELN } = require('./elaycoinConfig');
 const { DEFAULT_AUTOMATISIERUNGEN } = require('./automationsDefaults');
+const {
+    defaultSubscriptionPackages,
+    DEFAULT_KI_GEWICHTUNGEN,
+} = require('./subscriptionPackages');
 
 const PLATFORM_CONFIG_DEFAULTS = {
     /** CHF per coin — kept in sync with elaycoin_regeln (100 coins = CHF 5 → 0.05). */
@@ -120,6 +124,13 @@ const PLATFORM_CONFIG_DEFAULTS = {
         professional: 4,
         enterprise: null,
     },
+    /**
+     * Editable Elaya packages (prototype Pakete & Features).
+     * Canonical ids starter/pro/network map to subscription_plan basic/professional/enterprise.
+     */
+    subscription_packages: defaultSubscriptionPackages(),
+    /** Units consumed per KI feature use (soft overage against package kontingent). */
+    ki_gewichtungen: { ...DEFAULT_KI_GEWICHTUNGEN },
 };
 
 /**
