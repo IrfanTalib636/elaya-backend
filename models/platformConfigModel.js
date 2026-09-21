@@ -44,6 +44,17 @@ const platformConfigSchema = new mongoose.Schema(
         maxWert: { type: Number, default: PLATFORM_CONFIG_DEFAULTS.maxWert },
         deckelProzent: { type: Number, default: PLATFORM_CONFIG_DEFAULTS.deckelProzent },
         verfallMonate: { type: Number, default: PLATFORM_CONFIG_DEFAULTS.verfallMonate },
+        /** Prototype Elaycoin-Regeln (geldwert, limits, action catalog). */
+        elaycoin_regeln: {
+            type: mongoose.Schema.Types.Mixed,
+            default: () => JSON.parse(JSON.stringify(PLATFORM_CONFIG_DEFAULTS.elaycoin_regeln)),
+        },
+        /** Prototype Automatisierungen — message automation rule catalog. */
+        automatisierungen: {
+            type: mongoose.Schema.Types.Mixed,
+            default: () =>
+                JSON.parse(JSON.stringify(PLATFORM_CONFIG_DEFAULTS.automatisierungen)),
+        },
         grundgebuehr: { type: Number, default: PLATFORM_CONFIG_DEFAULTS.grundgebuehr },
         transaktionsProzent: { type: Number, default: PLATFORM_CONFIG_DEFAULTS.transaktionsProzent },
         zahlungszielTage: { type: Number, default: PLATFORM_CONFIG_DEFAULTS.zahlungszielTage },
@@ -52,6 +63,14 @@ const platformConfigSchema = new mongoose.Schema(
             default: PLATFORM_CONFIG_DEFAULTS.shop_provision_prozent,
             min: 0,
             max: 100,
+        },
+        shop_categories: {
+            type: [String],
+            default: () => [...PLATFORM_CONFIG_DEFAULTS.shop_categories],
+        },
+        shop_shipping: {
+            type: mongoose.Schema.Types.Mixed,
+            default: () => ({ ...PLATFORM_CONFIG_DEFAULTS.shop_shipping }),
         },
         gruppen_groessen: {
             type: gruppenGroessenSchema,
@@ -76,6 +95,17 @@ const platformConfigSchema = new mongoose.Schema(
         subscription_seat_limits: {
             type: mongoose.Schema.Types.Mixed,
             default: () => ({ ...PLATFORM_CONFIG_DEFAULTS.subscription_seat_limits }),
+        },
+        /** Editable subscription packages (Starter / Pro / Network + custom). */
+        subscription_packages: {
+            type: mongoose.Schema.Types.Mixed,
+            default: () =>
+                JSON.parse(JSON.stringify(PLATFORM_CONFIG_DEFAULTS.subscription_packages)),
+        },
+        /** KI kontingent unit weights per feature use. */
+        ki_gewichtungen: {
+            type: mongoose.Schema.Types.Mixed,
+            default: () => ({ ...PLATFORM_CONFIG_DEFAULTS.ki_gewichtungen }),
         },
         /** Global feature kill-switches: { [featureKey]: false } disables everywhere */
         feature_global: {

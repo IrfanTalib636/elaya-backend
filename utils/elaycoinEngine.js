@@ -4,6 +4,8 @@ const Session = require('../models/sessionModel');
 const Appointment = require('../models/appointmentModel');
 const Case = require('../models/caseModel');
 const Studio = require('../models/studioModel');
+const NachsorgeCheck = require('../models/nachsorgeCheckModel');
+const ShopOrder = require('../models/shopOrderModel');
 const {
     ELAYCOIN_COIN_GELDWERT,
     ELAYCOIN_CHF_PRO_EINHEIT,
@@ -11,10 +13,34 @@ const {
     ELAYCOIN_MIN,
     ELAYCOIN_MAX,
     ELAYCOIN_SITUATION_MAP,
+    DEFAULT_ELAYCOIN_REGELN,
 } = require('../config/elaycoinConfig');
 const { getPlatformConfig, resolveEffectiveCoinWert } = require('./configService');
 
 const txCoins = (t) => t.coins ?? t.betrag ?? 0;
+
+/** Resolve live Elaycoin-Regeln from platform config (fallback: hardcoded defaults). */
+const resolveElaycoinRegeln = (platform = {}) => {
+    const r = platform.elaycoin_regeln || {};
+    const situations =
+        Array.isArray(r.situations) && r.situations.length
+            ? r.situations
+            : DEFAULT_ELAYCOIN_REGELN.situations;
+    return {
+        geldwert_coins: Number(r.geldwert_coins) || ELAYCOIN_COIN_GELDWERT,
+        geldwert_chf: Number(r.geldwert_chf) || ELAYCOIN_CHF_PRO_EINHEIT,
+        tageslimit_pro_kunde: Number(r.tageslimit_pro_kunde) || ELAYCOIN_TAGESLIMIT,
+        grenze_pro_aktion_min:
+            r.grenze_pro_aktion_min != null ? Number(r.grenze_pro_aktion_min) : ELAYCOIN_MIN,
+        grenze_pro_aktion_max:
+            r.grenze_pro_aktion_max != null ? Number(r.grenze_pro_aktion_max) : ELAYCOIN_MAX,
+        verfall_reset_trigger: Array.isArray(r.verfall_reset_trigger)
+            ? r.verfall_reset_trigger
+            : [...DEFAULT_ELAYCOIN_REGELN.verfall_reset_trigger],
+        situations,
+        situation_map: Object.fromEntries(situations.map((s) => [s.key, s])),
+    };
+};
 
 /** Only real MongoDB appointment IDs go on appointment_id; composite keys stay in kontext.apt_id */
 const toAppointmentObjectId = (aptId) => {
@@ -41,8 +67,9 @@ const isSameCalendarDay = (a, b) => {
 const coinsToChf = (balance, coinWert = ELAYCOIN_CHF_PRO_EINHEIT / ELAYCOIN_COIN_GELDWERT) =>
     Math.round(Math.max(0, balance) * coinWert * 100) / 100;
 
-const getEffectiveSituation = (key, studioOverrides = {}) => {
-    const def = ELAYCOIN_SITUATION_MAP[key];
+const getEffectiveSituation = (key, studioOverrides = {}, platformRegeln = null) => {
+    const map = platformRegeln?.situation_map || ELAYCOIN_SITUATION_MAP;
+    const def = map[key];
     if (!def) {
         return null;
     }
@@ -90,17 +117,21 @@ async function berechneLetzteAktivitaet(customerId) {
         }
     };
 
-    const [sessions, appointments, cases] = await Promise.all([
+    const [sessions, appointments, cases, nachsorge, orders] = await Promise.all([
         Session.find({ customer: customerId, treatment_date: { $ne: null } })
             .select('treatment_date')
             .lean(),
         Appointment.find({ customer: customerId }).select('date createdAt').lean(),
         Case.find({ customer: customerId }).select('createdAt').lean(),
+        NachsorgeCheck.find({ customer: customerId }).select('createdAt').lean(),
+        ShopOrder.find({ customer: customerId }).select('createdAt').lean(),
     ]);
 
     sessions.forEach((s) => consider(s.treatment_date));
     appointments.forEach((a) => consider(a.date || a.createdAt));
     cases.forEach((c) => consider(c.createdAt));
+    nachsorge.forEach((n) => consider(n.createdAt));
+    orders.forEach((o) => consider(o.createdAt));
 
     if (!latest) {
         latest = new Date();
@@ -230,7 +261,9 @@ async function pruefeCoinVerfallUndBenachrichtigungen(customerId) {
 }
 
 async function vergebeElaycoins(customerId, situationKey, kontext = {}, options = {}) {
-    const sit = getEffectiveSituation(situationKey, options.studioOverrides);
+    const platform = await getPlatformConfig();
+    const regeln = resolveElaycoinRegeln(platform);
+    const sit = getEffectiveSituation(situationKey, options.studioOverrides, regeln);
     if (!sit || sit.istMalus) {
         return 0;
     }
@@ -238,7 +271,10 @@ async function vergebeElaycoins(customerId, situationKey, kontext = {}, options 
         return 0;
     }
 
-    const coins = Math.max(ELAYCOIN_MIN, Math.min(ELAYCOIN_MAX, sit.coins));
+    const coins = Math.max(
+        regeln.grenze_pro_aktion_min,
+        Math.min(regeln.grenze_pro_aktion_max, sit.coins)
+    );
     const customer = await Customer.findById(customerId);
     if (!customer) {
         return 0;
@@ -257,7 +293,7 @@ async function vergebeElaycoins(customerId, situationKey, kontext = {}, options 
         .filter((t) => isSameCalendarDay(t.datum, new Date()) && txCoins(t) > 0)
         .reduce((sum, t) => sum + txCoins(t), 0);
 
-    if (heuteCoins + coins > ELAYCOIN_TAGESLIMIT) {
+    if (heuteCoins + coins > regeln.tageslimit_pro_kunde) {
         return 0;
     }
 
@@ -319,7 +355,9 @@ async function vergebeElaycoins(customerId, situationKey, kontext = {}, options 
 }
 
 async function zieheElaycoinsAb(customerId, malusKey, kontext = {}, options = {}) {
-    const sit = getEffectiveSituation(malusKey, options.studioOverrides);
+    const platform = await getPlatformConfig();
+    const regeln = resolveElaycoinRegeln(platform);
+    const sit = getEffectiveSituation(malusKey, options.studioOverrides, regeln);
     if (!sit || !sit.istMalus) {
         return 0;
     }
@@ -334,9 +372,9 @@ async function zieheElaycoinsAb(customerId, malusKey, kontext = {}, options = {}
               ? Number(kontext.coins)
               : null;
     const abzugBetrag = Math.max(
-        ELAYCOIN_MIN,
+        regeln.grenze_pro_aktion_min,
         Math.min(
-            ELAYCOIN_MAX,
+            regeln.grenze_pro_aktion_max,
             Number.isFinite(override) && override > 0 ? override : sit.coins
         )
     );
@@ -404,6 +442,7 @@ async function getElaycoinData(
 
     const ec = customer.elaycoins || { balance: 0, transactions: [], gesendete_warnungen: [] };
     const expiry = await getCoinVerfallStatus(customerId, { forStudio, studioId });
+    const regeln = resolveElaycoinRegeln(platform);
 
     return {
         balance: ec.balance || 0,
@@ -412,14 +451,15 @@ async function getElaycoinData(
         gesendete_warnungen: ec.gesendete_warnungen || [],
         expiry,
         platform: {
-            coin_geldwert: ELAYCOIN_COIN_GELDWERT,
-            chf_pro_einheit: ELAYCOIN_CHF_PRO_EINHEIT,
+            coin_geldwert: regeln.geldwert_coins,
+            chf_pro_einheit: regeln.geldwert_chf,
             coin_wert: coinWert,
-            tageslimit: ELAYCOIN_TAGESLIMIT,
-            min: ELAYCOIN_MIN,
-            max: ELAYCOIN_MAX,
+            tageslimit: regeln.tageslimit_pro_kunde,
+            min: regeln.grenze_pro_aktion_min,
+            max: regeln.grenze_pro_aktion_max,
             deckel_prozent: platform.deckelProzent,
             verfall_monate: platform.verfallMonate,
+            verfall_reset_trigger: regeln.verfall_reset_trigger,
         },
     };
 }
@@ -532,6 +572,7 @@ module.exports = {
     ELAYCOIN_CHF_PRO_EINHEIT,
     ELAYCOIN_TAGESLIMIT,
     coinsToChf,
+    resolveElaycoinRegeln,
     getEffectiveSituation,
     berechneLetzteAktivitaet,
     getCoinVerfallStatus,

@@ -5,6 +5,7 @@ const ApiError = require('../utils/ApiError');
 const asyncHandler = require('../utils/asyncHandler');
 const { parsePagination, buildPaginationMeta } = require('../utils/pagination');
 const { getPlatformConfig } = require('../utils/configService');
+const { USER_ROLES } = require('../config/constants');
 const {
     DEFAULT_SHOP_PROVISION_PROZENT,
     SHOP_CATEGORIES,
@@ -13,6 +14,11 @@ const {
 } = require('../config/shopDefaults');
 
 const round2 = (n) => Math.round(n * 100) / 100;
+
+const resolveShopCategories = (platform) =>
+    Array.isArray(platform?.shop_categories) && platform.shop_categories.length
+        ? platform.shop_categories
+        : SHOP_CATEGORIES;
 
 const formatProduct = (doc) => ({
     id: doc._id.toString(),
@@ -27,6 +33,7 @@ const formatProduct = (doc) => ({
     bild_url: doc.bild_url ?? '',
     lagerbestand: doc.lagerbestand,
     aktiv: doc.aktiv,
+    rabatt_prozent: doc.rabatt_prozent ?? 0,
     sort_order: doc.sort_order ?? 0,
     createdAt: doc.createdAt,
     updatedAt: doc.updatedAt,
@@ -73,16 +80,17 @@ const listProductsAdmin = asyncHandler(async (req, res) => {
         ];
     }
 
-    const [products, total] = await Promise.all([
+    const [products, total, platform] = await Promise.all([
         ShopProduct.find(filter).sort({ sort_order: 1, name: 1 }).skip(skip).limit(limit).lean(),
         ShopProduct.countDocuments(filter),
+        getPlatformConfig(),
     ]);
 
     res.json({
         success: true,
         data: {
             products: products.map(formatProduct),
-            categories: SHOP_CATEGORIES,
+            categories: resolveShopCategories(platform),
             pagination: buildPaginationMeta(page, limit, total),
         },
     });
@@ -222,263 +230,106 @@ const patchOrderCommission = asyncHandler(async (req, res) => {
     });
 });
 
-/** GET /admin/shop/finance — cross-studio shop revenue + commissions */
+/** GET /admin/shop/finance — Reines Abo-Modell overview + shop ledger */
 const getShopFinanceSummary = asyncHandler(async (req, res) => {
-    const platform = await getPlatformConfig();
-    const match = {};
-    if (req.query.from || req.query.to) {
-        match.createdAt = {};
-        if (req.query.from) match.createdAt.$gte = new Date(req.query.from);
-        if (req.query.to) {
-            const end = new Date(req.query.to);
-            end.setHours(23, 59, 59, 999);
-            match.createdAt.$lte = end;
-        }
-    }
-
-    const byStudio = await ShopOrder.aggregate([
-        { $match: match },
-        {
-            $group: {
-                _id: '$studio',
-                order_count: { $sum: 1 },
-                revenue: { $sum: '$total_chf' },
-                provision_total: { $sum: { $ifNull: ['$provision_betrag', 0] } },
-                elaya_total: { $sum: { $ifNull: ['$elaya_anteil_chf', 0] } },
-                pending_provision: {
-                    $sum: {
-                        $cond: [
-                            { $eq: ['$commission_status', 'pending'] },
-                            { $ifNull: ['$provision_betrag', 0] },
-                            0,
-                        ],
-                    },
-                },
-                paid_provision: {
-                    $sum: {
-                        $cond: [
-                            { $eq: ['$commission_status', 'paid'] },
-                            { $ifNull: ['$provision_betrag', 0] },
-                            0,
-                        ],
-                    },
-                },
-            },
-        },
-        { $sort: { revenue: -1 } },
-    ]);
-
-    const studioIds = byStudio.map((r) => r._id).filter(Boolean);
-    const studios = await Studio.find({ _id: { $in: studioIds } })
-        .select('firma studio_code')
-        .lean();
-    const studioMap = Object.fromEntries(studios.map((s) => [s._id.toString(), s]));
-
-    const studiosOut = byStudio.map((r) => {
-        const s = studioMap[r._id?.toString()] || {};
-        return {
-            studio_id: r._id,
-            studio_name: s.firma || '',
-            studio_code: s.studio_code || '',
-            order_count: r.order_count,
-            revenue: round2(r.revenue),
-            provision_total: round2(r.provision_total),
-            elaya_total: round2(r.elaya_total),
-            pending_provision: round2(r.pending_provision),
-            paid_provision: round2(r.paid_provision),
-        };
-    });
-
-    const totals = studiosOut.reduce(
-        (acc, s) => {
-            acc.order_count += s.order_count;
-            acc.revenue = round2(acc.revenue + s.revenue);
-            acc.provision_total = round2(acc.provision_total + s.provision_total);
-            acc.elaya_total = round2(acc.elaya_total + s.elaya_total);
-            acc.pending_provision = round2(acc.pending_provision + s.pending_provision);
-            acc.paid_provision = round2(acc.paid_provision + s.paid_provision);
-            return acc;
-        },
-        {
-            order_count: 0,
-            revenue: 0,
-            provision_total: 0,
-            elaya_total: 0,
-            pending_provision: 0,
-            paid_provision: 0,
-        }
-    );
-
-    res.json({
-        success: true,
-        data: {
-            provision_percent_default:
-                platform.shop_provision_prozent ?? DEFAULT_SHOP_PROVISION_PROZENT,
-            stripe_connect_enabled: Boolean(
-                process.env.STRIPE_SECRET_KEY && String(process.env.STRIPE_SECRET_KEY).trim()
-            ),
-            totals,
-            studios: studiosOut,
-            shipping: {
-                countries: SHOP_COUNTRIES,
-                rates: DEFAULT_SHOP_SHIPPING,
-            },
-        },
-    });
+    const {
+        getPlatformFinanceOverview,
+    } = require('../utils/platformFinanceService');
+    const data = await getPlatformFinanceOverview();
+    res.json({ success: true, data });
 });
 
-/** GET /admin/shop/finance/studios/:studioId — studio KPIs + products sold */
+/** GET /admin/shop/finance/studios/:studioId — dual P&L + products */
 const getStudioFinanceDetail = asyncHandler(async (req, res) => {
-    const studioId = req.params.studioId;
-    if (!studioId || !/^[a-f\d]{24}$/i.test(String(studioId))) {
-        throw new ApiError(400, 'Invalid studio id');
+    const {
+        getStudioFinanceDetail: loadDetail,
+    } = require('../utils/platformFinanceService');
+    const data = await loadDetail(req.params.studioId);
+    res.json({ success: true, data });
+});
+
+/** PATCH /admin/shop/finance/studios/:studioId — package / Sonderkonditionen */
+const patchStudioFinanceTerms = asyncHandler(async (req, res) => {
+    if (req.user.role !== USER_ROLES.SUPER_ADMIN) {
+        throw new ApiError(403, 'Only super admin can change studio finance terms');
     }
-
-    const studio = await Studio.findById(studioId).select('firma studio_code').lean();
-    if (!studio) throw new ApiError(404, 'Studio not found');
-
-    const platform = await getPlatformConfig();
-    const match = { studio: studio._id };
-    if (req.query.from || req.query.to) {
-        match.createdAt = {};
-        if (req.query.from) match.createdAt.$gte = new Date(req.query.from);
-        if (req.query.to) {
-            const end = new Date(req.query.to);
-            end.setHours(23, 59, 59, 999);
-            match.createdAt.$lte = end;
-        }
-    }
-
-    const [summaryRows, productRows] = await Promise.all([
-        ShopOrder.aggregate([
-            { $match: match },
-            {
-                $group: {
-                    _id: '$studio',
-                    order_count: { $sum: 1 },
-                    revenue: { $sum: '$total_chf' },
-                    provision_total: { $sum: { $ifNull: ['$provision_betrag', 0] } },
-                    elaya_total: { $sum: { $ifNull: ['$elaya_anteil_chf', 0] } },
-                    pending_provision: {
-                        $sum: {
-                            $cond: [
-                                { $eq: ['$commission_status', 'pending'] },
-                                { $ifNull: ['$provision_betrag', 0] },
-                                0,
-                            ],
-                        },
-                    },
-                    paid_provision: {
-                        $sum: {
-                            $cond: [
-                                { $eq: ['$commission_status', 'paid'] },
-                                { $ifNull: ['$provision_betrag', 0] },
-                                0,
-                            ],
-                        },
-                    },
-                },
-            },
-        ]),
-        ShopOrder.aggregate([
-            { $match: match },
-            { $unwind: '$produkte' },
-            {
-                $group: {
-                    _id: {
-                        produkt_id: '$produkte.produkt_id',
-                        produkt_name: '$produkte.produkt_name',
-                    },
-                    quantity: { $sum: { $ifNull: ['$produkte.menge', 0] } },
-                    revenue: {
-                        $sum: {
-                            $multiply: [
-                                { $ifNull: ['$produkte.menge', 0] },
-                                { $ifNull: ['$produkte.preis_chf', 0] },
-                            ],
-                        },
-                    },
-                    commission: {
-                        $sum: {
-                            $multiply: [
-                                { $ifNull: ['$produkte.menge', 0] },
-                                { $ifNull: ['$produkte.preis_chf', 0] },
-                                {
-                                    $divide: [
-                                        { $ifNull: ['$provision_prozent', 0] },
-                                        100,
-                                    ],
-                                },
-                            ],
-                        },
-                    },
-                    order_count: { $addToSet: '$_id' },
-                },
-            },
-            {
-                $project: {
-                    _id: 0,
-                    product_id: '$_id.produkt_id',
-                    product_name: '$_id.produkt_name',
-                    quantity: 1,
-                    revenue: 1,
-                    commission: 1,
-                    order_count: { $size: '$order_count' },
-                },
-            },
-            { $sort: { revenue: -1 } },
-        ]),
-    ]);
-
-    const summary = summaryRows[0] || {
-        order_count: 0,
-        revenue: 0,
-        provision_total: 0,
-        elaya_total: 0,
-        pending_provision: 0,
-        paid_provision: 0,
-    };
-
-    const provisionPercent =
-        platform.shop_provision_prozent ?? DEFAULT_SHOP_PROVISION_PROZENT;
-
-    const products = productRows.map((p) => ({
-        product_id: p.product_id ? String(p.product_id) : null,
-        product_name: p.product_name || '—',
-        quantity: p.quantity || 0,
-        revenue: round2(p.revenue),
-        commission: round2(p.commission || 0),
-        order_count: p.order_count || 0,
-    }));
-
+    const {
+        patchStudioFinanceTerms: patchTerms,
+    } = require('../utils/platformFinanceService');
+    const data = await patchTerms(req.params.studioId, req.body || {});
+    const {
+        logPlatformAudit,
+        PLATFORM_AUDIT_ACTION,
+    } = require('../services/platformAuditService');
+    void logPlatformAudit({
+        actor: req.user,
+        action: PLATFORM_AUDIT_ACTION.STUDIO_CONFIG_PATCH || 'STUDIO_CONFIG_PATCH',
+        targetType: 'studio',
+        targetId: String(req.params.studioId),
+        studioId: req.params.studioId,
+        reason: req.body.override_grund || req.body.reason || 'Finance terms updated',
+        after: {
+            package_id: data.terms?.package_id,
+            abo_chf: data.terms?.abo_chf,
+            shop_provision_studio_prozent: data.terms?.shop_provision_studio_prozent,
+        },
+        ip: req.ip,
+    });
     res.json({
         success: true,
-        data: {
-            provision_percent_default: provisionPercent,
-            studio: {
-                studio_id: String(studio._id),
-                studio_name: studio.firma || '',
-                studio_code: studio.studio_code || '',
-                order_count: summary.order_count || 0,
-                revenue: round2(summary.revenue || 0),
-                provision_total: round2(summary.provision_total || 0),
-                elaya_total: round2(summary.elaya_total || 0),
-                pending_provision: round2(summary.pending_provision || 0),
-                paid_provision: round2(summary.paid_provision || 0),
-            },
-            products,
-        },
+        message: 'Studio finance terms updated',
+        data,
     });
 });
 
 /** GET /admin/shop/shipping */
 const getShippingAdmin = asyncHandler(async (_req, res) => {
+    const platform = await getPlatformConfig();
+    const rates = {
+        ...DEFAULT_SHOP_SHIPPING,
+        ...(platform.shop_shipping || {}),
+    };
+    const categories =
+        Array.isArray(platform.shop_categories) && platform.shop_categories.length
+            ? platform.shop_categories
+            : SHOP_CATEGORIES;
+
     res.json({
         success: true,
         data: {
             countries: SHOP_COUNTRIES,
-            rates: DEFAULT_SHOP_SHIPPING,
-            note: 'Shipping rates are currently platform defaults. Editable shipping config can be extended via platform_config.',
+            rates,
+            categories,
+            shop_provision_prozent:
+                platform.shop_provision_prozent ?? DEFAULT_SHOP_PROVISION_PROZENT,
+        },
+    });
+});
+
+/** PATCH /admin/shop/shipping — Super Admin editable shipping + categories */
+const patchShopCatalogAdmin = asyncHandler(async (req, res) => {
+    const { updatePlatformConfig } = require('../utils/configService');
+    const payload = {};
+    if (req.body.rates) payload.shop_shipping = req.body.rates;
+    if (req.body.categories) payload.shop_categories = req.body.categories;
+    if (req.body.shop_provision_prozent !== undefined) {
+        payload.shop_provision_prozent = req.body.shop_provision_prozent;
+    }
+    if (!Object.keys(payload).length) {
+        throw new ApiError(400, 'No shipping/catalog fields to update');
+    }
+    const config = await updatePlatformConfig(payload);
+    res.json({
+        success: true,
+        message: 'Shop catalog settings updated',
+        data: {
+            rates: { ...DEFAULT_SHOP_SHIPPING, ...(config.shop_shipping || {}) },
+            categories:
+                Array.isArray(config.shop_categories) && config.shop_categories.length
+                    ? config.shop_categories
+                    : SHOP_CATEGORIES,
+            shop_provision_prozent:
+                config.shop_provision_prozent ?? DEFAULT_SHOP_PROVISION_PROZENT,
         },
     });
 });
@@ -491,7 +342,9 @@ module.exports = {
     patchOrderCommission,
     getShopFinanceSummary,
     getStudioFinanceDetail,
+    patchStudioFinanceTerms,
     getShippingAdmin,
+    patchShopCatalogAdmin,
     formatProduct,
     formatAdminOrder,
 };

@@ -3,12 +3,13 @@ const { z } = require('zod');
 const { protect, authorize } = require('../middleware/authMiddleware');
 const validateMiddleware = require('../middleware/validateMiddleware');
 const { USER_ROLES } = require('../config/constants');
-const { STUDIO_LEAD_STATUS } = require('../models/studioLeadModel');
+const { LEAD_AKQUISE, LEAD_PAKETE } = require('../models/studioLeadModel');
 const {
     getCrmOverview,
     listStudioLeads,
     createStudioLead,
     updateStudioLead,
+    advanceStudioLead,
 } = require('../controllers/adminCrmController');
 
 const router = express.Router();
@@ -27,7 +28,12 @@ const createLeadSchema = z.object({
         .refine((v) => !v || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v), 'Invalid email'),
     telefon: z.string().trim().max(60).optional().default(''),
     ort: z.string().trim().max(120).optional().default(''),
+    adresse: z.string().trim().max(300).optional().default(''),
     notiz: z.string().trim().max(2000).optional().default(''),
+    akquise_weg: z.enum(LEAD_AKQUISE).optional().default('other'),
+    gewuenschtes_paket: z.enum(LEAD_PAKETE).optional().default('STARTER'),
+    demo_termin_gebucht: z.boolean().optional().default(false),
+    demo_termin_datum: z.union([z.string(), z.null()]).optional().nullable(),
 });
 
 const updateLeadSchema = z.object({
@@ -41,8 +47,24 @@ const updateLeadSchema = z.object({
         .refine((v) => v === undefined || !v || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v), 'Invalid email'),
     telefon: z.string().trim().max(60).optional(),
     ort: z.string().trim().max(120).optional(),
+    adresse: z.string().trim().max(300).optional(),
     notiz: z.string().trim().max(2000).optional(),
-    status: z.enum(Object.values(STUDIO_LEAD_STATUS)).optional(),
+    akquise_weg: z.enum(LEAD_AKQUISE).optional(),
+    gewuenschtes_paket: z.enum(LEAD_PAKETE).optional(),
+    demo_termin_gebucht: z.boolean().optional(),
+    demo_termin_datum: z.union([z.string(), z.null()]).optional().nullable(),
+});
+
+const advanceLeadSchema = z.object({
+    action: z.enum([
+        'send_contract',
+        'sign_contract',
+        'set_payment',
+        'start_trial',
+        'activate',
+        'deactivate',
+    ]),
+    zahlungsweg: z.enum(['STRIPE_KARTE', 'RECHNUNG']).optional(),
 });
 
 router.get('/overview', protect, authorize(...adminRoles), getCrmOverview);
@@ -63,6 +85,14 @@ router.patch(
     authorize(...adminRoles),
     validateMiddleware(updateLeadSchema),
     updateStudioLead
+);
+
+router.post(
+    '/leads/:id/advance',
+    protect,
+    authorize(...adminRoles),
+    validateMiddleware(advanceLeadSchema),
+    advanceStudioLead
 );
 
 module.exports = router;

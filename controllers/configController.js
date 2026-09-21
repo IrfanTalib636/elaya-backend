@@ -77,6 +77,15 @@ const patchPlatform = asyncHandler(async (req, res) => {
         'session_prediction',
         'default_pricing',
         'sperrfristen',
+        'elaycoin_regeln',
+        'automatisierungen',
+        'subscription_packages',
+        'ki_gewichtungen',
+        'coinWert',
+        'verfallMonate',
+        'deckelProzent',
+        'minWert',
+        'maxWert',
     ];
     const touchesSuperAdminOnly = superAdminOnlyKeys.some(
         (key) => req.body[key] !== undefined
@@ -84,7 +93,7 @@ const patchPlatform = asyncHandler(async (req, res) => {
     if (touchesSuperAdminOnly && req.user.role !== USER_ROLES.SUPER_ADMIN) {
         throw new ApiError(
             403,
-            'Only super admin can update medical lockouts, price calculation, or session prediction'
+            'Only super admin can update medical lockouts, price calculation, session prediction, Elaycoin rules, automations, packages, or KI weightings'
         );
     }
 
@@ -291,6 +300,16 @@ const patchStudioConfigHandler = asyncHandler(async (req, res) => {
                 'Only super admin can change medical lockout (Sperrfristen) rules'
             );
         }
+        // Elaycoin platform rules are platform-owned — studios view only.
+        if (patch.elaycoin_regeln !== undefined) {
+            throw new ApiError(403, 'Only super admin can change Elaycoin rules');
+        }
+        if (patch.automatisierungen !== undefined) {
+            throw new ApiError(
+                403,
+                'Use automatisierungen_overrides to change studio-editable automation fields'
+            );
+        }
     } else if (req.user.role !== USER_ROLES.SUPER_ADMIN) {
         if (patch.studio_pricing !== undefined) {
             throw new ApiError(403, 'Only super admin can change price calculation rules');
@@ -353,6 +372,8 @@ const getFeatureCatalog = asyncHandler(async (_req, res) => {
             catalog: FEATURE_CATALOG,
             subscription_plans: platform.subscription_plans,
             subscription_seat_limits: platform.subscription_seat_limits,
+            subscription_packages: platform.subscription_packages,
+            ki_gewichtungen: platform.ki_gewichtungen,
             feature_global: platform.feature_global || {},
             shop_provision_prozent: platform.shop_provision_prozent,
             stripe_connect_enabled: Boolean(

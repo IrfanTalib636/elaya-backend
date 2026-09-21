@@ -4,6 +4,12 @@ const ELAYCOIN_TAGESLIMIT = 800;
 const ELAYCOIN_MIN = 0;
 const ELAYCOIN_MAX = 1000;
 const COIN_VERFALL_MONATE = 12;
+const ELAYCOIN_VERFALL_RESET_TRIGGER = [
+    'Sitzung',
+    'Nachsorge-Check',
+    'Termin',
+    'Einkauf',
+];
 
 const ELAYCOIN_SITUATIONS = [
     { key: 'termin_wahrgenommen', label: 'Termin wahrgenommen', kat: 'BEHANDLUNGSTREUE', coins: 100, aktiv: true, einmalig: false },
@@ -48,6 +54,17 @@ const ELAYCOIN_SITUATIONS = [
 
 const ELAYCOIN_SITUATION_MAP = Object.fromEntries(ELAYCOIN_SITUATIONS.map((s) => [s.key, s]));
 
+/** Prototype Elaycoin-Regeln defaults — platform-editable override of engine constants. */
+const DEFAULT_ELAYCOIN_REGELN = {
+    geldwert_coins: ELAYCOIN_COIN_GELDWERT,
+    geldwert_chf: ELAYCOIN_CHF_PRO_EINHEIT,
+    tageslimit_pro_kunde: ELAYCOIN_TAGESLIMIT,
+    grenze_pro_aktion_min: ELAYCOIN_MIN,
+    grenze_pro_aktion_max: ELAYCOIN_MAX,
+    verfall_reset_trigger: [...ELAYCOIN_VERFALL_RESET_TRIGGER],
+    situations: ELAYCOIN_SITUATIONS.map((s) => ({ ...s })),
+};
+
 module.exports = {
     ELAYCOIN_COIN_GELDWERT,
     ELAYCOIN_CHF_PRO_EINHEIT,
@@ -55,6 +72,8 @@ module.exports = {
     ELAYCOIN_MIN,
     ELAYCOIN_MAX,
     COIN_VERFALL_MONATE,
+    ELAYCOIN_VERFALL_RESET_TRIGGER,
     ELAYCOIN_SITUATIONS,
     ELAYCOIN_SITUATION_MAP,
+    DEFAULT_ELAYCOIN_REGELN,
 };

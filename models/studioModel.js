@@ -186,6 +186,15 @@ const studioSchema = new mongoose.Schema(
             default: {},
         },
         /**
+         * Per-rule Automations overrides from studio (prototype ss.automatisierungen).
+         * Shape: { [ruleId]: { aktiv?: boolean, wert?: number } }
+         * Only applied when platform rule has editierbar_studio=true.
+         */
+        automatisierungen_overrides: {
+            type: mongoose.Schema.Types.Mixed,
+            default: {},
+        },
+        /**
          * Group-booking size points + discount for this studio.
          * Empty/partial object inherits missing keys from platform defaults.
          */
@@ -257,6 +266,30 @@ const studioSchema = new mongoose.Schema(
             enum: ['basic', 'professional', 'enterprise'],
             default: 'professional',
             index: true,
+        },
+        /**
+         * Finance Sonderkonditionen (prototype elaya_studio_konditionen).
+         * null = use package default (Starter/Pro/Network mapped from subscription_plan).
+         */
+        preis_override: {
+            type: Number,
+            default: null,
+            min: 0,
+        },
+        shop_provision_override: {
+            type: Number,
+            default: null,
+            min: 0,
+            max: 100,
+        },
+        override_grund: {
+            type: String,
+            default: '',
+            maxlength: 2000,
+        },
+        override_datum: {
+            type: Date,
+            default: null,
         },
         /**
          * Per-feature overrides on top of plan defaults.

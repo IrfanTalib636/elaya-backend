@@ -1,17 +1,48 @@
 /**
  * Platform-wide defaults — maps prototype `elaya_admin_config` → production `platform_config` (client §2).
  */
+const { DEFAULT_ELAYCOIN_REGELN } = require('./elaycoinConfig');
+const { DEFAULT_AUTOMATISIERUNGEN } = require('./automationsDefaults');
+const {
+    defaultSubscriptionPackages,
+    DEFAULT_KI_GEWICHTUNGEN,
+} = require('./subscriptionPackages');
+
 const PLATFORM_CONFIG_DEFAULTS = {
-    coinWert: 0.1,
+    /** CHF per coin — kept in sync with elaycoin_regeln (100 coins = CHF 5 → 0.05). */
+    coinWert: 0.05,
     minWert: 0.05,
     maxWert: 0.2,
     deckelProzent: 20,
     verfallMonate: 12,
+    /**
+     * Prototype Elaycoin-Regeln — platform-wide engine rules + action catalog.
+     * Studios may view; only Super Admin edits.
+     */
+    elaycoin_regeln: JSON.parse(JSON.stringify(DEFAULT_ELAYCOIN_REGELN)),
+    /**
+     * Prototype Automatisierungen — automatic customer message rules catalog.
+     * Admin full CRUD; studios may only toggle aktiv + tage when editierbar_studio.
+     */
+    automatisierungen: JSON.parse(JSON.stringify(DEFAULT_AUTOMATISIERUNGEN)),
     grundgebuehr: 149,
     transaktionsProzent: 3,
     zahlungszielTage: 30,
     /** Studio commission % on ElayShop warenwert (remaining goes to Elaya). */
     shop_provision_prozent: 20,
+    /** Editable ElayShop category list (prototype parity). */
+    shop_categories: ['Nachsorge', 'Sonnenschutz', 'Reinigung', 'Zubehör', 'Sonstiges'],
+    /** Editable shipping rates CHF by country + free thresholds. */
+    shop_shipping: {
+        Schweiz: 6.9,
+        Deutschland: 12.9,
+        Österreich: 12.9,
+        Frankreich: 14.9,
+        Italien: 14.9,
+        'Andere EU': 16.9,
+        gratis_ab_ch: 75,
+        gratis_ab_eu: 150,
+    },
     gruppen_groessen: {
         klein_max_cm2: 50,
         mittelgross_max_cm2: 150,
@@ -29,6 +60,13 @@ const PLATFORM_CONFIG_DEFAULTS = {
         uv_intensiv_tage: 28,
         medikament_kurz_tage: 14,
         medikament_retinoide_tage: 180,
+        condition_locks: {
+            antidepressants: 'MEDICAL_CLEARANCE_REQUIRED',
+            skin_acne_medication: 'MEDICAL_CLEARANCE_REQUIRED',
+            other_unknown_medication: 'MEDICAL_REVIEW_REQUIRED',
+            illness_not_recovered: 'MEDICAL_REVIEW_REQUIRED',
+        },
+        studio_exceptions: {},
     },
     /**
      * Appointment defaults the studio controls. Durations fall back to the
@@ -86,6 +124,13 @@ const PLATFORM_CONFIG_DEFAULTS = {
         professional: 4,
         enterprise: null,
     },
+    /**
+     * Editable Elaya packages (prototype Pakete & Features).
+     * Canonical ids starter/pro/network map to subscription_plan basic/professional/enterprise.
+     */
+    subscription_packages: defaultSubscriptionPackages(),
+    /** Units consumed per KI feature use (soft overage against package kontingent). */
+    ki_gewichtungen: { ...DEFAULT_KI_GEWICHTUNGEN },
 };
 
 /**

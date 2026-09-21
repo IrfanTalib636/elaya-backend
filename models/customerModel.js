@@ -126,6 +126,16 @@ const customerSchema = new mongoose.Schema(
             type: String,
             default: '',
         },
+        /** Fired automation rule ids / keys (prototype automatisierungen_log). */
+        automatisierungen_log: {
+            type: [
+                {
+                    rule_id: { type: String, required: true },
+                    sent_at: { type: Date, default: Date.now },
+                },
+            ],
+            default: [],
+        },
     },
     {
         timestamps: true,

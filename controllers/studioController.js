@@ -548,9 +548,208 @@ const openStudioWorkspace = asyncHandler(async (req, res) => {
                 cases: caseCount,
                 upcoming_appointments: upcomingAppointments,
             },
-            // Explicit: admin remains admin — no studio JWT / impersonation.
             acting_as: 'elaya_admin',
         },
+    });
+});
+
+const WORKSPACE_TOKEN_TTL = process.env.JWT_WORKSPACE_EXPIRES_IN || '2h';
+
+const issueActingStudioToken = ({ adminUser, studio, editMode = false, reason = '' }) => {
+    const {
+        generateAccessTokenWithExpiry,
+    } = require('../utils/generateTokenAndSetCookies');
+    return generateAccessTokenWithExpiry(
+        {
+            userId: String(adminUser._id || adminUser.id),
+            actingAsStudio: true,
+            actingStudioId: String(studio._id || studio.id),
+            editMode: Boolean(editMode),
+            reason: String(reason || '').slice(0, 500),
+        },
+        WORKSPACE_TOKEN_TTL
+    );
+};
+
+const formatWorkspaceStudio = (studio) => ({
+    id: String(studio._id),
+    firma: studio.firma || '',
+    studio_code: studio.studio_code || '',
+    email: studio.email || '',
+    status: studio.status,
+    ort: studio.ort || '',
+});
+
+/**
+ * POST /studio/admin/studios/:studioId/workspace/enter
+ * Enter full studio dashboard as that studio (no studio login). Starts read-only.
+ */
+const enterStudioWorkspace = asyncHandler(async (req, res) => {
+    // Route is authorize(admin) — but protect may already have rewritten role if re-entering.
+    const actor = req.user._impersonation
+        ? {
+              _id: req.user._impersonation.admin_id,
+              role: req.user._impersonation.admin_role,
+              email: req.user._impersonation.admin_email,
+          }
+        : req.user;
+
+    if (!isAdmin(actor.role)) {
+        throw new ApiError(403, 'Only Elaya admins can enter a studio workspace');
+    }
+
+    const studioId = req.params.studioId;
+    if (!mongoose.Types.ObjectId.isValid(studioId)) {
+        throw new ApiError(400, 'Invalid studio id');
+    }
+
+    const studio = await Studio.findById(studioId)
+        .select('firma studio_code email status ort')
+        .lean();
+    if (!studio) throw new ApiError(404, 'Studio not found');
+
+    const accessToken = issueActingStudioToken({
+        adminUser: actor,
+        studio,
+        editMode: false,
+        reason: '',
+    });
+
+    const {
+        logPlatformAudit,
+        PLATFORM_AUDIT_ACTION,
+    } = require('../services/platformAuditService');
+    void logPlatformAudit({
+        actor: { _id: actor._id, role: actor.role, email: actor.email },
+        action: PLATFORM_AUDIT_ACTION.STUDIO_WORKSPACE_OPEN,
+        targetType: 'studio',
+        targetId: String(studio._id),
+        studioId: studio._id,
+        reason: '',
+        meta: {
+            mode: 'enter_studio_dashboard',
+            edit_mode: false,
+            studio_code: studio.studio_code,
+            firma: studio.firma,
+        },
+        ip: req.ip,
+    });
+
+    res.status(200).json({
+        success: true,
+        message: 'Entered studio workspace (read-only)',
+        data: {
+            accessToken,
+            expiresIn: WORKSPACE_TOKEN_TTL,
+            edit_mode: false,
+            studio: formatWorkspaceStudio(studio),
+        },
+    });
+});
+
+/**
+ * POST /studio/admin/studios/:studioId/workspace/edit-mode
+ * Enable write access inside an active studio workspace (reason required, ≥10 chars).
+ */
+const enableStudioWorkspaceEdit = asyncHandler(async (req, res) => {
+    const imp = req.user._impersonation;
+    if (!imp?.active) {
+        throw new ApiError(403, 'Active studio workspace session required');
+    }
+
+    const studioId = req.params.studioId;
+    if (String(imp.studio_id) !== String(studioId)) {
+        throw new ApiError(403, 'Workspace studio mismatch');
+    }
+
+    const reason = String(req.body?.reason || '').trim();
+    if (reason.length < 10) {
+        throw new ApiError(400, 'Reason must be at least 10 characters');
+    }
+
+    const studio = await Studio.findById(studioId)
+        .select('firma studio_code email status ort')
+        .lean();
+    if (!studio) throw new ApiError(404, 'Studio not found');
+
+    const accessToken = issueActingStudioToken({
+        adminUser: { _id: imp.admin_id },
+        studio,
+        editMode: true,
+        reason,
+    });
+
+    const {
+        logPlatformAudit,
+        PLATFORM_AUDIT_ACTION,
+    } = require('../services/platformAuditService');
+    void logPlatformAudit({
+        actor: { _id: imp.admin_id, role: imp.admin_role, email: imp.admin_email },
+        action: PLATFORM_AUDIT_ACTION.STUDIO_WORKSPACE_OPEN,
+        targetType: 'studio',
+        targetId: String(studio._id),
+        studioId: studio._id,
+        reason,
+        meta: {
+            mode: 'enable_edit',
+            edit_mode: true,
+            studio_code: studio.studio_code,
+            firma: studio.firma,
+        },
+        ip: req.ip,
+    });
+
+    res.status(200).json({
+        success: true,
+        message: 'Edit mode enabled',
+        data: {
+            accessToken,
+            expiresIn: WORKSPACE_TOKEN_TTL,
+            edit_mode: true,
+            reason,
+            studio: formatWorkspaceStudio(studio),
+        },
+    });
+});
+
+/**
+ * POST /studio/admin/studios/:studioId/workspace/exit
+ * Audit exit; client restores the admin access token.
+ */
+const exitStudioWorkspace = asyncHandler(async (req, res) => {
+    const imp = req.user._impersonation;
+    if (!imp?.active) {
+        return res.status(200).json({
+            success: true,
+            message: 'No active workspace',
+            data: {},
+        });
+    }
+
+    const {
+        logPlatformAudit,
+        PLATFORM_AUDIT_ACTION,
+    } = require('../services/platformAuditService');
+    void logPlatformAudit({
+        actor: { _id: imp.admin_id, role: imp.admin_role, email: imp.admin_email },
+        action: PLATFORM_AUDIT_ACTION.STUDIO_WORKSPACE_OPEN,
+        targetType: 'studio',
+        targetId: String(imp.studio_id),
+        studioId: imp.studio_id,
+        reason: imp.reason || '',
+        meta: {
+            mode: 'exit_studio_dashboard',
+            edit_mode: imp.edit_mode,
+            studio_code: imp.studio_code,
+            firma: imp.studio_firma,
+        },
+        ip: req.ip,
+    });
+
+    res.status(200).json({
+        success: true,
+        message: 'Exited studio workspace',
+        data: {},
     });
 });
 
@@ -563,4 +762,7 @@ module.exports = {
     listPublicStudios,
     patchStudioStatus,
     openStudioWorkspace,
+    enterStudioWorkspace,
+    enableStudioWorkspaceEdit,
+    exitStudioWorkspace,
 };

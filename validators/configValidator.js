@@ -9,15 +9,39 @@ const gruppenGroessenSchema = z
     })
     .optional();
 
-/** Blocking periods in days — generous upper bound, real limits live in configService. */
+/** Blocking periods in days — ranges match Medical & Safety catalog (prototype). */
+const CONDITION_LOCK = z.enum(['MEDICAL_CLEARANCE_REQUIRED', 'MEDICAL_REVIEW_REQUIRED']);
+
 const sperrfristenSchema = z
     .object({
-        same_case_tage: z.number().int().min(0).max(3650).optional(),
-        cross_case_tage: z.number().int().min(0).max(3650).optional(),
-        uv_mittel_tage: z.number().int().min(0).max(3650).optional(),
-        uv_intensiv_tage: z.number().int().min(0).max(3650).optional(),
-        medikament_kurz_tage: z.number().int().min(0).max(3650).optional(),
-        medikament_retinoide_tage: z.number().int().min(0).max(3650).optional(),
+        same_case_tage: z.number().int().min(14).max(180).optional(),
+        cross_case_tage: z.number().int().min(7).max(180).optional(),
+        uv_mittel_tage: z.number().int().min(0).max(180).optional(),
+        uv_intensiv_tage: z.number().int().min(0).max(180).optional(),
+        medikament_kurz_tage: z.number().int().min(0).max(180).optional(),
+        medikament_retinoide_tage: z.number().int().min(0).max(365).optional(),
+        condition_locks: z
+            .object({
+                antidepressants: CONDITION_LOCK.optional(),
+                skin_acne_medication: CONDITION_LOCK.optional(),
+                other_unknown_medication: CONDITION_LOCK.optional(),
+                illness_not_recovered: CONDITION_LOCK.optional(),
+            })
+            .strict()
+            .optional(),
+        studio_exceptions: z
+            .record(
+                z.string(),
+                z
+                    .object({
+                        date_locks_disabled: z.boolean(),
+                        reason: z.string().max(2000).optional().default(''),
+                        set_by: z.string().max(200).optional().default(''),
+                        set_at: z.string().optional().nullable(),
+                    })
+                    .strict()
+            )
+            .optional(),
     })
     .strict()
     .optional();
@@ -40,16 +64,125 @@ const patchPlatformConfigSchema = z
         maxWert: z.number().min(0).optional(),
         deckelProzent: z.number().min(0).max(100).optional(),
         verfallMonate: z.number().min(0).optional(),
+        elaycoin_regeln: z
+            .object({
+                geldwert_coins: z.number().min(1).max(100000).optional(),
+                geldwert_chf: z.number().min(0).max(100000).optional(),
+                tageslimit_pro_kunde: z.number().int().min(0).max(100000).optional(),
+                grenze_pro_aktion_min: z.number().int().min(0).max(100000).optional(),
+                grenze_pro_aktion_max: z.number().int().min(0).max(100000).optional(),
+                verfall_reset_trigger: z.array(z.string().trim().min(1).max(80)).max(40).optional(),
+                situations: z
+                    .array(
+                        z.object({
+                            key: z.string().trim().min(1).max(80),
+                            label: z.string().trim().min(1).max(200),
+                            kat: z.string().trim().min(1).max(80),
+                            coins: z.number().int().min(0).max(100000),
+                            aktiv: z.boolean().optional(),
+                            einmalig: z.boolean().optional(),
+                            istMalus: z.boolean().optional(),
+                            limitTage: z.number().int().min(0).optional(),
+                            limitProSitzung: z.number().int().min(0).optional(),
+                        })
+                    )
+                    .optional(),
+            })
+            .optional(),
+        automatisierungen: z
+            .object({
+                version: z.number().int().min(1).optional(),
+                kategorien: z
+                    .array(
+                        z.object({
+                            id: z.string().trim().min(1).max(80),
+                            label_de: z.string().trim().min(1).max(200),
+                            label_en: z.string().trim().min(1).max(200),
+                            regeln: z
+                                .array(
+                                    z.object({
+                                        id: z.string().trim().min(1).max(80),
+                                        kategorie: z.string().trim().min(1).max(80),
+                                        label_de: z.string().trim().min(1).max(200),
+                                        label_en: z.string().trim().min(1).max(200),
+                                        beschreibung_de: z.string().max(2000).optional().default(''),
+                                        beschreibung_en: z.string().max(2000).optional().default(''),
+                                        aktiv: z.boolean().optional(),
+                                        hat_tage_feld: z.boolean().optional(),
+                                        tage_wert: z.number().int().min(0).max(365).nullable().optional(),
+                                        tage_min: z.number().int().min(0).max(365).nullable().optional(),
+                                        tage_max: z.number().int().min(0).max(365).nullable().optional(),
+                                        editierbar_studio: z.boolean().optional(),
+                                    })
+                                )
+                                .default([]),
+                        })
+                    )
+                    .max(40),
+            })
+            .optional(),
         grundgebuehr: z.number().min(0).optional(),
         transaktionsProzent: z.number().min(0).max(100).optional(),
         zahlungszielTage: z.number().min(0).optional(),
         shop_provision_prozent: z.number().min(0).max(100).optional(),
+        shop_categories: z.array(z.string().trim().min(1).max(80)).min(1).max(40).optional(),
+        shop_shipping: z
+            .object({
+                Schweiz: z.number().min(0).optional(),
+                Deutschland: z.number().min(0).optional(),
+                Österreich: z.number().min(0).optional(),
+                Frankreich: z.number().min(0).optional(),
+                Italien: z.number().min(0).optional(),
+                'Andere EU': z.number().min(0).optional(),
+                gratis_ab_ch: z.number().min(0).optional(),
+                gratis_ab_eu: z.number().min(0).optional(),
+            })
+            .strict()
+            .optional(),
         gruppen_groessen: gruppenGroessenSchema,
         sperrfristen: sperrfristenSchema,
         termin_einstellungen: terminEinstellungenSchema,
         subscription_plans: z.record(z.string(), z.array(z.string())).optional(),
         subscription_seat_limits: z
             .record(z.string(), z.number().int().min(0).nullable())
+            .optional(),
+        subscription_packages: z
+            .array(
+                z.object({
+                    id: z.string().trim().min(1).max(80),
+                    name: z.string().trim().min(1).max(120).optional(),
+                    name_de: z.string().trim().min(1).max(120).optional(),
+                    name_en: z.string().trim().min(1).max(120).optional(),
+                    beschreibung: z.string().max(500).optional().default(''),
+                    preis_monat: z.number().min(0).max(100000),
+                    plan: z.enum(['basic', 'professional', 'enterprise']).optional(),
+                    features: z.array(z.string().trim().min(1).max(80)).max(80).optional(),
+                    limits: z
+                        .object({
+                            mitarbeiter_max: z.number().min(0).nullable().optional(),
+                            standorte_max: z.number().min(0).nullable().optional(),
+                            standort_aufpreis_chf: z.number().min(0).nullable().optional(),
+                            shop_provision_prozent: z.number().min(0).max(100).nullable().optional(),
+                            ki_kontingent_monat: z.number().min(0).nullable().optional(),
+                            datenaufbewahrung_monate: z.number().min(0).nullable().optional(),
+                        })
+                        .optional(),
+                    max_standorte: z.number().min(0).nullable().optional(),
+                    max_mitarbeiter: z.number().min(0).nullable().optional(),
+                    shop_provision_studio_prozent: z.number().min(0).max(100).optional(),
+                    ki_kontingent_einheiten_monat: z.number().min(0).nullable().optional(),
+                })
+            )
+            .min(1)
+            .max(40)
+            .optional(),
+        ki_gewichtungen: z
+            .object({
+                nachsorge: z.number().min(0).max(1000).optional(),
+                verblassung: z.number().min(0).max(1000).optional(),
+                kundenchat: z.number().min(0).max(1000).optional(),
+                studio_ki_chat: z.number().min(0).max(1000).optional(),
+            })
             .optional(),
         feature_global: z.record(z.string(), z.boolean()).optional(),
         session_prediction: z
@@ -137,11 +270,22 @@ const elaycoinStudioCfgSchema = z.record(
         .strict()
 );
 
+const automatisierungenOverridesSchema = z.record(
+    z.string(),
+    z
+        .object({
+            aktiv: z.boolean().optional(),
+            wert: z.number().int().min(0).max(365).optional(),
+        })
+        .strict()
+);
+
 const patchStudioConfigSchema = z
     .object({
         coin_wert: z.number().min(0).nullable().optional(),
         studio_pricing: z.record(z.string(), z.number()).optional(),
         elaycoin_studio_cfg: elaycoinStudioCfgSchema.optional(),
+        automatisierungen_overrides: automatisierungenOverridesSchema.optional(),
         subscription_plan: z.enum(['basic', 'professional', 'enterprise']).optional(),
         feature_overrides: z.record(z.string(), z.boolean()).optional(),
         gruppen_groessen: gruppenGroessenSchema,

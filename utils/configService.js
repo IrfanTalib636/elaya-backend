@@ -10,9 +10,57 @@ const {
     SUPER_ADMIN_ONLY_CONFIG_BLOCKS,
     blockKeys,
 } = require('../config/platformDefaults');
+const {
+    normalizePackagesList,
+    normalizeKiGewichtungen,
+    derivePlanConfigFromPackages,
+} = require('../config/subscriptionPackages');
 const { DEFAULT_PRICING_CONFIG } = require('../config/pricingDefaults');
 const { mergeSessionPrediction } = require('../config/sessionPredictionDefaults');
 const { ELAYCOIN_SITUATIONS } = require('../config/elaycoinConfig');
+const { cloneAutomations } = require('../config/automationsDefaults');
+
+/**
+ * Merge platform Automatisierungen catalog with studio overrides.
+ * Studio may only change aktiv + tage (wert) when editierbar_studio=true.
+ */
+const mergeEffectiveAutomations = (platform = {}, studioOverrides = {}) => {
+    const base =
+        Array.isArray(platform.automatisierungen?.kategorien) &&
+        platform.automatisierungen.kategorien.length
+            ? cloneAutomations(platform.automatisierungen)
+            : cloneAutomations();
+    const overrides =
+        studioOverrides && typeof studioOverrides === 'object' ? studioOverrides : {};
+
+    base.kategorien = (base.kategorien || []).map((kat) => ({
+        ...kat,
+        regeln: (kat.regeln || []).map((rule) => {
+            const ov = overrides[rule.id] || {};
+            const editable = rule.editierbar_studio !== false;
+            let aktiv = rule.aktiv !== false;
+            let tage_wert = rule.tage_wert;
+            if (editable) {
+                if (ov.aktiv !== undefined) aktiv = !!ov.aktiv;
+                if (rule.hat_tage_feld && ov.wert != null) {
+                    const mn = rule.tage_min != null ? rule.tage_min : 1;
+                    const mx = rule.tage_max != null ? rule.tage_max : 365;
+                    const n = parseInt(ov.wert, 10);
+                    if (!Number.isNaN(n)) {
+                        tage_wert = Math.max(mn, Math.min(mx, n));
+                    }
+                }
+            }
+            return {
+                ...rule,
+                aktiv,
+                tage_wert,
+                effective_editierbar: editable,
+            };
+        }),
+    }));
+    return base;
+};
 
 const STUDIO_PRICING_KEYS = Object.keys(DEFAULT_PRICING_CONFIG).filter(
     (k) => !PLATFORM_GROUP_KEYS.includes(k)
@@ -63,11 +111,38 @@ const mergePlatformConfig = (doc) => {
         maxWert: merged.maxWert,
         deckelProzent: merged.deckelProzent,
         verfallMonate: merged.verfallMonate,
+        elaycoin_regeln: {
+            ...PLATFORM_CONFIG_DEFAULTS.elaycoin_regeln,
+            ...(merged.elaycoin_regeln || {}),
+            verfall_reset_trigger: Array.isArray(merged.elaycoin_regeln?.verfall_reset_trigger)
+                ? merged.elaycoin_regeln.verfall_reset_trigger
+                : [...PLATFORM_CONFIG_DEFAULTS.elaycoin_regeln.verfall_reset_trigger],
+            situations: Array.isArray(merged.elaycoin_regeln?.situations) &&
+            merged.elaycoin_regeln.situations.length
+                ? merged.elaycoin_regeln.situations
+                : PLATFORM_CONFIG_DEFAULTS.elaycoin_regeln.situations.map((s) => ({ ...s })),
+        },
+        automatisierungen:
+            Array.isArray(merged.automatisierungen?.kategorien) &&
+            merged.automatisierungen.kategorien.length
+                ? {
+                      version: merged.automatisierungen.version || 1,
+                      kategorien: merged.automatisierungen.kategorien,
+                  }
+                : JSON.parse(JSON.stringify(PLATFORM_CONFIG_DEFAULTS.automatisierungen)),
         grundgebuehr: merged.grundgebuehr,
         transaktionsProzent: merged.transaktionsProzent,
         zahlungszielTage: merged.zahlungszielTage,
         shop_provision_prozent:
             merged.shop_provision_prozent ?? PLATFORM_CONFIG_DEFAULTS.shop_provision_prozent,
+        shop_categories:
+            Array.isArray(merged.shop_categories) && merged.shop_categories.length
+                ? merged.shop_categories
+                : [...PLATFORM_CONFIG_DEFAULTS.shop_categories],
+        shop_shipping: {
+            ...PLATFORM_CONFIG_DEFAULTS.shop_shipping,
+            ...(merged.shop_shipping || {}),
+        },
         gruppen_groessen: merged.gruppen_groessen,
         subscription_plans: {
             ...PLATFORM_CONFIG_DEFAULTS.subscription_plans,
@@ -77,6 +152,14 @@ const mergePlatformConfig = (doc) => {
             ...PLATFORM_CONFIG_DEFAULTS.subscription_seat_limits,
             ...(merged.subscription_seat_limits || {}),
         },
+        subscription_packages: normalizePackagesList(
+            Array.isArray(merged.subscription_packages) && merged.subscription_packages.length
+                ? merged.subscription_packages
+                : PLATFORM_CONFIG_DEFAULTS.subscription_packages
+        ),
+        ki_gewichtungen: normalizeKiGewichtungen(
+            merged.ki_gewichtungen || PLATFORM_CONFIG_DEFAULTS.ki_gewichtungen
+        ),
         feature_global: merged.feature_global || {},
         session_prediction: mergeSessionPrediction(merged.session_prediction),
         default_pricing: pickStudioPricing(merged.default_pricing || {}),
@@ -199,6 +282,21 @@ const assertBlockInvariants = (block, next) => {
     }
 
     if (block === 'sperrfristen') {
+        const ranges = {
+            same_case_tage: [14, 180],
+            cross_case_tage: [7, 180],
+            uv_mittel_tage: [0, 180],
+            uv_intensiv_tage: [0, 180],
+            medikament_kurz_tage: [0, 180],
+            medikament_retinoide_tage: [0, 365],
+        };
+        for (const [key, [min, max]] of Object.entries(ranges)) {
+            if (next[key] == null) continue;
+            const n = Number(next[key]);
+            if (!Number.isFinite(n) || n < min || n > max) {
+                throw new ApiError(400, `${key} must be between ${min} and ${max}`);
+            }
+        }
         if (
             next.uv_mittel_tage != null &&
             next.uv_intensiv_tage != null &&
@@ -331,6 +429,59 @@ const updatePlatformConfig = async (patch) => {
             ...pickStudioPricing(patch.default_pricing),
         };
     }
+    if (patch.elaycoin_regeln && typeof patch.elaycoin_regeln === 'object') {
+        const prev = current.elaycoin_regeln || PLATFORM_CONFIG_DEFAULTS.elaycoin_regeln;
+        const next = {
+            ...prev,
+            ...patch.elaycoin_regeln,
+            verfall_reset_trigger: Array.isArray(patch.elaycoin_regeln.verfall_reset_trigger)
+                ? patch.elaycoin_regeln.verfall_reset_trigger
+                : prev.verfall_reset_trigger,
+            situations: Array.isArray(patch.elaycoin_regeln.situations)
+                ? patch.elaycoin_regeln.situations
+                : prev.situations,
+        };
+        if (
+            next.grenze_pro_aktion_min != null &&
+            next.grenze_pro_aktion_max != null &&
+            next.grenze_pro_aktion_min > next.grenze_pro_aktion_max
+        ) {
+            throw new ApiError(400, 'grenze_pro_aktion_min must not exceed grenze_pro_aktion_max');
+        }
+        setFields.elaycoin_regeln = next;
+        const coins = Number(next.geldwert_coins);
+        const chf = Number(next.geldwert_chf);
+        if (coins > 0 && Number.isFinite(chf)) {
+            // Keep legacy coinWert in sync: CHF per coin = chf / coins (100→5 ⇒ 0.05).
+            setFields.coinWert = Math.round((chf / coins) * 10000) / 10000;
+        }
+    }
+    if (patch.automatisierungen && typeof patch.automatisierungen === 'object') {
+        const next = patch.automatisierungen;
+        if (!Array.isArray(next.kategorien)) {
+            throw new ApiError(400, 'automatisierungen.kategorien must be an array');
+        }
+        setFields.automatisierungen = {
+            version: Number(next.version) || 1,
+            kategorien: next.kategorien,
+        };
+    }
+    if (Array.isArray(patch.subscription_packages)) {
+        const nextPkgs = normalizePackagesList(patch.subscription_packages);
+        setFields.subscription_packages = nextPkgs;
+        const derived = derivePlanConfigFromPackages(nextPkgs);
+        setFields.subscription_plans = derived.subscription_plans;
+        setFields.subscription_seat_limits = {
+            ...(current.subscription_seat_limits || {}),
+            ...derived.subscription_seat_limits,
+        };
+    }
+    if (patch.ki_gewichtungen && typeof patch.ki_gewichtungen === 'object') {
+        setFields.ki_gewichtungen = normalizeKiGewichtungen({
+            ...(current.ki_gewichtungen || PLATFORM_CONFIG_DEFAULTS.ki_gewichtungen),
+            ...patch.ki_gewichtungen,
+        });
+    }
 
     const doc = await PlatformConfig.findOneAndUpdate(
         { key: 'platform' },
@@ -363,8 +514,26 @@ const getEffectiveBookingConfig = async (studioId) => {
     const studio = studioId
         ? await Studio.findById(studioId).select('sperrfristen termin_einstellungen').lean()
         : null;
+    let sperrfristen = mergeNumericBlock('sperrfristen', platform, studio);
+    const exc =
+        studioId && platform.sperrfristen?.studio_exceptions
+            ? platform.sperrfristen.studio_exceptions[String(studioId)]
+            : null;
+    // Prototype §22: Date Locks can be disabled per studio; Condition Locks stay mandatory.
+    if (exc?.date_locks_disabled) {
+        sperrfristen = {
+            ...sperrfristen,
+            same_case_tage: 0,
+            cross_case_tage: 0,
+            uv_mittel_tage: 0,
+            uv_intensiv_tage: 0,
+            medikament_kurz_tage: 0,
+            medikament_retinoide_tage: 0,
+            date_locks_disabled: true,
+        };
+    }
     return {
-        sperrfristen: mergeNumericBlock('sperrfristen', platform, studio),
+        sperrfristen,
         termin_einstellungen: mergeNumericBlock('termin_einstellungen', platform, studio),
     };
 };
@@ -479,6 +648,17 @@ const formatStudioConfig = (studio, platform) => {
         /** Platform price rules (code defaults ← platform default_pricing). */
         pricing_defaults: mergeDefaultPricing(platform),
         elaycoin_studio_cfg: doc.elaycoin_studio_cfg || {},
+        /** Platform Elaycoin-Regeln — studio read-only reference. */
+        elaycoin_regeln: platform.elaycoin_regeln,
+        /**
+         * Effective Automations (platform catalog + studio overrides).
+         * Studio may PATCH automatisierungen_overrides for editierbar_studio rules only.
+         */
+        automatisierungen: mergeEffectiveAutomations(
+            platform,
+            doc.automatisierungen_overrides || {}
+        ),
+        automatisierungen_overrides: doc.automatisierungen_overrides || {},
         subscription_plan: doc.subscription_plan || 'professional',
         feature_overrides: doc.feature_overrides || {},
         platform_limits: {
@@ -524,6 +704,60 @@ const updateStudioConfig = async (studioId, patch) => {
         validateElaycoinStudioCfg(patch.elaycoin_studio_cfg);
         studio.elaycoin_studio_cfg = patch.elaycoin_studio_cfg;
         studio.markModified('elaycoin_studio_cfg');
+    }
+
+    if (patch.automatisierungen_overrides !== undefined) {
+        if (
+            typeof patch.automatisierungen_overrides !== 'object' ||
+            Array.isArray(patch.automatisierungen_overrides) ||
+            patch.automatisierungen_overrides == null
+        ) {
+            throw new ApiError(400, 'automatisierungen_overrides must be an object');
+        }
+        const catalog = mergeEffectiveAutomations(platform, {});
+        const ruleMap = {};
+        for (const kat of catalog.kategorien || []) {
+            for (const r of kat.regeln || []) {
+                ruleMap[r.id] = r;
+            }
+        }
+        const next = { ...(studio.automatisierungen_overrides || {}) };
+        for (const [ruleId, raw] of Object.entries(patch.automatisierungen_overrides)) {
+            const rule = ruleMap[ruleId];
+            if (!rule) {
+                throw new ApiError(400, `Unknown automation rule: ${ruleId}`);
+            }
+            if (rule.editierbar_studio === false) {
+                throw new ApiError(
+                    403,
+                    `Automation rule ${ruleId} is centrally managed and cannot be changed by the studio`
+                );
+            }
+            if (!raw || typeof raw !== 'object') {
+                throw new ApiError(400, `Invalid override for ${ruleId}`);
+            }
+            const prev = next[ruleId] || {};
+            const entry = { ...prev };
+            if (raw.aktiv !== undefined) entry.aktiv = !!raw.aktiv;
+            if (raw.wert !== undefined) {
+                if (!rule.hat_tage_feld) {
+                    throw new ApiError(400, `Rule ${ruleId} has no days field`);
+                }
+                const mn = rule.tage_min != null ? rule.tage_min : 1;
+                const mx = rule.tage_max != null ? rule.tage_max : 365;
+                const n = parseInt(raw.wert, 10);
+                if (Number.isNaN(n) || n < mn || n > mx) {
+                    throw new ApiError(
+                        400,
+                        `Days for ${ruleId} must be between ${mn} and ${mx}`
+                    );
+                }
+                entry.wert = n;
+            }
+            next[ruleId] = entry;
+        }
+        studio.automatisierungen_overrides = next;
+        studio.markModified('automatisierungen_overrides');
     }
 
     if (patch.subscription_plan !== undefined) {
@@ -826,6 +1060,7 @@ module.exports = {
     getEffectivePricingOverrides,
     resolveEffectiveCoinWert,
     formatStudioConfig,
+    mergeEffectiveAutomations,
     updateStudioConfig,
     pickStudioPricing,
     mergeDefaultPricing,

@@ -1,5 +1,4 @@
 const mongoose = require('mongoose');
-const { SHOP_CATEGORIES } = require('../config/shopDefaults');
 
 const shopProductSchema = new mongoose.Schema(
     {
@@ -34,9 +33,16 @@ const shopProductSchema = new mongoose.Schema(
         },
         kategorie: {
             type: String,
-            enum: SHOP_CATEGORIES,
+            trim: true,
             default: 'Sonstiges',
             index: true,
+        },
+        /** Optional discount % applied at display/checkout (0–100). */
+        rabatt_prozent: {
+            type: Number,
+            default: 0,
+            min: 0,
+            max: 100,
         },
         ean: {
             type: String,
