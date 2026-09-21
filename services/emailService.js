@@ -15,17 +15,35 @@ const getEmailConfig = () => ({
     },
 });
 
-const buildPasswordResetEmail = ({ resetUrl }) => {
-    const subject = 'Elaya – Passwort zurücksetzen';
-    const text = [
-        'Sie haben eine Anfrage zum Zurücksetzen Ihres Elaya-Passworts gestellt.',
-        '',
-        `Link (1 Stunde gültig): ${resetUrl}`,
-        '',
-        'Falls Sie diese Anfrage nicht gestellt haben, ignorieren Sie diese E-Mail.',
-    ].join('\n');
+const buildPasswordResetEmail = ({ resetUrl, kind = 'reset' }) => {
+    const isInvite = kind === 'invite';
+    const subject = isInvite
+        ? 'Elaya – Admin-Einladung'
+        : 'Elaya – Passwort zurücksetzen';
+    const text = isInvite
+        ? [
+              'Sie wurden als Elaya Admin eingeladen.',
+              '',
+              `Passwort festlegen (1 Stunde gültig): ${resetUrl}`,
+              '',
+              'Falls Sie diese Einladung nicht erwartet haben, ignorieren Sie diese E-Mail.',
+          ].join('\n')
+        : [
+              'Sie haben eine Anfrage zum Zurücksetzen Ihres Elaya-Passworts gestellt.',
+              '',
+              `Link (1 Stunde gültig): ${resetUrl}`,
+              '',
+              'Falls Sie diese Anfrage nicht gestellt haben, ignorieren Sie diese E-Mail.',
+          ].join('\n');
 
-    const html = `
+    const html = isInvite
+        ? `
+        <p>Sie wurden als Elaya Admin eingeladen.</p>
+        <p><a href="${resetUrl}">Passwort festlegen</a></p>
+        <p>Der Link ist 1 Stunde gültig.</p>
+        <p>Falls Sie diese Einladung nicht erwartet haben, ignorieren Sie diese E-Mail.</p>
+    `.trim()
+        : `
         <p>Sie haben eine Anfrage zum Zurücksetzen Ihres Elaya-Passworts gestellt.</p>
         <p><a href="${resetUrl}">Passwort zurücksetzen</a></p>
         <p>Der Link ist 1 Stunde gültig.</p>
@@ -50,9 +68,9 @@ const getSmtpTransporter = (config) => {
     return smtpTransporter;
 };
 
-const sendPasswordResetEmail = async ({ to, resetUrl }) => {
+const sendPasswordResetEmail = async ({ to, resetUrl, kind = 'reset' }) => {
     const config = getEmailConfig();
-    const { subject, text, html } = buildPasswordResetEmail({ resetUrl });
+    const { subject, text, html } = buildPasswordResetEmail({ resetUrl, kind });
 
     if (config.provider === 'console') {
         console.log('[emailService] Password reset email (console provider)');

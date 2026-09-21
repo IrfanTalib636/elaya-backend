@@ -74,7 +74,75 @@ const inviteAdminUser = asyncHandler(async (req, res) => {
 
     const existing = await User.findOne({ email });
     if (existing) {
-        throw new ApiError(409, 'A user with this email already exists');
+        // Same email already invited as admin but never logged in → resend invite
+        // instead of a dead-end 409 (common when SMTP failed on first attempt).
+        if (
+            ADMIN_ROLES.includes(existing.role) &&
+            !existing.last_login &&
+            existing.status !== USER_STATUS.GESPERRT
+        ) {
+            if (existing.role === USER_ROLES.DEVELOPER && !isSuperAdminLike(req.user)) {
+                throw new ApiError(403, 'Cannot modify developer accounts');
+            }
+            if (
+                existing.role === USER_ROLES.SUPER_ADMIN &&
+                !isSuperAdminLike(req.user)
+            ) {
+                throw new ApiError(403, 'Only super admin can re-invite a super admin');
+            }
+
+            if (name) existing.name = name;
+            if (
+                role === USER_ROLES.SUPER_ADMIN ||
+                (role === USER_ROLES.ADMIN && existing.role !== USER_ROLES.DEVELOPER)
+            ) {
+                if (role === USER_ROLES.SUPER_ADMIN && !isSuperAdminLike(req.user)) {
+                    throw new ApiError(403, 'Only super admin can promote to super_admin');
+                }
+                existing.role = role;
+                existing.permissions =
+                    role === USER_ROLES.ADMIN ? permissions : [];
+            }
+            existing.invited_by = req.user._id;
+            existing.invited_at = new Date();
+            existing.status = USER_STATUS.AKTIV;
+            await existing.save();
+
+            const data = await sendAdminInviteEmail(existing);
+            const { logPlatformAudit, PLATFORM_AUDIT_ACTION } = require('../services/platformAuditService');
+            void logPlatformAudit({
+                actor: req.user,
+                action: PLATFORM_AUDIT_ACTION.ADMIN_INVITE,
+                targetType: 'user',
+                targetId: String(existing._id),
+                after: formatAdminUser(existing),
+                meta: { email, role: existing.role, resent: true },
+                ip: req.ip,
+            });
+
+            return res.status(200).json({
+                success: true,
+                message: data.invite_sent
+                    ? 'Invite email resent'
+                    : 'Admin already invited — email could not be sent (check EMAIL_PROVIDER / SMTP)',
+                data: {
+                    user: formatAdminUser(existing),
+                    invite_sent: data.invite_sent,
+                    resent: true,
+                },
+            });
+        }
+
+        if (ADMIN_ROLES.includes(existing.role)) {
+            throw new ApiError(
+                409,
+                'This email is already an admin account. Use “Resend invite” if they never logged in, or ask them to use forgot password.'
+            );
+        }
+        throw new ApiError(
+            409,
+            'A user with this email already exists (non-admin). Use a different email.'
+        );
     }
 
     const tempPassword = crypto.randomBytes(18).toString('base64url');
@@ -89,15 +157,7 @@ const inviteAdminUser = asyncHandler(async (req, res) => {
         invited_at: new Date(),
     });
 
-    const rawToken = await createPasswordResetToken(user._id);
-    const inviteUrl = buildResetPasswordUrl('admin', rawToken);
-    let inviteSent = false;
-    try {
-        await sendPasswordResetEmail({ to: email, resetUrl: inviteUrl });
-        inviteSent = true;
-    } catch (err) {
-        console.error('Admin invite email failed:', err.message);
-    }
+    const data = await sendAdminInviteEmail(user);
 
     const { logPlatformAudit, PLATFORM_AUDIT_ACTION } = require('../services/platformAuditService');
     void logPlatformAudit({
@@ -112,13 +172,71 @@ const inviteAdminUser = asyncHandler(async (req, res) => {
 
     res.status(201).json({
         success: true,
-        message: 'Admin invited',
+        message: data.invite_sent
+            ? 'Admin invited'
+            : 'Admin created but invite email could not be sent (check EMAIL_PROVIDER / SMTP)',
         data: {
             user: formatAdminUser(user),
-            invite_sent: inviteSent,
+            invite_sent: data.invite_sent,
+            resent: false,
             // Dev convenience only — never in production responses.
             temporary_password:
                 process.env.NODE_ENV === 'production' ? undefined : tempPassword,
+        },
+    });
+});
+
+const sendAdminInviteEmail = async (user) => {
+    const rawToken = await createPasswordResetToken(user._id);
+    const inviteUrl = buildResetPasswordUrl('admin', rawToken);
+    let invite_sent = false;
+    try {
+        await sendPasswordResetEmail({ to: user.email, resetUrl: inviteUrl, kind: 'invite' });
+        invite_sent = true;
+    } catch (err) {
+        console.error('Admin invite email failed:', err.message);
+    }
+    return { invite_sent, inviteUrl };
+};
+
+const resendAdminInvite = asyncHandler(async (req, res) => {
+    assertCanManageAdmins(req.user);
+    const user = await User.findById(req.params.id);
+    if (!user || !ADMIN_ROLES.includes(user.role)) {
+        throw new ApiError(404, 'Admin user not found');
+    }
+    if (user.role === USER_ROLES.DEVELOPER && !isSuperAdminLike(req.user)) {
+        throw new ApiError(403, 'Cannot modify developer accounts');
+    }
+    if (user.status === USER_STATUS.GESPERRT) {
+        throw new ApiError(400, 'Reactivate the admin before resending the invite');
+    }
+
+    user.invited_by = req.user._id;
+    user.invited_at = new Date();
+    await user.save();
+
+    const data = await sendAdminInviteEmail(user);
+    const { logPlatformAudit, PLATFORM_AUDIT_ACTION } = require('../services/platformAuditService');
+    void logPlatformAudit({
+        actor: req.user,
+        action: PLATFORM_AUDIT_ACTION.ADMIN_INVITE,
+        targetType: 'user',
+        targetId: String(user._id),
+        after: formatAdminUser(user),
+        meta: { email: user.email, role: user.role, resent: true },
+        ip: req.ip,
+    });
+
+    res.status(200).json({
+        success: true,
+        message: data.invite_sent
+            ? 'Invite email resent'
+            : 'Invite email could not be sent (check EMAIL_PROVIDER / SMTP on the server)',
+        data: {
+            user: formatAdminUser(user),
+            invite_sent: data.invite_sent,
+            resent: true,
         },
     });
 });
@@ -198,6 +316,7 @@ const getPermissionCatalog = asyncHandler(async (_req, res) => {
 module.exports = {
     listAdminUsers,
     inviteAdminUser,
+    resendAdminInvite,
     patchAdminUser,
     getPermissionCatalog,
 };

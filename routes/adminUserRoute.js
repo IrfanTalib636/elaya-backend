@@ -48,6 +48,12 @@ router.post(
     validate(inviteSchema),
     adminUserController.inviteAdminUser
 );
+router.post(
+    '/:id/resend-invite',
+    protect,
+    authorize(...adminRoles),
+    adminUserController.resendAdminInvite
+);
 router.patch(
     '/:id',
     protect,
