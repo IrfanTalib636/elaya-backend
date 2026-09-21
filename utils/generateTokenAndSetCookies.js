@@ -22,6 +22,12 @@ const generateAccessToken = (payload) =>
         expiresIn: process.env.JWT_ACCESS_EXPIRES_IN || '15m',
     });
 
+/** Explicit expiry override (e.g. admin studio workspace session). */
+const generateAccessTokenWithExpiry = (payload, expiresIn) =>
+    jwt.sign(payload, getAccessSecret(), {
+        expiresIn: expiresIn || process.env.JWT_ACCESS_EXPIRES_IN || '15m',
+    });
+
 const signRefreshToken = (userId, tokenId) =>
     jwt.sign({ userId, tokenId }, getRefreshSecret(), {
         expiresIn: process.env.JWT_REFRESH_EXPIRES_IN || '7d',
@@ -137,4 +143,7 @@ module.exports = {
     issueAuthTokens,
     revokeRefreshToken,
     findValidRefreshToken,
+    generateAccessToken,
+    generateAccessTokenWithExpiry,
+    buildAuthPayload,
 };

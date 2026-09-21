@@ -7,7 +7,7 @@ const objectId = z.string().regex(/^[a-f\d]{24}$/i);
 const adminListProductsQuerySchema = z.object({
     page: z.coerce.number().int().min(1).optional(),
     limit: z.coerce.number().int().min(1).max(100).optional(),
-    kategorie: z.enum(SHOP_CATEGORIES).optional(),
+    kategorie: z.string().trim().min(1).max(80).optional(),
     aktiv: z.enum(['true', 'false']).optional(),
     q: z.string().optional(),
 });
@@ -18,13 +18,14 @@ const adminProductCreateSchema = z.object({
     name: z.string().trim().min(1),
     beschreibung: z.string().trim().optional().default(''),
     preis_chf: z.coerce.number().min(0),
-    kategorie: z.enum(SHOP_CATEGORIES).default('Sonstiges'),
+    kategorie: z.string().trim().min(1).max(80).default('Sonstiges'),
     ean: z.string().trim().optional().default(''),
     ursprung: z.string().trim().optional().default(''),
     bild_url: z.string().trim().optional().default(''),
     lagerbestand: z.coerce.number().int().min(0).nullable().optional(),
     aktiv: z.boolean().optional().default(true),
     sort_order: z.coerce.number().int().optional().default(0),
+    rabatt_prozent: z.coerce.number().min(0).max(100).optional().default(0),
 });
 
 const adminProductUpdateSchema = adminProductCreateSchema.partial();

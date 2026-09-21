@@ -12,6 +12,19 @@ const PLATFORM_CONFIG_DEFAULTS = {
     zahlungszielTage: 30,
     /** Studio commission % on ElayShop warenwert (remaining goes to Elaya). */
     shop_provision_prozent: 20,
+    /** Editable ElayShop category list (prototype parity). */
+    shop_categories: ['Nachsorge', 'Sonnenschutz', 'Reinigung', 'Zubehör', 'Sonstiges'],
+    /** Editable shipping rates CHF by country + free thresholds. */
+    shop_shipping: {
+        Schweiz: 6.9,
+        Deutschland: 12.9,
+        Österreich: 12.9,
+        Frankreich: 14.9,
+        Italien: 14.9,
+        'Andere EU': 16.9,
+        gratis_ab_ch: 75,
+        gratis_ab_eu: 150,
+    },
     gruppen_groessen: {
         klein_max_cm2: 50,
         mittelgross_max_cm2: 150,

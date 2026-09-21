@@ -44,6 +44,20 @@ const patchPlatformConfigSchema = z
         transaktionsProzent: z.number().min(0).max(100).optional(),
         zahlungszielTage: z.number().min(0).optional(),
         shop_provision_prozent: z.number().min(0).max(100).optional(),
+        shop_categories: z.array(z.string().trim().min(1).max(80)).min(1).max(40).optional(),
+        shop_shipping: z
+            .object({
+                Schweiz: z.number().min(0).optional(),
+                Deutschland: z.number().min(0).optional(),
+                Österreich: z.number().min(0).optional(),
+                Frankreich: z.number().min(0).optional(),
+                Italien: z.number().min(0).optional(),
+                'Andere EU': z.number().min(0).optional(),
+                gratis_ab_ch: z.number().min(0).optional(),
+                gratis_ab_eu: z.number().min(0).optional(),
+            })
+            .strict()
+            .optional(),
         gruppen_groessen: gruppenGroessenSchema,
         sperrfristen: sperrfristenSchema,
         termin_einstellungen: terminEinstellungenSchema,

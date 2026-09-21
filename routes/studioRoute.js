@@ -7,6 +7,9 @@ const {
     listStudiosAdmin,
     patchStudioStatus,
     openStudioWorkspace,
+    enterStudioWorkspace,
+    enableStudioWorkspaceEdit,
+    exitStudioWorkspace,
 } = require('../controllers/studioController');
 const {
     getCrmPipeline,
@@ -131,6 +134,25 @@ router.post(
     protect,
     authorize(...adminRoles),
     openStudioWorkspace
+);
+
+router.post(
+    '/admin/studios/:studioId/workspace/enter',
+    protect,
+    authorize(...adminRoles),
+    enterStudioWorkspace
+);
+
+router.post(
+    '/admin/studios/:studioId/workspace/edit-mode',
+    protect,
+    enableStudioWorkspaceEdit
+);
+
+router.post(
+    '/admin/studios/:studioId/workspace/exit',
+    protect,
+    exitStudioWorkspace
 );
 
 /**

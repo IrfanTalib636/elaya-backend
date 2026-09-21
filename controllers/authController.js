@@ -413,6 +413,17 @@ const getMe = asyncHandler(async (req, res) => {
                 studio_id: user.studio_id,
                 customer_id: user.customer_id,
                 last_login: user.last_login,
+                impersonation: user._impersonation
+                    ? {
+                          active: true,
+                          edit_mode: !!user._impersonation.edit_mode,
+                          reason: user._impersonation.reason || '',
+                          studio_id: String(user._impersonation.studio_id),
+                          studio_firma: user._impersonation.studio_firma || '',
+                          studio_code: user._impersonation.studio_code || '',
+                          admin_email: user._impersonation.admin_email || '',
+                      }
+                    : null,
             },
             profile,
         },

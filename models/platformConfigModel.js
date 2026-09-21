@@ -53,6 +53,14 @@ const platformConfigSchema = new mongoose.Schema(
             min: 0,
             max: 100,
         },
+        shop_categories: {
+            type: [String],
+            default: () => [...PLATFORM_CONFIG_DEFAULTS.shop_categories],
+        },
+        shop_shipping: {
+            type: mongoose.Schema.Types.Mixed,
+            default: () => ({ ...PLATFORM_CONFIG_DEFAULTS.shop_shipping }),
+        },
         gruppen_groessen: {
             type: gruppenGroessenSchema,
             default: () => ({ ...PLATFORM_CONFIG_DEFAULTS.gruppen_groessen }),

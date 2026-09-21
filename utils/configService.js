@@ -68,6 +68,14 @@ const mergePlatformConfig = (doc) => {
         zahlungszielTage: merged.zahlungszielTage,
         shop_provision_prozent:
             merged.shop_provision_prozent ?? PLATFORM_CONFIG_DEFAULTS.shop_provision_prozent,
+        shop_categories:
+            Array.isArray(merged.shop_categories) && merged.shop_categories.length
+                ? merged.shop_categories
+                : [...PLATFORM_CONFIG_DEFAULTS.shop_categories],
+        shop_shipping: {
+            ...PLATFORM_CONFIG_DEFAULTS.shop_shipping,
+            ...(merged.shop_shipping || {}),
+        },
         gruppen_groessen: merged.gruppen_groessen,
         subscription_plans: {
             ...PLATFORM_CONFIG_DEFAULTS.subscription_plans,

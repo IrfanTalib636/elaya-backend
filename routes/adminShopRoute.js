@@ -33,5 +33,10 @@ router.patch(
 router.get('/finance', shopAdminController.getShopFinanceSummary);
 router.get('/finance/studios/:studioId', shopAdminController.getStudioFinanceDetail);
 router.get('/shipping', shopAdminController.getShippingAdmin);
+router.patch(
+    '/shipping',
+    authorize(...shopWriteRoles),
+    shopAdminController.patchShopCatalogAdmin
+);
 
 module.exports = router;

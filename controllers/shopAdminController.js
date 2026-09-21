@@ -14,6 +14,11 @@ const {
 
 const round2 = (n) => Math.round(n * 100) / 100;
 
+const resolveShopCategories = (platform) =>
+    Array.isArray(platform?.shop_categories) && platform.shop_categories.length
+        ? platform.shop_categories
+        : SHOP_CATEGORIES;
+
 const formatProduct = (doc) => ({
     id: doc._id.toString(),
     product_code: doc.product_code,
@@ -27,6 +32,7 @@ const formatProduct = (doc) => ({
     bild_url: doc.bild_url ?? '',
     lagerbestand: doc.lagerbestand,
     aktiv: doc.aktiv,
+    rabatt_prozent: doc.rabatt_prozent ?? 0,
     sort_order: doc.sort_order ?? 0,
     createdAt: doc.createdAt,
     updatedAt: doc.updatedAt,
@@ -73,16 +79,17 @@ const listProductsAdmin = asyncHandler(async (req, res) => {
         ];
     }
 
-    const [products, total] = await Promise.all([
+    const [products, total, platform] = await Promise.all([
         ShopProduct.find(filter).sort({ sort_order: 1, name: 1 }).skip(skip).limit(limit).lean(),
         ShopProduct.countDocuments(filter),
+        getPlatformConfig(),
     ]);
 
     res.json({
         success: true,
         data: {
             products: products.map(formatProduct),
-            categories: SHOP_CATEGORIES,
+            categories: resolveShopCategories(platform),
             pagination: buildPaginationMeta(page, limit, total),
         },
     });
@@ -473,12 +480,52 @@ const getStudioFinanceDetail = asyncHandler(async (req, res) => {
 
 /** GET /admin/shop/shipping */
 const getShippingAdmin = asyncHandler(async (_req, res) => {
+    const platform = await getPlatformConfig();
+    const rates = {
+        ...DEFAULT_SHOP_SHIPPING,
+        ...(platform.shop_shipping || {}),
+    };
+    const categories =
+        Array.isArray(platform.shop_categories) && platform.shop_categories.length
+            ? platform.shop_categories
+            : SHOP_CATEGORIES;
+
     res.json({
         success: true,
         data: {
             countries: SHOP_COUNTRIES,
-            rates: DEFAULT_SHOP_SHIPPING,
-            note: 'Shipping rates are currently platform defaults. Editable shipping config can be extended via platform_config.',
+            rates,
+            categories,
+            shop_provision_prozent:
+                platform.shop_provision_prozent ?? DEFAULT_SHOP_PROVISION_PROZENT,
+        },
+    });
+});
+
+/** PATCH /admin/shop/shipping — Super Admin editable shipping + categories */
+const patchShopCatalogAdmin = asyncHandler(async (req, res) => {
+    const { updatePlatformConfig } = require('../utils/configService');
+    const payload = {};
+    if (req.body.rates) payload.shop_shipping = req.body.rates;
+    if (req.body.categories) payload.shop_categories = req.body.categories;
+    if (req.body.shop_provision_prozent !== undefined) {
+        payload.shop_provision_prozent = req.body.shop_provision_prozent;
+    }
+    if (!Object.keys(payload).length) {
+        throw new ApiError(400, 'No shipping/catalog fields to update');
+    }
+    const config = await updatePlatformConfig(payload);
+    res.json({
+        success: true,
+        message: 'Shop catalog settings updated',
+        data: {
+            rates: { ...DEFAULT_SHOP_SHIPPING, ...(config.shop_shipping || {}) },
+            categories:
+                Array.isArray(config.shop_categories) && config.shop_categories.length
+                    ? config.shop_categories
+                    : SHOP_CATEGORIES,
+            shop_provision_prozent:
+                config.shop_provision_prozent ?? DEFAULT_SHOP_PROVISION_PROZENT,
         },
     });
 });
@@ -492,6 +539,7 @@ module.exports = {
     getShopFinanceSummary,
     getStudioFinanceDetail,
     getShippingAdmin,
+    patchShopCatalogAdmin,
     formatProduct,
     formatAdminOrder,
 };
