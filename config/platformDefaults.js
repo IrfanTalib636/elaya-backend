@@ -2,6 +2,7 @@
  * Platform-wide defaults — maps prototype `elaya_admin_config` → production `platform_config` (client §2).
  */
 const { DEFAULT_ELAYCOIN_REGELN } = require('./elaycoinConfig');
+const { DEFAULT_AUTOMATISIERUNGEN } = require('./automationsDefaults');
 
 const PLATFORM_CONFIG_DEFAULTS = {
     /** CHF per coin — kept in sync with elaycoin_regeln (100 coins = CHF 5 → 0.05). */
@@ -15,6 +16,11 @@ const PLATFORM_CONFIG_DEFAULTS = {
      * Studios may view; only Super Admin edits.
      */
     elaycoin_regeln: JSON.parse(JSON.stringify(DEFAULT_ELAYCOIN_REGELN)),
+    /**
+     * Prototype Automatisierungen — automatic customer message rules catalog.
+     * Admin full CRUD; studios may only toggle aktiv + tage when editierbar_studio.
+     */
+    automatisierungen: JSON.parse(JSON.stringify(DEFAULT_AUTOMATISIERUNGEN)),
     grundgebuehr: 149,
     transaktionsProzent: 3,
     zahlungszielTage: 30,

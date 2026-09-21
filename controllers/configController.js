@@ -78,6 +78,7 @@ const patchPlatform = asyncHandler(async (req, res) => {
         'default_pricing',
         'sperrfristen',
         'elaycoin_regeln',
+        'automatisierungen',
         'coinWert',
         'verfallMonate',
         'deckelProzent',
@@ -90,7 +91,7 @@ const patchPlatform = asyncHandler(async (req, res) => {
     if (touchesSuperAdminOnly && req.user.role !== USER_ROLES.SUPER_ADMIN) {
         throw new ApiError(
             403,
-            'Only super admin can update medical lockouts, price calculation, session prediction, or Elaycoin rules'
+            'Only super admin can update medical lockouts, price calculation, session prediction, Elaycoin rules, or automations'
         );
     }
 
@@ -295,6 +296,16 @@ const patchStudioConfigHandler = asyncHandler(async (req, res) => {
             throw new ApiError(
                 403,
                 'Only super admin can change medical lockout (Sperrfristen) rules'
+            );
+        }
+        // Elaycoin platform rules are platform-owned — studios view only.
+        if (patch.elaycoin_regeln !== undefined) {
+            throw new ApiError(403, 'Only super admin can change Elaycoin rules');
+        }
+        if (patch.automatisierungen !== undefined) {
+            throw new ApiError(
+                403,
+                'Use automatisierungen_overrides to change studio-editable automation fields'
             );
         }
     } else if (req.user.role !== USER_ROLES.SUPER_ADMIN) {

@@ -89,6 +89,38 @@ const patchPlatformConfigSchema = z
                     .optional(),
             })
             .optional(),
+        automatisierungen: z
+            .object({
+                version: z.number().int().min(1).optional(),
+                kategorien: z
+                    .array(
+                        z.object({
+                            id: z.string().trim().min(1).max(80),
+                            label_de: z.string().trim().min(1).max(200),
+                            label_en: z.string().trim().min(1).max(200),
+                            regeln: z
+                                .array(
+                                    z.object({
+                                        id: z.string().trim().min(1).max(80),
+                                        kategorie: z.string().trim().min(1).max(80),
+                                        label_de: z.string().trim().min(1).max(200),
+                                        label_en: z.string().trim().min(1).max(200),
+                                        beschreibung_de: z.string().max(2000).optional().default(''),
+                                        beschreibung_en: z.string().max(2000).optional().default(''),
+                                        aktiv: z.boolean().optional(),
+                                        hat_tage_feld: z.boolean().optional(),
+                                        tage_wert: z.number().int().min(0).max(365).nullable().optional(),
+                                        tage_min: z.number().int().min(0).max(365).nullable().optional(),
+                                        tage_max: z.number().int().min(0).max(365).nullable().optional(),
+                                        editierbar_studio: z.boolean().optional(),
+                                    })
+                                )
+                                .default([]),
+                        })
+                    )
+                    .max(40),
+            })
+            .optional(),
         grundgebuehr: z.number().min(0).optional(),
         transaktionsProzent: z.number().min(0).max(100).optional(),
         zahlungszielTage: z.number().min(0).optional(),
@@ -200,11 +232,22 @@ const elaycoinStudioCfgSchema = z.record(
         .strict()
 );
 
+const automatisierungenOverridesSchema = z.record(
+    z.string(),
+    z
+        .object({
+            aktiv: z.boolean().optional(),
+            wert: z.number().int().min(0).max(365).optional(),
+        })
+        .strict()
+);
+
 const patchStudioConfigSchema = z
     .object({
         coin_wert: z.number().min(0).nullable().optional(),
         studio_pricing: z.record(z.string(), z.number()).optional(),
         elaycoin_studio_cfg: elaycoinStudioCfgSchema.optional(),
+        automatisierungen_overrides: automatisierungenOverridesSchema.optional(),
         subscription_plan: z.enum(['basic', 'professional', 'enterprise']).optional(),
         feature_overrides: z.record(z.string(), z.boolean()).optional(),
         gruppen_groessen: gruppenGroessenSchema,

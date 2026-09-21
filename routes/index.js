@@ -29,6 +29,7 @@ router.use('/cases', caseRoute);
 router.use('/appointments', appointmentRoute);
 router.use('/sessions', sessionRoute);
 router.use('/elaycoins', elaycoinRoute);
+router.use('/automations', require('./automationsRoute'));
 router.use('/config', configRoute);
 router.use('/studio/team', require('./studioTeamRoute'));
 router.use('/studio', studioRoute);

@@ -186,6 +186,15 @@ const studioSchema = new mongoose.Schema(
             default: {},
         },
         /**
+         * Per-rule Automations overrides from studio (prototype ss.automatisierungen).
+         * Shape: { [ruleId]: { aktiv?: boolean, wert?: number } }
+         * Only applied when platform rule has editierbar_studio=true.
+         */
+        automatisierungen_overrides: {
+            type: mongoose.Schema.Types.Mixed,
+            default: {},
+        },
+        /**
          * Group-booking size points + discount for this studio.
          * Empty/partial object inherits missing keys from platform defaults.
          */

@@ -49,6 +49,12 @@ const platformConfigSchema = new mongoose.Schema(
             type: mongoose.Schema.Types.Mixed,
             default: () => JSON.parse(JSON.stringify(PLATFORM_CONFIG_DEFAULTS.elaycoin_regeln)),
         },
+        /** Prototype Automatisierungen — message automation rule catalog. */
+        automatisierungen: {
+            type: mongoose.Schema.Types.Mixed,
+            default: () =>
+                JSON.parse(JSON.stringify(PLATFORM_CONFIG_DEFAULTS.automatisierungen)),
+        },
         grundgebuehr: { type: Number, default: PLATFORM_CONFIG_DEFAULTS.grundgebuehr },
         transaktionsProzent: { type: Number, default: PLATFORM_CONFIG_DEFAULTS.transaktionsProzent },
         zahlungszielTage: { type: Number, default: PLATFORM_CONFIG_DEFAULTS.zahlungszielTage },

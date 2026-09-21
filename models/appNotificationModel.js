@@ -22,6 +22,7 @@ const appNotificationSchema = new mongoose.Schema(
                 'studio_transfer_rejected',
                 'studio_transfer_left',
                 'studio_transfer_joined',
+                'automation',
             ],
             required: true,
             index: true,
