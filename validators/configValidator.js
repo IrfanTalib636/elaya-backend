@@ -9,15 +9,39 @@ const gruppenGroessenSchema = z
     })
     .optional();
 
-/** Blocking periods in days — generous upper bound, real limits live in configService. */
+/** Blocking periods in days — ranges match Medical & Safety catalog (prototype). */
+const CONDITION_LOCK = z.enum(['MEDICAL_CLEARANCE_REQUIRED', 'MEDICAL_REVIEW_REQUIRED']);
+
 const sperrfristenSchema = z
     .object({
-        same_case_tage: z.number().int().min(0).max(3650).optional(),
-        cross_case_tage: z.number().int().min(0).max(3650).optional(),
-        uv_mittel_tage: z.number().int().min(0).max(3650).optional(),
-        uv_intensiv_tage: z.number().int().min(0).max(3650).optional(),
-        medikament_kurz_tage: z.number().int().min(0).max(3650).optional(),
-        medikament_retinoide_tage: z.number().int().min(0).max(3650).optional(),
+        same_case_tage: z.number().int().min(14).max(180).optional(),
+        cross_case_tage: z.number().int().min(7).max(180).optional(),
+        uv_mittel_tage: z.number().int().min(0).max(180).optional(),
+        uv_intensiv_tage: z.number().int().min(0).max(180).optional(),
+        medikament_kurz_tage: z.number().int().min(0).max(180).optional(),
+        medikament_retinoide_tage: z.number().int().min(0).max(365).optional(),
+        condition_locks: z
+            .object({
+                antidepressants: CONDITION_LOCK.optional(),
+                skin_acne_medication: CONDITION_LOCK.optional(),
+                other_unknown_medication: CONDITION_LOCK.optional(),
+                illness_not_recovered: CONDITION_LOCK.optional(),
+            })
+            .strict()
+            .optional(),
+        studio_exceptions: z
+            .record(
+                z.string(),
+                z
+                    .object({
+                        date_locks_disabled: z.boolean(),
+                        reason: z.string().max(2000).optional().default(''),
+                        set_by: z.string().max(200).optional().default(''),
+                        set_at: z.string().optional().nullable(),
+                    })
+                    .strict()
+            )
+            .optional(),
     })
     .strict()
     .optional();

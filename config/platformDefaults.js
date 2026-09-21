@@ -42,6 +42,13 @@ const PLATFORM_CONFIG_DEFAULTS = {
         uv_intensiv_tage: 28,
         medikament_kurz_tage: 14,
         medikament_retinoide_tage: 180,
+        condition_locks: {
+            antidepressants: 'MEDICAL_CLEARANCE_REQUIRED',
+            skin_acne_medication: 'MEDICAL_CLEARANCE_REQUIRED',
+            other_unknown_medication: 'MEDICAL_REVIEW_REQUIRED',
+            illness_not_recovered: 'MEDICAL_REVIEW_REQUIRED',
+        },
+        studio_exceptions: {},
     },
     /**
      * Appointment defaults the studio controls. Durations fall back to the

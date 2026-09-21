@@ -207,6 +207,21 @@ const assertBlockInvariants = (block, next) => {
     }
 
     if (block === 'sperrfristen') {
+        const ranges = {
+            same_case_tage: [14, 180],
+            cross_case_tage: [7, 180],
+            uv_mittel_tage: [0, 180],
+            uv_intensiv_tage: [0, 180],
+            medikament_kurz_tage: [0, 180],
+            medikament_retinoide_tage: [0, 365],
+        };
+        for (const [key, [min, max]] of Object.entries(ranges)) {
+            if (next[key] == null) continue;
+            const n = Number(next[key]);
+            if (!Number.isFinite(n) || n < min || n > max) {
+                throw new ApiError(400, `${key} must be between ${min} and ${max}`);
+            }
+        }
         if (
             next.uv_mittel_tage != null &&
             next.uv_intensiv_tage != null &&
@@ -371,8 +386,26 @@ const getEffectiveBookingConfig = async (studioId) => {
     const studio = studioId
         ? await Studio.findById(studioId).select('sperrfristen termin_einstellungen').lean()
         : null;
+    let sperrfristen = mergeNumericBlock('sperrfristen', platform, studio);
+    const exc =
+        studioId && platform.sperrfristen?.studio_exceptions
+            ? platform.sperrfristen.studio_exceptions[String(studioId)]
+            : null;
+    // Prototype §22: Date Locks can be disabled per studio; Condition Locks stay mandatory.
+    if (exc?.date_locks_disabled) {
+        sperrfristen = {
+            ...sperrfristen,
+            same_case_tage: 0,
+            cross_case_tage: 0,
+            uv_mittel_tage: 0,
+            uv_intensiv_tage: 0,
+            medikament_kurz_tage: 0,
+            medikament_retinoide_tage: 0,
+            date_locks_disabled: true,
+        };
+    }
     return {
-        sperrfristen: mergeNumericBlock('sperrfristen', platform, studio),
+        sperrfristen,
         termin_einstellungen: mergeNumericBlock('termin_einstellungen', platform, studio),
     };
 };
