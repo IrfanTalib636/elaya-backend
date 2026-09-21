@@ -77,6 +77,12 @@ const patchPlatform = asyncHandler(async (req, res) => {
         'session_prediction',
         'default_pricing',
         'sperrfristen',
+        'elaycoin_regeln',
+        'coinWert',
+        'verfallMonate',
+        'deckelProzent',
+        'minWert',
+        'maxWert',
     ];
     const touchesSuperAdminOnly = superAdminOnlyKeys.some(
         (key) => req.body[key] !== undefined
@@ -84,7 +90,7 @@ const patchPlatform = asyncHandler(async (req, res) => {
     if (touchesSuperAdminOnly && req.user.role !== USER_ROLES.SUPER_ADMIN) {
         throw new ApiError(
             403,
-            'Only super admin can update medical lockouts, price calculation, or session prediction'
+            'Only super admin can update medical lockouts, price calculation, session prediction, or Elaycoin rules'
         );
     }
 

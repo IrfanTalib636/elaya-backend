@@ -44,6 +44,11 @@ const platformConfigSchema = new mongoose.Schema(
         maxWert: { type: Number, default: PLATFORM_CONFIG_DEFAULTS.maxWert },
         deckelProzent: { type: Number, default: PLATFORM_CONFIG_DEFAULTS.deckelProzent },
         verfallMonate: { type: Number, default: PLATFORM_CONFIG_DEFAULTS.verfallMonate },
+        /** Prototype Elaycoin-Regeln (geldwert, limits, action catalog). */
+        elaycoin_regeln: {
+            type: mongoose.Schema.Types.Mixed,
+            default: () => JSON.parse(JSON.stringify(PLATFORM_CONFIG_DEFAULTS.elaycoin_regeln)),
+        },
         grundgebuehr: { type: Number, default: PLATFORM_CONFIG_DEFAULTS.grundgebuehr },
         transaktionsProzent: { type: Number, default: PLATFORM_CONFIG_DEFAULTS.transaktionsProzent },
         zahlungszielTage: { type: Number, default: PLATFORM_CONFIG_DEFAULTS.zahlungszielTage },

@@ -1,12 +1,20 @@
 /**
  * Platform-wide defaults — maps prototype `elaya_admin_config` → production `platform_config` (client §2).
  */
+const { DEFAULT_ELAYCOIN_REGELN } = require('./elaycoinConfig');
+
 const PLATFORM_CONFIG_DEFAULTS = {
-    coinWert: 0.1,
+    /** CHF per coin — kept in sync with elaycoin_regeln (100 coins = CHF 5 → 0.05). */
+    coinWert: 0.05,
     minWert: 0.05,
     maxWert: 0.2,
     deckelProzent: 20,
     verfallMonate: 12,
+    /**
+     * Prototype Elaycoin-Regeln — platform-wide engine rules + action catalog.
+     * Studios may view; only Super Admin edits.
+     */
+    elaycoin_regeln: JSON.parse(JSON.stringify(DEFAULT_ELAYCOIN_REGELN)),
     grundgebuehr: 149,
     transaktionsProzent: 3,
     zahlungszielTage: 30,

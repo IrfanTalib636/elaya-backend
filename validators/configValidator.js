@@ -64,6 +64,31 @@ const patchPlatformConfigSchema = z
         maxWert: z.number().min(0).optional(),
         deckelProzent: z.number().min(0).max(100).optional(),
         verfallMonate: z.number().min(0).optional(),
+        elaycoin_regeln: z
+            .object({
+                geldwert_coins: z.number().min(1).max(100000).optional(),
+                geldwert_chf: z.number().min(0).max(100000).optional(),
+                tageslimit_pro_kunde: z.number().int().min(0).max(100000).optional(),
+                grenze_pro_aktion_min: z.number().int().min(0).max(100000).optional(),
+                grenze_pro_aktion_max: z.number().int().min(0).max(100000).optional(),
+                verfall_reset_trigger: z.array(z.string().trim().min(1).max(80)).max(40).optional(),
+                situations: z
+                    .array(
+                        z.object({
+                            key: z.string().trim().min(1).max(80),
+                            label: z.string().trim().min(1).max(200),
+                            kat: z.string().trim().min(1).max(80),
+                            coins: z.number().int().min(0).max(100000),
+                            aktiv: z.boolean().optional(),
+                            einmalig: z.boolean().optional(),
+                            istMalus: z.boolean().optional(),
+                            limitTage: z.number().int().min(0).optional(),
+                            limitProSitzung: z.number().int().min(0).optional(),
+                        })
+                    )
+                    .optional(),
+            })
+            .optional(),
         grundgebuehr: z.number().min(0).optional(),
         transaktionsProzent: z.number().min(0).max(100).optional(),
         zahlungszielTage: z.number().min(0).optional(),

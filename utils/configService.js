@@ -63,6 +63,17 @@ const mergePlatformConfig = (doc) => {
         maxWert: merged.maxWert,
         deckelProzent: merged.deckelProzent,
         verfallMonate: merged.verfallMonate,
+        elaycoin_regeln: {
+            ...PLATFORM_CONFIG_DEFAULTS.elaycoin_regeln,
+            ...(merged.elaycoin_regeln || {}),
+            verfall_reset_trigger: Array.isArray(merged.elaycoin_regeln?.verfall_reset_trigger)
+                ? merged.elaycoin_regeln.verfall_reset_trigger
+                : [...PLATFORM_CONFIG_DEFAULTS.elaycoin_regeln.verfall_reset_trigger],
+            situations: Array.isArray(merged.elaycoin_regeln?.situations) &&
+            merged.elaycoin_regeln.situations.length
+                ? merged.elaycoin_regeln.situations
+                : PLATFORM_CONFIG_DEFAULTS.elaycoin_regeln.situations.map((s) => ({ ...s })),
+        },
         grundgebuehr: merged.grundgebuehr,
         transaktionsProzent: merged.transaktionsProzent,
         zahlungszielTage: merged.zahlungszielTage,
@@ -353,6 +364,33 @@ const updatePlatformConfig = async (patch) => {
             ...pickStudioPricing(current.default_pricing || {}),
             ...pickStudioPricing(patch.default_pricing),
         };
+    }
+    if (patch.elaycoin_regeln && typeof patch.elaycoin_regeln === 'object') {
+        const prev = current.elaycoin_regeln || PLATFORM_CONFIG_DEFAULTS.elaycoin_regeln;
+        const next = {
+            ...prev,
+            ...patch.elaycoin_regeln,
+            verfall_reset_trigger: Array.isArray(patch.elaycoin_regeln.verfall_reset_trigger)
+                ? patch.elaycoin_regeln.verfall_reset_trigger
+                : prev.verfall_reset_trigger,
+            situations: Array.isArray(patch.elaycoin_regeln.situations)
+                ? patch.elaycoin_regeln.situations
+                : prev.situations,
+        };
+        if (
+            next.grenze_pro_aktion_min != null &&
+            next.grenze_pro_aktion_max != null &&
+            next.grenze_pro_aktion_min > next.grenze_pro_aktion_max
+        ) {
+            throw new ApiError(400, 'grenze_pro_aktion_min must not exceed grenze_pro_aktion_max');
+        }
+        setFields.elaycoin_regeln = next;
+        const coins = Number(next.geldwert_coins);
+        const chf = Number(next.geldwert_chf);
+        if (coins > 0 && Number.isFinite(chf)) {
+            // Keep legacy coinWert in sync: CHF per coin = chf / coins (100→5 ⇒ 0.05).
+            setFields.coinWert = Math.round((chf / coins) * 10000) / 10000;
+        }
     }
 
     const doc = await PlatformConfig.findOneAndUpdate(
