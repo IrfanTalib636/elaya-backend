@@ -172,6 +172,13 @@ const startServer = async () => {
 
         initSocket(httpServer);
 
+        try {
+            const { startAutomationsScheduler } = require('./jobs/automationsScheduler');
+            startAutomationsScheduler();
+        } catch (err) {
+            console.error('Automations scheduler failed to start:', err.message);
+        }
+
         httpServer.listen(port, '0.0.0.0', () => {
             console.log(`Server is running on http://localhost:${port}`);
             if (isSwaggerEnabled()) {

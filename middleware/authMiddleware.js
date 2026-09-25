@@ -8,6 +8,7 @@ const {
     ADMIN_PERMISSION_LIST,
 } = require('../config/adminPermissions');
 const { STUDIO_ACCOUNT_ROLES } = require('../config/studioAccountRoles');
+const { normalizePreferredLang } = require('../utils/preferredLanguage');
 
 const ADMIN_LIKE_ROLES = [
     USER_ROLES.ADMIN,
@@ -95,6 +96,18 @@ const protect = asyncHandler(async (req, _res, next) => {
             },
         };
         return next();
+    }
+
+    // Keep customer preferred_language in sync with mobile `?lang=` for
+    // offline automations (scheduler) that cannot see the live UI locale.
+    const lang = normalizePreferredLang(req.query?.lang);
+    if (
+        lang &&
+        user.role === USER_ROLES.CUSTOMER &&
+        user.preferred_language !== lang
+    ) {
+        user.preferred_language = lang;
+        User.updateOne({ _id: user._id }, { preferred_language: lang }).catch(() => {});
     }
 
     req.user = user;

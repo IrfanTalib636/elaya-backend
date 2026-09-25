@@ -126,12 +126,14 @@ const customerSchema = new mongoose.Schema(
             type: String,
             default: '',
         },
-        /** Fired automation rule ids / keys (prototype automatisierungen_log). */
+        /** Fired automation rule log (prototype automatisierungen_log + cooldown). */
         automatisierungen_log: {
             type: [
                 {
                     rule_id: { type: String, required: true },
+                    kontext_id: { type: String, default: null },
                     sent_at: { type: Date, default: Date.now },
+                    naechste_erlaubt_am: { type: Date, default: null },
                 },
             ],
             default: [],

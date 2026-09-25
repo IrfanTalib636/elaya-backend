@@ -243,10 +243,14 @@ const validateSessionPredictionPatch = (patch) => {
     }
 };
 
+/** Nested object keys inside sperrfristen (not day-count numbers). */
+const SPERRFRISTEN_OBJECT_KEYS = new Set(['condition_locks', 'studio_exceptions']);
+
 /**
  * Every value in a numeric settings block must be a known key and a
  * non-negative number. Shared by the platform and studio update paths so both
- * reject the same input.
+ * reject the same input. Sperrfristen also allows condition_locks /
+ * studio_exceptions objects (Medical & Safety).
  */
 const assertNumericBlockPatch = (block, patch) => {
     if (patch === undefined) return;
@@ -257,6 +261,12 @@ const assertNumericBlockPatch = (block, patch) => {
     for (const [key, value] of Object.entries(patch)) {
         if (!allowed.includes(key)) {
             throw new ApiError(400, `Unknown ${block} field: ${key}`);
+        }
+        if (block === 'sperrfristen' && SPERRFRISTEN_OBJECT_KEYS.has(key)) {
+            if (value !== undefined && (typeof value !== 'object' || Array.isArray(value) || value == null)) {
+                throw new ApiError(400, `${block}.${key} must be an object`);
+            }
+            continue;
         }
         if (value !== undefined && (typeof value !== 'number' || value < 0)) {
             throw new ApiError(400, `${block}.${key} must be a non-negative number`);

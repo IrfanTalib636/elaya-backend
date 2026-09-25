@@ -15,19 +15,42 @@ const gruppenGroessenSchema = new mongoose.Schema(
     { _id: false }
 );
 
-/** Builds a strict numeric sub-schema from a defaults block. */
+/** Builds a strict numeric sub-schema from a defaults block (number values only). */
 const numericBlockSchema = (block, { min = 0 } = {}) =>
     new mongoose.Schema(
         Object.fromEntries(
-            Object.entries(PLATFORM_CONFIG_DEFAULTS[block]).map(([key, value]) => [
-                key,
-                { type: Number, default: value, min },
-            ])
+            Object.entries(PLATFORM_CONFIG_DEFAULTS[block])
+                .filter(([, value]) => typeof value === 'number')
+                .map(([key, value]) => [key, { type: Number, default: value, min }])
         ),
         { _id: false }
     );
 
-const sperrfristenSchema = numericBlockSchema('sperrfristen');
+/**
+ * Sperrfristen mixes day-count numbers with nested objects
+ * (condition_locks, studio_exceptions). Only numeric keys are Number-typed;
+ * the rest stay Mixed so Medical & Safety / Automations saves do not CastError.
+ */
+const sperrfristenSchema = new mongoose.Schema(
+    {
+        ...Object.fromEntries(
+            Object.entries(PLATFORM_CONFIG_DEFAULTS.sperrfristen)
+                .filter(([, value]) => typeof value === 'number')
+                .map(([key, value]) => [key, { type: Number, default: value, min: 0 }])
+        ),
+        condition_locks: {
+            type: mongoose.Schema.Types.Mixed,
+            default: () => ({
+                ...PLATFORM_CONFIG_DEFAULTS.sperrfristen.condition_locks,
+            }),
+        },
+        studio_exceptions: {
+            type: mongoose.Schema.Types.Mixed,
+            default: () => ({}),
+        },
+    },
+    { _id: false }
+);
 const terminEinstellungenSchema = numericBlockSchema('termin_einstellungen');
 
 const platformConfigSchema = new mongoose.Schema(
