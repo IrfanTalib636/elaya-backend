@@ -75,6 +75,8 @@ const KO_RECHECKS = [
  */
 const medicationGroups = (sperrfristen) => {
     const cfg = resolveSperrfristen(sperrfristen);
+    const { medUsesClearanceNotDateLock } = require('./medicalClearanceService');
+    const antiClearance = medUsesClearanceNotDateLock('antidepressiva', sperrfristen);
     return [
         { key: 'keine', label_de: 'Keine / keine Medikamente', label_en: 'None / no medications', lock_days: 0 },
         { key: 'antibiotika', label_de: 'Antibiotika', label_en: 'Antibiotics', lock_days: cfg.medikament_kurz_tage },
@@ -82,7 +84,9 @@ const medicationGroups = (sperrfristen) => {
             key: 'antidepressiva',
             label_de: 'Antidepressiva',
             label_en: 'Antidepressants',
-            lock_days: cfg.medikament_kurz_tage,
+            // 0 day-lock when clearance is required — treatment gated by verified certificate
+            lock_days: antiClearance ? 0 : cfg.medikament_kurz_tage,
+            requires_medical_clearance: antiClearance,
         },
         { key: 'retinoide', label_de: 'Retinoide', label_en: 'Retinoids', lock_days: cfg.medikament_retinoide_tage },
     ];
@@ -127,6 +131,13 @@ const BLOCK_MESSAGES = {
     anamnesis_required: {
         code: 'anamnesis_required',
         message_de: 'Bitte schliesse zuerst die medizinische Anamnese ab.',
+    },
+    medical_clearance_required: {
+        code: 'medical_clearance_required',
+        message_de:
+            'Für die Behandlung ist eine ärztliche Freigabe (Attest) nötig. Bitte lade das Dokument hoch — dein Studio prüft nur, ob eine passende Bestätigung vorliegt. Beratungen bleiben buchbar.',
+        message_en:
+            'A doctor\'s certificate is required before treatment. Please upload it — your studio only verifies that an appropriate confirmation exists. Consultation appointments stay bookable.',
     },
 };
 
@@ -420,7 +431,13 @@ const computeBlockDatesFromPreSession = (
 
     if (meds.includes('retinoide')) applyMedUntil(cfg.medikament_retinoide_tage);
     if (meds.includes('antibiotika')) applyMedUntil(cfg.medikament_kurz_tage);
-    if (meds.includes('antidepressiva')) applyMedUntil(cfg.medikament_kurz_tage);
+    const { medUsesClearanceNotDateLock } = require('./medicalClearanceService');
+    if (
+        meds.includes('antidepressiva') &&
+        !medUsesClearanceNotDateLock('antidepressiva', sperrfristen)
+    ) {
+        applyMedUntil(cfg.medikament_kurz_tage);
+    }
 
     if (maxMedUntil && maxMedUntil > heute) {
         medicationBlockDate = maxMedUntil;

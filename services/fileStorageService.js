@@ -33,6 +33,17 @@ const sessionProgressPath = (studioId, sessionId, mimeType) => {
     return path.join(studioDir(studioId), 'sessions', sessionId.toString(), `progress${ext}`);
 };
 
+const medicalClearancePath = (studioId, customerId, fileId, mimeType) => {
+    const ext = MIME_EXTENSIONS[mimeType] || '.bin';
+    return path.join(
+        studioDir(studioId),
+        'customers',
+        customerId.toString(),
+        'medical-clearance',
+        `${fileId}${ext}`
+    );
+};
+
 const relativePath = (absolutePath) => path.relative(UPLOAD_ROOT, absolutePath);
 
 const absolutePath = (relativeStoragePath) => path.join(UPLOAD_ROOT, relativeStoragePath);
@@ -96,6 +107,7 @@ module.exports = {
     stagingPath,
     caseIntakePath,
     sessionProgressPath,
+    medicalClearancePath,
     relativePath,
     absolutePath,
     writeBuffer,

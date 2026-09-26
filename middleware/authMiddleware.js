@@ -46,6 +46,20 @@ const protect = asyncHandler(async (req, _res, next) => {
             throw new ApiError(403, 'Only Elaya admins can use a studio workspace token');
         }
 
+        const method = (req.method || 'GET').toUpperCase();
+        const path = `${req.baseUrl || ''}${req.path || ''}`;
+
+        // Platform-admin-only actions must keep the real admin role even while a
+        // studio workspace JWT is active (e.g. approve/reject studio transfers).
+        const isPlatformAdminTransferAction =
+            method === 'PATCH' &&
+            /\/studio-transfers\/[^/]+\/(approve|reject)\/?$/.test(path);
+
+        if (isPlatformAdminTransferAction) {
+            req.user = user;
+            return next();
+        }
+
         const studio = await Studio.findById(decoded.actingStudioId)
             .select('_id firma studio_code status')
             .lean();
@@ -60,8 +74,6 @@ const protect = asyncHandler(async (req, _res, next) => {
         const editMode = decoded.editMode === true;
 
         // Read-only workspace: block mutating verbs (except workspace control routes).
-        const method = (req.method || 'GET').toUpperCase();
-        const path = `${req.baseUrl || ''}${req.path || ''}`;
         const isWorkspaceControl =
             path.includes('/workspace/enter') ||
             path.includes('/workspace/edit-mode') ||
@@ -115,10 +127,19 @@ const protect = asyncHandler(async (req, _res, next) => {
 });
 
 const authorize = (...roles) => (req, _res, next) => {
-    if (!req.user || !roles.includes(req.user.role)) {
+    if (!req.user) {
         throw new ApiError(403, 'You do not have permission for this action');
     }
-    next();
+    if (roles.includes(req.user.role)) {
+        return next();
+    }
+    // Studio workspace JWT: role is studio_admin, but the underlying admin
+    // may still call platform-admin routes (approve/reject transfers, etc.).
+    const adminRole = req.user._impersonation?.admin_role;
+    if (adminRole && roles.includes(adminRole)) {
+        return next();
+    }
+    throw new ApiError(403, 'You do not have permission for this action');
 };
 
 const {

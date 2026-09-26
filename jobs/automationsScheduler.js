@@ -10,6 +10,7 @@
  */
 
 const { runAutomationsBatch } = require('../utils/automationsEngine');
+const { runAntibioticPreTreatmentChecks } = require('../utils/medicalClearanceService');
 
 let timer = null;
 let running = false;
@@ -45,6 +46,16 @@ const startAutomationsScheduler = () => {
                 console.log(
                     `[automations] tick checked=${totalChecked} fired=${totalFired}`
                 );
+            }
+            try {
+                const abx = await runAntibioticPreTreatmentChecks({ limit: 100 });
+                if (abx.asked > 0 || process.env.AUTOMATIONS_LOG_EMPTY === 'true') {
+                    console.log(
+                        `[antibiotic-check] asked=${abx.asked} scanned=${abx.scanned}`
+                    );
+                }
+            } catch (err) {
+                console.error('[antibiotic-check] failed:', err.message);
             }
         } catch (err) {
             console.error('[automations] scheduler tick failed:', err.message);

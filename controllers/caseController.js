@@ -818,10 +818,23 @@ const getCase = asyncHandler(async (req, res) => {
     if (access.transferiert) formatted.transferiert = true;
     if (access.read_only) formatted.read_only = true;
 
+    // Customer-level medical clearance — visible on every tattoo case
+    let medical_clearance = null;
+    try {
+        const { serializeClearance } = require('../utils/medicalClearanceService');
+        const Customer = require('../models/customerModel');
+        const custId = caseDoc.customer?._id || caseDoc.customer;
+        const cust = await Customer.findById(custId).select('medical_clearance').lean();
+        medical_clearance = serializeClearance(cust?.medical_clearance);
+    } catch (err) {
+        console.error('Case medical_clearance attach failed:', err.message);
+    }
+
     res.status(200).json({
         success: true,
         data: {
             case: formatted,
+            medical_clearance,
         },
     });
 });

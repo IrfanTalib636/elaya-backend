@@ -12,7 +12,7 @@ const fileFilter = (_req, file, cb) => {
         cb(null, true);
         return;
     }
-    cb(new ApiError(400, 'Only JPEG, PNG, and WebP images are allowed'));
+    cb(new ApiError(400, 'Only JPEG, PNG, WebP, or PDF files are allowed'));
 };
 
 const uploadSingle = multer({

@@ -8,12 +8,22 @@ const ALLOWED_MIME_TYPES = new Set([
     'image/jpeg',
     'image/png',
     'image/webp',
+    'application/pdf',
+]);
+
+/** MIME types allowed for doctor's certificate uploads. */
+const CLEARANCE_MIME_TYPES = new Set([
+    'image/jpeg',
+    'image/png',
+    'image/webp',
+    'application/pdf',
 ]);
 
 const MIME_EXTENSIONS = {
     'image/jpeg': '.jpg',
     'image/png': '.png',
     'image/webp': '.webp',
+    'application/pdf': '.pdf',
 };
 
 const STAGING_TTL_HOURS = Number(process.env.UPLOAD_STAGING_TTL_HOURS) || 24;
@@ -31,6 +41,7 @@ const FILE_PURPOSE = {
     ZONE_PHOTO: 'zone_photo',
     SESSION_PROGRESS: 'session_progress',
     NACHSORGE: 'nachsorge',
+    MEDICAL_CLEARANCE: 'medical_clearance',
 };
 
 const FILE_AUDIT_ACTION = {
@@ -46,6 +57,7 @@ module.exports = {
     UPLOAD_ROOT,
     MAX_FILE_BYTES,
     ALLOWED_MIME_TYPES,
+    CLEARANCE_MIME_TYPES,
     MIME_EXTENSIONS,
     STAGING_TTL_HOURS,
     INTAKE_SLOTS,

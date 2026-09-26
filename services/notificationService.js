@@ -18,6 +18,7 @@ const serialize = (doc) => ({
     case_id: doc.case_id ? String(doc.case_id) : null,
     message_id: doc.message ? String(doc.message) : null,
     studio_transfer_id: doc.studio_transfer ? String(doc.studio_transfer) : null,
+    meta: doc.meta || null,
     read_at: doc.read_at ? new Date(doc.read_at).toISOString() : null,
     unread: !doc.read_at,
     createdAt: doc.createdAt ? new Date(doc.createdAt).toISOString() : null,
@@ -38,6 +39,7 @@ const createForUsers = async ({
     caseId = null,
     messageId = null,
     studioTransferId = null,
+    meta = null,
 }) => {
     if (!userIds?.length) return [];
 
@@ -51,6 +53,7 @@ const createForUsers = async ({
         case_id: caseId || null,
         message: messageId || null,
         studio_transfer: studioTransferId || null,
+        meta: meta || null,
     }));
 
     const created = await AppNotification.insertMany(docs, { ordered: false });

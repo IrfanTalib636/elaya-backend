@@ -138,6 +138,79 @@ const customerSchema = new mongoose.Schema(
             ],
             default: [],
         },
+        /**
+         * Customer-level medical clearance (doctor's certificate).
+         * Applies to all tattoo cases until the medical situation changes.
+         * Upload → pending_review; only studio verify unlocks treatment booking.
+         */
+        medical_clearance: {
+            status: {
+                type: String,
+                enum: ['not_required', 'required', 'pending_review', 'verified', 'rejected'],
+                default: 'not_required',
+            },
+            reasons: {
+                type: [
+                    {
+                        condition_key: { type: String, default: '' },
+                        med_key: { type: String, default: '' },
+                        source: { type: String, default: 'pre_session' },
+                        label: { type: String, default: '' },
+                    },
+                ],
+                default: [],
+            },
+            documents: {
+                type: [
+                    {
+                        file_id: {
+                            type: mongoose.Schema.Types.ObjectId,
+                            ref: 'FileAsset',
+                        },
+                        uploaded_at: { type: Date, default: Date.now },
+                        uploaded_by: {
+                            type: mongoose.Schema.Types.ObjectId,
+                            ref: 'User',
+                        },
+                        original_name: { type: String, default: '' },
+                        mime_type: { type: String, default: '' },
+                    },
+                ],
+                default: [],
+            },
+            required_since: { type: Date, default: null },
+            verified_at: { type: Date, default: null },
+            verified_by: {
+                type: mongoose.Schema.Types.ObjectId,
+                ref: 'User',
+                default: null,
+            },
+            verified_note: { type: String, default: '' },
+            rejected_at: { type: Date, default: null },
+            rejected_by: {
+                type: mongoose.Schema.Types.ObjectId,
+                ref: 'User',
+                default: null,
+            },
+            rejected_reason: { type: String, default: '' },
+            /** Pre-treatment antibiotic / recovery check replies (last response). */
+            antibiotic_checks: {
+                type: [
+                    {
+                        appointment_id: {
+                            type: mongoose.Schema.Types.ObjectId,
+                            ref: 'Appointment',
+                        },
+                        asked_at: { type: Date, default: Date.now },
+                        answered_at: { type: Date, default: null },
+                        still_on_antibiotics: { type: Boolean, default: null },
+                        not_fully_recovered: { type: Boolean, default: null },
+                        studio_notified: { type: Boolean, default: false },
+                    },
+                ],
+                default: [],
+            },
+        },
     },
     {
         timestamps: true,

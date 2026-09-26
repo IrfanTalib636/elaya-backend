@@ -301,11 +301,14 @@ const getCustomer = asyncHandler(async (req, res) => {
 
     const firma_timeline = await formatFirmaTimeline(customer.firma_history);
 
+    const { serializeClearance } = require('../utils/medicalClearanceService');
+
     res.json({
         success: true,
         data: {
             customer: {
                 ...customer,
+                medical_clearance: serializeClearance(customer.medical_clearance),
                 cases: casesFormatted,
                 worst_medical_flag_level,
                 open_medical_flags_count,

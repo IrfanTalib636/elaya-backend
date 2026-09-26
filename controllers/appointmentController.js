@@ -347,6 +347,7 @@ const createAppointment = asyncHandler(async (req, res) => {
 
     const preSessionCheck = await resolvePreSessionForCustomerBooking(primaryCase, body, req.user);
 
+    const bookingLang = req.query.lang === 'en' ? 'en' : 'de';
     for (const caseDoc of groupCases) {
         await assertBookingDateAllowed({
             caseId: caseDoc._id,
@@ -356,6 +357,7 @@ const createAppointment = asyncHandler(async (req, res) => {
             consultationOnly: !isTreatmentBooking(body),
             preSessionCheck: isTreatmentBooking(body) ? preSessionCheck : {},
             standortId: standort.standort_id || null,
+            lang: bookingLang,
         });
     }
 
@@ -527,6 +529,7 @@ const updateAppointment = asyncHandler(async (req, res) => {
                 consultationOnly: false,
                 preSessionCheck,
                 standortId: effectiveStandortId || null,
+                lang: req.query.lang === 'en' ? 'en' : 'de',
             });
         }
     }
