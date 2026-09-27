@@ -107,12 +107,39 @@ const patchPlatformConfigSchema = z
                                         label_en: z.string().trim().min(1).max(200),
                                         beschreibung_de: z.string().max(2000).optional().default(''),
                                         beschreibung_en: z.string().max(2000).optional().default(''),
+                                        message_de: z.string().max(4000).optional().default(''),
+                                        message_en: z.string().max(4000).optional().default(''),
                                         aktiv: z.boolean().optional(),
                                         hat_tage_feld: z.boolean().optional(),
                                         tage_wert: z.number().int().min(0).max(365).nullable().optional(),
                                         tage_min: z.number().int().min(0).max(365).nullable().optional(),
                                         tage_max: z.number().int().min(0).max(365).nullable().optional(),
                                         editierbar_studio: z.boolean().optional(),
+                                        trigger: z
+                                            .object({
+                                                type: z.enum([
+                                                    'on_first_check',
+                                                    'no_case_after_days',
+                                                    'anamnesis_no_appointment',
+                                                    'appointment_window_hours',
+                                                    'days_after_session',
+                                                    'ready_next_no_booking',
+                                                    'inactive_days',
+                                                    'seasonal_months',
+                                                ]),
+                                                cooldown_tage: z.number().int().min(0).max(9999).optional(),
+                                                days: z.number().int().min(0).max(365).optional(),
+                                                hours_min: z.number().min(0).max(720).optional(),
+                                                hours_max: z.number().min(0).max(720).optional(),
+                                                min_days: z.number().int().min(0).max(365).optional(),
+                                                max_days: z.number().int().min(0).max(365).optional(),
+                                                lock_days: z.number().int().min(0).max(365).optional(),
+                                                extra_days: z.number().int().min(0).max(365).optional(),
+                                                extra_days_from_tage_wert: z.boolean().optional(),
+                                                from_month: z.number().int().min(1).max(12).optional(),
+                                                to_month: z.number().int().min(1).max(12).optional(),
+                                            })
+                                            .optional(),
                                     })
                                 )
                                 .default([]),
@@ -206,6 +233,16 @@ const patchPlatformConfigSchema = z
                     )
                     .optional(),
                 aftercare_extra_max: z.record(z.string(), z.number()).optional(),
+                lifestyle_bmi_floors: z
+                    .array(
+                        z
+                            .object({
+                                min_bmi: z.number().min(0).max(100),
+                                min_score: z.number().min(0).max(30),
+                            })
+                            .strict()
+                    )
+                    .optional(),
             })
             .strict()
             .optional(),
@@ -239,6 +276,16 @@ const sessionPredictionPreviewSchema = z
                     )
                     .optional(),
                 aftercare_extra_max: z.record(z.string(), z.number()).optional(),
+                lifestyle_bmi_floors: z
+                    .array(
+                        z
+                            .object({
+                                min_bmi: z.number().min(0).max(100),
+                                min_score: z.number().min(0).max(30),
+                            })
+                            .strict()
+                    )
+                    .optional(),
             })
             .strict()
             .optional(),

@@ -23,6 +23,8 @@ const appNotificationSchema = new mongoose.Schema(
                 'studio_transfer_left',
                 'studio_transfer_joined',
                 'automation',
+                'medical_clearance',
+                'antibiotic_check',
             ],
             required: true,
             index: true,
@@ -66,6 +68,10 @@ const appNotificationSchema = new mongoose.Schema(
             ref: 'StudioTransferRequest',
             default: null,
             index: true,
+        },
+        meta: {
+            type: mongoose.Schema.Types.Mixed,
+            default: null,
         },
         read_at: {
             type: Date,

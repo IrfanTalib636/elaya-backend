@@ -2,6 +2,7 @@ const express = require('express');
 const elaycoinController = require('../controllers/elaycoinController');
 const { protect, authorize } = require('../middleware/authMiddleware');
 const { USER_ROLES } = require('../config/constants');
+const { requireFeature } = require('../utils/featureGate');
 
 const router = express.Router();
 
@@ -30,7 +31,13 @@ const studioAndAdminRoles = [
  *       403:
  *         description: Not a customer
  */
-router.get('/me', protect, authorize(USER_ROLES.CUSTOMER), elaycoinController.getMyElaycoins);
+router.get(
+    '/me',
+    protect,
+    authorize(USER_ROLES.CUSTOMER),
+    requireFeature('elaycoins_basic'),
+    elaycoinController.getMyElaycoins
+);
 
 /**
  * @swagger

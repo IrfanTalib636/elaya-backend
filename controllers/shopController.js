@@ -15,6 +15,7 @@ const formatShopOrder = (order) => ({
         : '',
     produkte: order.produkte ?? [],
     total_chf: order.total_chf,
+    waehrung: order.waehrung || 'CHF',
     versandkosten: order.versandkosten ?? 0,
     lieferland: order.lieferland ?? '',
     lieferadresse: order.lieferadresse ?? null,

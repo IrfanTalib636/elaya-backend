@@ -42,6 +42,7 @@ const {
 const { USER_ROLES } = require('../config/constants');
 const { listStudioActivity } = require('../controllers/activityController');
 const { listActivityQuerySchema } = require('../validators/activityValidator');
+const { requireFeature } = require('../utils/featureGate');
 
 const router = express.Router();
 
@@ -308,6 +309,7 @@ router.get(
     '/crm/pipeline',
     protect,
     authorize(...studioRoles, ...adminRoles),
+    requireFeature('crm_leads'),
     getCrmPipeline
 );
 
@@ -347,6 +349,7 @@ router.get(
     '/crm/tasks',
     protect,
     authorize(...studioRoles, ...adminRoles),
+    requireFeature('crm_leads'),
     listCrmTasks
 );
 
@@ -407,6 +410,7 @@ router.post(
     '/crm/tasks',
     protect,
     authorize(...studioRoles, ...adminRoles),
+    requireFeature('crm_leads'),
     validateMiddleware(createCrmTaskSchema),
     createCrmTask
 );
@@ -456,6 +460,7 @@ router.patch(
     '/crm/tasks/:id',
     protect,
     authorize(...studioRoles, ...adminRoles),
+    requireFeature('crm_leads'),
     validateMiddleware(updateCrmTaskSchema),
     updateCrmTask
 );
@@ -487,6 +492,7 @@ router.delete(
     '/crm/tasks/:id',
     protect,
     authorize(...studioRoles, ...adminRoles),
+    requireFeature('crm_leads'),
     deleteCrmTask
 );
 
@@ -525,6 +531,7 @@ router.get(
     '/crm/notes',
     protect,
     authorize(...studioRoles, ...adminRoles),
+    requireFeature('crm_leads'),
     listCrmNotes
 );
 
@@ -584,6 +591,7 @@ router.post(
     '/crm/notes',
     protect,
     authorize(...studioRoles, ...adminRoles),
+    requireFeature('crm_leads'),
     validateMiddleware(createCrmNoteSchema),
     createCrmNote
 );
@@ -634,6 +642,7 @@ router.get(
     '/crm/templates/:customerId',
     protect,
     authorize(...studioRoles, ...adminRoles),
+    requireFeature('crm_leads'),
     getCrmTemplate
 );
 
@@ -771,6 +780,7 @@ router.get(
     '/analytics/summary',
     protect,
     authorize(...studioRoles, ...adminRoles),
+    requireFeature('analytics'),
     validateMiddleware(analyticsQuerySchema, 'query'),
     getStudioAnalyticsSummary
 );

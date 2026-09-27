@@ -231,7 +231,7 @@ const analyzeVerblassung = asyncHandler(async (req, res) => {
     if (!isAiEnabled()) {
         mapped = aiUnavailableFallback();
     } else {
-        const featureGate = await assertAiFeatureAllowed(req.user, 'ai_verblassung');
+        const featureGate = await assertAiFeatureAllowed(req.user, 'ki_verblassung');
         if (!featureGate.allowed) {
             mapped = { ...aiUnavailableFallback(), feature_disabled: true };
         } else {

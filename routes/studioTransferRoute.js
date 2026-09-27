@@ -8,11 +8,12 @@ const {
     rejectStudioTransferSchema,
 } = require('../validators/studioTransferValidator');
 const { USER_ROLES } = require('../config/constants');
+const { requireFeature } = require('../utils/featureGate');
 
 const router = express.Router();
 
 const customerOnly = [USER_ROLES.CUSTOMER];
-const adminOnly = [USER_ROLES.ADMIN, USER_ROLES.SUPER_ADMIN];
+const adminOnly = [USER_ROLES.ADMIN, USER_ROLES.SUPER_ADMIN, USER_ROLES.DEVELOPER];
 const studioReadOnly = [USER_ROLES.STUDIO_ADMIN, USER_ROLES.STUDIO_STAFF];
 const studioAndAdmin = [...studioReadOnly, ...adminOnly];
 const allTransferRoles = [...customerOnly, ...studioAndAdmin];
@@ -68,6 +69,7 @@ router.post(
     '/',
     protect,
     authorize(...customerOnly),
+    requireFeature('studio_wechsel'),
     validate(createStudioTransferSchema),
     studioTransferController.createTransfer
 );

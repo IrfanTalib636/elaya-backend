@@ -49,6 +49,10 @@ const joinAvailabilityRooms = async (socket) => {
 
     if (isStudio(user.role) && user.studio_id) {
         socket.join(availabilityStudioRoom(refId(user.studio_id)));
+        // Same room chat / clearance notifications use — so the bell gets live
+        // events even if messaging handlers were skipped.
+        const messagingService = require('../services/messagingService');
+        socket.join(messagingService.studioRoom(refId(user.studio_id)));
         return;
     }
 

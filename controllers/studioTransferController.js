@@ -296,7 +296,8 @@ const approveTransfer = asyncHandler(async (req, res) => {
         throw new ApiError(400, 'Transfer request is not pending');
     }
 
-    if (!isAdmin(req.user.role)) {
+    const effectiveRole = req.user._impersonation?.admin_role || req.user.role;
+    if (!isAdmin(effectiveRole)) {
         throw new ApiError(403, 'Only Elaya platform admin can approve studio transfers');
     }
 
@@ -336,7 +337,8 @@ const rejectTransfer = asyncHandler(async (req, res) => {
         throw new ApiError(400, 'Transfer request is not pending');
     }
 
-    if (!isAdmin(req.user.role)) {
+    const effectiveRole = req.user._impersonation?.admin_role || req.user.role;
+    if (!isAdmin(effectiveRole)) {
         throw new ApiError(403, 'Only Elaya platform admin can reject studio transfers');
     }
 

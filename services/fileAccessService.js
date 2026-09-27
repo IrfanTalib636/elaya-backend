@@ -66,19 +66,41 @@ const assertFileAccess = async (user, fileAsset) => {
     }
 
     if (isStudio(user.role)) {
-        if (fileAsset.studio.toString() === user.studio_id.toString()) {
+        if (fileAsset.studio && fileAsset.studio.toString() === user.studio_id.toString()) {
             return;
         }
-        // Shared Case Layer: current studio can view files for assigned customers
         if (fileAsset.customer) {
             const customer = await Customer.findById(fileAsset.customer)
-                .select('aktuelle_firma_id')
+                .select('aktuelle_firma_id firma_history akquise_quelle')
                 .lean();
+            if (!customer) {
+                throw new ApiError(403, 'You do not have access to this file');
+            }
+
             if (
-                customer &&
+                customer.aktuelle_firma_id &&
                 customer.aktuelle_firma_id.toString() === user.studio_id.toString()
             ) {
                 return;
+            }
+
+            // Align with Shared Case Layer: studios that can open the customer
+            // (current or former with history) may view medical-clearance docs.
+            const { FILE_PURPOSE } = require('../config/storageConfig');
+            const { resolveStudioCustomerRelation } = require('../utils/accessHelpers');
+            const isClearance =
+                fileAsset.purpose === FILE_PURPOSE.MEDICAL_CLEARANCE ||
+                fileAsset.purpose === 'medical_clearance';
+            if (isClearance) {
+                const relation = resolveStudioCustomerRelation(user.studio_id, customer);
+                if (relation && relation.wechsel_status !== 'none') {
+                    return;
+                }
+                const hasCase = await Case.exists({
+                    customer: fileAsset.customer,
+                    studio: user.studio_id,
+                });
+                if (hasCase) return;
             }
         }
         throw new ApiError(403, 'You do not have access to this file');

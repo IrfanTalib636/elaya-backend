@@ -8,6 +8,7 @@ const {
     listAppointmentsQuerySchema,
 } = require('../validators/appointmentValidator');
 const { USER_ROLES } = require('../config/constants');
+const { requireFeature } = require('../utils/featureGate');
 
 const router = express.Router();
 
@@ -59,6 +60,7 @@ router.post(
     '/',
     protect,
     authorize(...appointmentAccessRoles),
+    requireFeature('terminbuchung'),
     validateMiddleware(createAppointmentSchema),
     appointmentController.createAppointment
 );
@@ -173,6 +175,7 @@ router.patch(
     '/:id',
     protect,
     authorize(...appointmentAccessRoles),
+    requireFeature('terminbuchung'),
     validateMiddleware(updateAppointmentSchema),
     appointmentController.updateAppointment
 );

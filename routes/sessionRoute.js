@@ -4,6 +4,7 @@ const validateMiddleware = require('../middleware/validateMiddleware');
 const { protect, authorize } = require('../middleware/authMiddleware');
 const { createSessionSchema, updateSessionSchema, listSessionsQuerySchema } = require('../validators/sessionValidator');
 const { USER_ROLES } = require('../config/constants');
+const { requireFeature } = require('../utils/featureGate');
 
 const router = express.Router();
 
@@ -58,6 +59,7 @@ router.post(
     '/',
     protect,
     authorize(...manageRoles),
+    requireFeature('sitzungsprotokoll'),
     validateMiddleware(createSessionSchema),
     sessionController.createSession
 );
@@ -154,6 +156,7 @@ router.patch(
     '/:id',
     protect,
     authorize(...manageRoles),
+    requireFeature('sitzungsprotokoll'),
     validateMiddleware(updateSessionSchema),
     sessionController.updateSession
 );

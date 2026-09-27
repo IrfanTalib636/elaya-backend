@@ -15,6 +15,7 @@ const {
     sendMessage,
     markRead,
 } = require('../controllers/platformMessagingController');
+const { requireFeature } = require('../utils/featureGate');
 
 const router = express.Router();
 
@@ -35,6 +36,7 @@ router.post(
     '/conversations',
     protect,
     authorize(...ROLES),
+    requireFeature('studio_chat'),
     validateMiddleware(openPlatformConversationSchema),
     openConversation
 );
@@ -57,6 +59,7 @@ router.post(
     '/conversations/:conversationId/messages',
     protect,
     authorize(...ROLES),
+    requireFeature('studio_chat'),
     validateMiddleware(sendPlatformMessageSchema),
     sendMessage
 );

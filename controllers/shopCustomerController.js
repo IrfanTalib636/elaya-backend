@@ -22,29 +22,49 @@ const {
     confirmPaymentIntentTest,
     retrievePaymentIntent,
 } = require('../utils/stripeService');
+const {
+    resolveProductPrice,
+    getActiveGeneralPromotion,
+} = require('../utils/shopPricingService');
 
 const round2 = (n) => Math.round(n * 100) / 100;
 
-const formatProduct = (doc) => ({
-    id: doc._id.toString(),
-    product_code: doc.product_code,
-    artikelnummer: doc.artikelnummer,
-    name: doc.name,
-    beschreibung: doc.beschreibung ?? '',
-    preis_chf: doc.preis_chf,
-    kategorie: doc.kategorie,
-    ean: doc.ean ?? '',
-    ursprung: doc.ursprung ?? '',
-    bild_url: doc.bild_url ?? '',
-    lagerbestand: doc.lagerbestand,
-    aktiv: doc.aktiv,
-});
+/** @param {object} [pricing] - optional precomputed { generalPromo, now } shared across a list request. */
+const formatProduct = (doc, pricing = {}) => {
+    const generalPromo = pricing.generalPromo ?? null;
+    const now = pricing.now ?? new Date();
+    const price = resolveProductPrice(doc, { now, generalPromo });
+
+    return {
+        id: doc._id.toString(),
+        product_code: doc.product_code,
+        artikelnummer: doc.artikelnummer,
+        name: doc.name,
+        beschreibung: doc.beschreibung ?? '',
+        // Original list price — kept for backward compatibility with older clients.
+        preis_chf: doc.preis_chf,
+        waehrung: doc.waehrung || 'CHF',
+        kategorie: doc.kategorie,
+        ean: doc.ean ?? '',
+        ursprung: doc.ursprung ?? '',
+        bild_url: doc.bild_url ?? '',
+        bilder: Array.isArray(doc.bilder) && doc.bilder.length ? doc.bilder : doc.bild_url ? [doc.bild_url] : [],
+        lagerbestand: doc.lagerbestand,
+        aktiv: doc.aktiv,
+        // Discount-aware pricing (requirement: strikethrough original + highlighted final price).
+        preis_final: price.final,
+        discount_active: price.savings > 0,
+        discount_label: price.discount_label,
+        savings: price.savings,
+    };
+};
 
 const formatCustomerOrder = (order) => ({
     id: order._id,
     order_number: order.order_number,
     produkte: order.produkte ?? [],
     total_chf: order.total_chf,
+    waehrung: order.waehrung || 'CHF',
     versandkosten: order.versandkosten ?? 0,
     brutto_chf: round2(
         (order.total_chf ?? 0) +
@@ -163,17 +183,17 @@ const listProducts = asyncHandler(async (req, res) => {
     const filter = { aktiv: true };
     if (req.query.kategorie) filter.kategorie = req.query.kategorie;
 
-    const [products, total] = await Promise.all([
+    const [products, total, categories, generalPromo] = await Promise.all([
         ShopProduct.find(filter).sort({ name: 1 }).skip(skip).limit(limit).lean(),
         ShopProduct.countDocuments(filter),
+        ShopProduct.distinct('kategorie', { aktiv: true }),
+        getActiveGeneralPromotion(),
     ]);
-
-    const categories = await ShopProduct.distinct('kategorie', { aktiv: true });
 
     res.json({
         success: true,
         data: {
-            products: products.map(formatProduct),
+            products: products.map((p) => formatProduct(p, { generalPromo })),
             categories,
             pagination: buildPaginationMeta(page, limit, total),
             shipping: {
@@ -187,7 +207,8 @@ const listProducts = asyncHandler(async (req, res) => {
 const getProduct = asyncHandler(async (req, res) => {
     const product = await resolveProduct(req.params.id);
     if (!product) throw new ApiError(404, 'Product not found');
-    res.json({ success: true, data: { product: formatProduct(product) } });
+    const generalPromo = await getActiveGeneralPromotion();
+    res.json({ success: true, data: { product: formatProduct(product, { generalPromo }) } });
 });
 
 const getShipping = asyncHandler(async (req, res) => {
@@ -228,6 +249,9 @@ const createOrder = asyncHandler(async (req, res) => {
     const { items, lieferadresse, zahlungsart, elaycoins_to_redeem } = req.body;
     const lineItems = [];
     let warenwert = 0;
+    let orderCurrency = null;
+
+    const generalPromo = await getActiveGeneralPromotion();
 
     for (const item of items) {
         const product = await resolveProduct(item.produkt_id);
@@ -238,13 +262,29 @@ const createOrder = asyncHandler(async (req, res) => {
             throw new ApiError(400, `Insufficient stock for ${product.name}`);
         }
         const menge = item.menge;
-        const line = round2(product.preis_chf * menge);
+        // Apply active product + general discounts at checkout (client requirement #4/#5).
+        const price = resolveProductPrice(product, { generalPromo });
+        const currency = price.currency;
+        if (orderCurrency && orderCurrency !== currency) {
+            throw new ApiError(
+                400,
+                `Cannot mix currencies in one order (${orderCurrency} and ${currency}) — please order separately`
+            );
+        }
+        orderCurrency = currency;
+
+        const line = round2(price.final * menge);
         warenwert = round2(warenwert + line);
         lineItems.push({
             produkt_id: product._id.toString(),
             produkt_name: product.name,
             menge,
-            preis_chf: product.preis_chf,
+            // Unit price actually charged (post-discount) — kept as `preis_chf` for
+            // backward compatibility with existing order records/UI.
+            preis_chf: price.final,
+            preis_original: price.original,
+            waehrung: currency,
+            discount_label: price.discount_label,
         });
     }
 
@@ -282,6 +322,7 @@ const createOrder = asyncHandler(async (req, res) => {
         order_number: await nextOrderNumber(),
         produkte: lineItems,
         total_chf: warenwert,
+        waehrung: orderCurrency || 'CHF',
         versandkosten,
         lieferland: land,
         lieferadresse: {

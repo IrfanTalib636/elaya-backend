@@ -6,7 +6,12 @@ const shopOrderItemSchema = new mongoose.Schema(
         produkt_id: { type: String, trim: true, default: '' },
         produkt_name: { type: String, required: true, trim: true },
         menge: { type: Number, required: true, min: 1 },
+        /** Unit price actually charged (post product/general discount). */
         preis_chf: { type: Number, required: true, min: 0 },
+        /** Catalog list price before discount — optional, absent on legacy orders. */
+        preis_original: { type: Number, min: 0 },
+        waehrung: { type: String, enum: ['CHF', 'EUR'], default: 'CHF' },
+        discount_label: { type: String, trim: true, default: '' },
     },
     { _id: false }
 );
@@ -46,11 +51,17 @@ const shopOrderSchema = new mongoose.Schema(
             type: [shopOrderItemSchema],
             default: [],
         },
-        /** Merchandise total (warenwert) — shipping is separate in versandkosten */
+        /** Merchandise total (warenwert) in `waehrung` — shipping is separate in versandkosten */
         total_chf: {
             type: Number,
             required: true,
             min: 0,
+        },
+        /** Order currency — all line items share this currency (checkout enforces no mixing). */
+        waehrung: {
+            type: String,
+            enum: ['CHF', 'EUR'],
+            default: 'CHF',
         },
         versandkosten: {
             type: Number,

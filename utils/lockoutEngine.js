@@ -230,6 +230,8 @@ const serializeSperre = (sperre) => ({
     ...(sperre.kategorie ? { kategorie: sperre.kategorie } : {}),
     ...(sperre.tage != null ? { tage: sperre.tage } : {}),
     ...(sperre.case_name ? { case_name: sperre.case_name } : {}),
+    ...(sperre.clearance_status ? { clearance_status: sperre.clearance_status } : {}),
+    ...(sperre.indefinite ? { indefinite: true } : {}),
 });
 
 const serializeFreeWindow = (window) => ({
@@ -253,6 +255,7 @@ const berechneAlleSperren = ({
     consultationOnly = false,
     lockoutDisabled = false,
     sperrfristen = null,
+    medicalClearance = null,
 }) => {
     const {
         same_case_tage: SAME_CASE_DAYS,
@@ -283,6 +286,40 @@ const berechneAlleSperren = ({
     }
 
     const sperren = [];
+
+    // Customer-level medical clearance: blocks treatment until studio verifies document.
+    // Upload alone must not unlock — only status === verified clears this.
+    // Also honour meds in the current pre-session answers (before DB is updated).
+    const {
+        treatmentBlockedByClearance,
+        clearanceRequiredMedKeys,
+    } = require('./medicalClearanceService');
+    const preSessionNeedsClearance =
+        clearanceRequiredMedKeys(preSessionCheck?.medikamente || [], sperrfristen).length > 0 &&
+        medicalClearance?.status !== 'verified';
+    if (
+        treatmentBlockedByClearance(medicalClearance) ||
+        preSessionNeedsClearance
+    ) {
+        const status =
+            medicalClearance?.status && medicalClearance.status !== 'not_required'
+                ? medicalClearance.status
+                : 'required';
+        const msg =
+            status === 'pending_review'
+                ? 'Medical clearance pending studio verification of doctor\'s certificate'
+                : status === 'rejected'
+                  ? 'Medical clearance rejected — please upload a valid doctor\'s certificate'
+                  : 'Medical clearance required — upload a doctor\'s certificate for studio review';
+        sperren.push(
+            mkSperre(heute, 'global', `🩺 ${msg}`, addDays(heute, 3650), {
+                kategorie: 'medical_clearance',
+                tage: null,
+                indefinite: true,
+                clearance_status: status,
+            })
+        );
+    }
 
     if (activeCase) {
         const activeSessions = sessionsByCase.get(activeCaseIdStr) || [];
@@ -472,7 +509,10 @@ const berechneAlleSperren = ({
             );
         }
     }
-    if (meds.includes('antidepressiva')) {
+    // Antidepressants: when platform condition_locks say MEDICAL_CLEARANCE_REQUIRED,
+    // do NOT apply a day-count lock — customer-level clearance gate handles it.
+    const { medUsesClearanceNotDateLock } = require('./medicalClearanceService');
+    if (meds.includes('antidepressiva') && !medUsesClearanceNotDateLock('antidepressiva', sperrfristen)) {
         const until = addDays(intakeDate, MED_SHORT_DAYS);
         if (until > heute) {
             sperren.push(
@@ -624,6 +664,11 @@ const computeAvailability = async ({
         activeCase?.studio || null
     );
 
+    const Customer = require('../models/customerModel');
+    const customerDoc = await Customer.findById(customerId)
+        .select('medical_clearance')
+        .lean();
+
     const { sperren, frei_fenster, fruehestes: lockoutEarliest } = berechneAlleSperren({
         activeCaseId,
         cases: context.cases,
@@ -633,6 +678,7 @@ const computeAvailability = async ({
         consultationOnly,
         lockoutDisabled: activeCase ? isLockoutDisabled(activeCase) : false,
         sperrfristen,
+        medicalClearance: customerDoc?.medical_clearance || null,
     });
 
     // A studio may require a lead time; it can only push the earliest date later.
@@ -720,22 +766,44 @@ const computeAvailability = async ({
     };
 };
 
-const isBookingDateAllowed = (date, availability) => {
+const isBookingDateAllowed = (date, availability, lang = 'de') => {
     const dayKey = toDateKey(date);
+    const en = lang === 'en';
 
     if (dayKey < availability.fruehestes) {
         return {
             allowed: false,
-            message: `Termin zu früh. Frühestens buchbar ab ${availability.fruehestes} (Sperrfrist).`,
+            message: en
+                ? `Too early. Earliest bookable date is ${availability.fruehestes} (blocking period).`
+                : `Termin zu früh. Frühestens buchbar ab ${availability.fruehestes} (Sperrfrist).`,
             fruehestes: availability.fruehestes,
+            code: 'lockout_too_early',
+        };
+    }
+
+    const clearance = (availability.sperren || []).find(
+        (s) => s.kategorie === 'medical_clearance'
+    );
+    if (clearance) {
+        return {
+            allowed: false,
+            message: en
+                ? 'Medical clearance required. Please upload a doctor\'s certificate and wait for studio verification before booking treatment. Consultations stay bookable.'
+                : 'Ärztliche Freigabe nötig. Bitte lade ein Attest hoch und warte auf die Studio-Prüfung, bevor du eine Behandlung buchst. Beratungen bleiben buchbar.',
+            fruehestes: availability.fruehestes,
+            code: 'medical_clearance_required',
+            clearance_status: clearance.clearance_status || null,
         };
     }
 
     if (availability.blocked_dates.includes(dayKey)) {
         return {
             allowed: false,
-            message: 'Dieser Tag ist durch eine aktive Sperrfrist blockiert.',
+            message: en
+                ? 'This day is blocked by an active locking period.'
+                : 'Dieser Tag ist durch eine aktive Sperrfrist blockiert.',
             fruehestes: availability.fruehestes,
+            code: 'lockout_blocked',
         };
     }
 
@@ -750,6 +818,7 @@ const assertBookingDateAllowed = async ({
     consultationOnly = false,
     preSessionCheck = {},
     standortId = null,
+    lang = 'de',
 }) => {
     const availability = await computeAvailability({
         activeCaseId: caseId,
@@ -761,26 +830,49 @@ const assertBookingDateAllowed = async ({
         standortId,
     });
     const dayKey = toDateKey(date);
+    const en = lang === 'en';
+    const ApiError = require('./ApiError');
+
     if (availability.spaetestes && dayKey > availability.spaetestes) {
-        const ApiError = require('./ApiError');
         throw new ApiError(
             400,
-            `Termine können nur bis ${availability.spaetestes} gebucht werden.`,
-            { spaetestes: availability.spaetestes }
+            en
+                ? `Appointments can only be booked until ${availability.spaetestes}.`
+                : `Termine können nur bis ${availability.spaetestes} gebucht werden.`,
+            { spaetestes: availability.spaetestes, code: 'beyond_horizon' }
         );
     }
 
-    if (availability.blocked_dates.includes(dayKey)) {
-        const ApiError = require('./ApiError');
-        throw new ApiError(400, 'Das Studio ist an diesem Tag geschlossen.');
+    // Treatment lockouts / medical clearance — never mislabel as "studio closed"
+    if (!consultationOnly) {
+        const result = isBookingDateAllowed(date, availability, lang);
+        if (!result.allowed) {
+            throw new ApiError(400, result.message, {
+                fruehestes: result.fruehestes,
+                code: result.code,
+                clearance_status: result.clearance_status || null,
+            });
+        }
     }
 
-    if (!consultationOnly) {
-        const result = isBookingDateAllowed(date, availability);
-        if (!result.allowed) {
-            const ApiError = require('./ApiError');
-            throw new ApiError(400, result.message, { fruehestes: result.fruehestes });
-        }
+    // Studio closed / hours: only when day is blocked but not by a lockout window
+    const lockoutHit = (availability.sperren || []).some((s) => {
+        const von = s.von;
+        const bis = s.bis;
+        return von && bis && dayKey >= von && dayKey < bis;
+    });
+    if (
+        availability.blocked_dates.includes(dayKey) &&
+        !lockoutHit &&
+        dayKey >= availability.fruehestes
+    ) {
+        throw new ApiError(
+            400,
+            en
+                ? 'The studio is closed on this day.'
+                : 'Das Studio ist an diesem Tag geschlossen.',
+            { code: 'studio_closed' }
+        );
     }
 
     if (time) {
@@ -807,16 +899,26 @@ const assertBookingDateAllowed = async ({
                 );
                 const hhmm = String(time).slice(0, 5);
                 if (!generated.time_slots.includes(hhmm)) {
-                    const ApiError = require('./ApiError');
-                    throw new ApiError(400, 'This time is outside studio opening hours.');
+                    throw new ApiError(
+                        400,
+                        en
+                            ? 'This time is outside studio opening hours.'
+                            : 'Diese Uhrzeit liegt ausserhalb der Öffnungszeiten.',
+                        { code: 'outside_hours' }
+                    );
                 }
             }
         }
         if (isSlotOccupied(availability.occupied_times, dayKey, time)) {
-            const ApiError = require('./ApiError');
-            throw new ApiError(400, 'This time slot is already booked.');
+            throw new ApiError(
+                400,
+                en ? 'This time slot is already booked.' : 'Dieser Zeitslot ist bereits gebucht.',
+                { code: 'slot_occupied' }
+            );
         }
     }
+
+    return availability;
 };
 
 module.exports = {

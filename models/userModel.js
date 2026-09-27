@@ -87,6 +87,15 @@ const userSchema = new mongoose.Schema(
             type: Date,
             default: null,
         },
+        /**
+         * Customer app UI language (synced from mobile `?lang=`).
+         * Automations / reminders use this for DE vs EN copy.
+         */
+        preferred_language: {
+            type: String,
+            enum: ['de', 'en'],
+            default: 'de',
+        },
         // Expo push tokens of the user's signed-in devices (customer mobile app).
         push_tokens: [
             {

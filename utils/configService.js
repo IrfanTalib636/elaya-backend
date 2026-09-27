@@ -14,7 +14,63 @@ const {
     normalizePackagesList,
     normalizeKiGewichtungen,
     derivePlanConfigFromPackages,
+    defaultSubscriptionPackages,
 } = require('../config/subscriptionPackages');
+const {
+    migrateFeatureKeyList,
+    migrateFeatureMap,
+    FEATURE_GROUPS,
+    LEGACY_FEATURE_ALIASES,
+} = require('../config/featureCatalog');
+
+/** Canonical package ids that get auto-upgraded when they still hold the pre-catalog feature list. */
+const CANONICAL_PACKAGE_IDS = ['starter', 'pro', 'network'];
+/** Starter should have ~18 features under the 30-key catalog; anything under this is pre-migration. */
+const MIN_STARTER_FEATURES = 10;
+
+/**
+ * True when a stored `subscription_packages` list is still on the old (pre-catalog)
+ * feature shape: canonical starter/pro/network entries whose raw features are legacy
+ * aliases (booking/cases/…), or whose normalized starter list is too small / missing
+ * `case_basic`. Custom (non-canonical) package ids are never considered stale.
+ */
+const packagesLookStale = (rawList, normalizedList) => {
+    const rawById = Object.fromEntries(
+        (Array.isArray(rawList) ? rawList : [])
+            .filter((p) => p && typeof p === 'object')
+            .map((p) => [String(p.id || '').trim().toLowerCase(), p])
+    );
+    for (const id of CANONICAL_PACKAGE_IDS) {
+        const rawFeatures = Array.isArray(rawById[id]?.features) ? rawById[id].features : null;
+        if (
+            rawFeatures &&
+            rawFeatures.some((k) => Object.prototype.hasOwnProperty.call(LEGACY_FEATURE_ALIASES, k))
+        ) {
+            return true;
+        }
+    }
+    const starter = normalizedList.find((p) => p.id === 'starter');
+    if (starter) {
+        if (!Array.isArray(starter.features) || starter.features.length < MIN_STARTER_FEATURES) {
+            return true;
+        }
+        if (!starter.features.includes('case_basic')) {
+            return true;
+        }
+    }
+    return false;
+};
+
+/** Replace starter/pro/network `features` with the 30-key defaults, keeping price/limits/name intact. */
+const upgradeStalePackageFeatures = (normalizedList) => {
+    const defaultsById = Object.fromEntries(defaultSubscriptionPackages().map((p) => [p.id, p]));
+    return normalizedList.map((pkg) => {
+        if (!CANONICAL_PACKAGE_IDS.includes(pkg.id)) return pkg;
+        const def = defaultsById[pkg.id];
+        if (!def) return pkg;
+        return { ...pkg, features: [...def.features] };
+    });
+};
 const { DEFAULT_PRICING_CONFIG } = require('../config/pricingDefaults');
 const { mergeSessionPrediction } = require('../config/sessionPredictionDefaults');
 const { ELAYCOIN_SITUATIONS } = require('../config/elaycoinConfig');
@@ -144,23 +200,33 @@ const mergePlatformConfig = (doc) => {
             ...(merged.shop_shipping || {}),
         },
         gruppen_groessen: merged.gruppen_groessen,
-        subscription_plans: {
-            ...PLATFORM_CONFIG_DEFAULTS.subscription_plans,
-            ...(merged.subscription_plans || {}),
-        },
+        subscription_plans: Object.fromEntries(
+            Object.entries({
+                ...PLATFORM_CONFIG_DEFAULTS.subscription_plans,
+                ...(merged.subscription_plans || {}),
+            }).map(([planKey, list]) => [
+                planKey,
+                migrateFeatureKeyList(Array.isArray(list) ? list : []),
+            ])
+        ),
         subscription_seat_limits: {
             ...PLATFORM_CONFIG_DEFAULTS.subscription_seat_limits,
             ...(merged.subscription_seat_limits || {}),
         },
-        subscription_packages: normalizePackagesList(
-            Array.isArray(merged.subscription_packages) && merged.subscription_packages.length
-                ? merged.subscription_packages
-                : PLATFORM_CONFIG_DEFAULTS.subscription_packages
-        ),
+        subscription_packages: (() => {
+            const rawPackagesInput =
+                Array.isArray(merged.subscription_packages) && merged.subscription_packages.length
+                    ? merged.subscription_packages
+                    : PLATFORM_CONFIG_DEFAULTS.subscription_packages;
+            const normalized = normalizePackagesList(rawPackagesInput);
+            return packagesLookStale(rawPackagesInput, normalized)
+                ? upgradeStalePackageFeatures(normalized)
+                : normalized;
+        })(),
         ki_gewichtungen: normalizeKiGewichtungen(
             merged.ki_gewichtungen || PLATFORM_CONFIG_DEFAULTS.ki_gewichtungen
         ),
-        feature_global: merged.feature_global || {},
+        feature_global: migrateFeatureMap(merged.feature_global || {}),
         session_prediction: mergeSessionPrediction(merged.session_prediction),
         default_pricing: pickStudioPricing(merged.default_pricing || {}),
     };
@@ -243,10 +309,14 @@ const validateSessionPredictionPatch = (patch) => {
     }
 };
 
+/** Nested object keys inside sperrfristen (not day-count numbers). */
+const SPERRFRISTEN_OBJECT_KEYS = new Set(['condition_locks', 'studio_exceptions']);
+
 /**
  * Every value in a numeric settings block must be a known key and a
  * non-negative number. Shared by the platform and studio update paths so both
- * reject the same input.
+ * reject the same input. Sperrfristen also allows condition_locks /
+ * studio_exceptions objects (Medical & Safety).
  */
 const assertNumericBlockPatch = (block, patch) => {
     if (patch === undefined) return;
@@ -257,6 +327,12 @@ const assertNumericBlockPatch = (block, patch) => {
     for (const [key, value] of Object.entries(patch)) {
         if (!allowed.includes(key)) {
             throw new ApiError(400, `Unknown ${block} field: ${key}`);
+        }
+        if (block === 'sperrfristen' && SPERRFRISTEN_OBJECT_KEYS.has(key)) {
+            if (value !== undefined && (typeof value !== 'object' || Array.isArray(value) || value == null)) {
+                throw new ApiError(400, `${block}.${key} must be an object`);
+            }
+            continue;
         }
         if (value !== undefined && (typeof value !== 'number' || value < 0)) {
             throw new ApiError(400, `${block}.${key} must be a non-negative number`);
@@ -1047,6 +1123,7 @@ const rollbackConfigVersion = async (domain, version, { userId = null, reason = 
 
 module.exports = {
     mergePlatformConfig,
+    FEATURE_GROUPS,
     assertBlockInvariants,
     getPlatformConfig,
     ensurePlatformConfig,

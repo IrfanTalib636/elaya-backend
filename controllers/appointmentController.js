@@ -12,6 +12,7 @@ const { syncCustomerPipeline } = require('../utils/pipelineEngine');
 const { formatApptStamp } = require('../utils/activityLog');
 const { emitAvailabilityChanged } = require('../sockets/availabilityEmit');
 const { refId } = require('../utils/accessHelpers');
+const { isFeatureEnabled } = require('../utils/featureService');
 const {
     USER_ROLES,
     APPOINTMENT_TYPE,
@@ -280,10 +281,25 @@ const createAppointment = asyncHandler(async (req, res) => {
 
     assertCaseAccess(req.user, primaryCase);
 
+    // Customers booking their own appointment need the online-booking flag on top
+    // of the base `terminbuchung` gate applied at the route level.
+    if (req.user.role === USER_ROLES.CUSTOMER) {
+        const onlineBuchungOk = await isFeatureEnabled(primaryCase.studio, 'online_buchung');
+        if (!onlineBuchungOk) {
+            throw new ApiError(403, 'Feature online_buchung is disabled for this studio');
+        }
+    }
+
     const extraGroupIds = Array.isArray(gruppen_cases) ? gruppen_cases : [];
     // The case list decides, not the flag: requiring both meant a payload with
     // gruppen_cases but no gruppen_termin silently booked only the primary case.
     const isGroup = extraGroupIds.length > 0;
+    if (isGroup) {
+        const gruppenBuchungOk = await isFeatureEnabled(primaryCase.studio, 'gruppen_buchung');
+        if (!gruppenBuchungOk) {
+            throw new ApiError(403, 'Feature gruppen_buchung is disabled for this studio');
+        }
+    }
     const groupCases = isGroup
         ? await loadCasesForGroup(primaryCase, extraGroupIds, req.user)
         : [primaryCase];
@@ -316,8 +332,12 @@ const createAppointment = asyncHandler(async (req, res) => {
             const overrides = await getEffectivePricingOverrides(caseDoc.studio);
             prices.push(calculatePrice(pricingInput, overrides).pricePerSession || 0);
         }
-        const priced = calcGroupPricingFromPrices(prices, gg);
-        body.gruppen_rabatt = gg.gruppen_rabatt;
+        const gruppenRabattOk = await isFeatureEnabled(primaryCase.studio, 'gruppen_rabatt');
+        const ggForPrice = gruppenRabattOk
+            ? gg
+            : { ...gg, gruppen_rabatt: 0 };
+        const priced = calcGroupPricingFromPrices(prices, ggForPrice);
+        body.gruppen_rabatt = gruppenRabattOk ? gg.gruppen_rabatt : 0;
         body.gruppen_preis_total = priced.gesamt;
     }
 
@@ -347,6 +367,7 @@ const createAppointment = asyncHandler(async (req, res) => {
 
     const preSessionCheck = await resolvePreSessionForCustomerBooking(primaryCase, body, req.user);
 
+    const bookingLang = req.query.lang === 'en' ? 'en' : 'de';
     for (const caseDoc of groupCases) {
         await assertBookingDateAllowed({
             caseId: caseDoc._id,
@@ -356,6 +377,7 @@ const createAppointment = asyncHandler(async (req, res) => {
             consultationOnly: !isTreatmentBooking(body),
             preSessionCheck: isTreatmentBooking(body) ? preSessionCheck : {},
             standortId: standort.standort_id || null,
+            lang: bookingLang,
         });
     }
 
@@ -527,6 +549,7 @@ const updateAppointment = asyncHandler(async (req, res) => {
                 consultationOnly: false,
                 preSessionCheck,
                 standortId: effectiveStandortId || null,
+                lang: req.query.lang === 'en' ? 'en' : 'de',
             });
         }
     }

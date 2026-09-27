@@ -13,6 +13,7 @@ dotenv.config();
 
 const connectDB = require('./config/db');
 const { ensureUploadRoot } = require('./services/fileStorageService');
+const { UPLOAD_ROOT } = require('./config/storageConfig');
 const { setupSwagger, isSwaggerEnabled } = require('./config/swagger');
 const apiRoutes = require('./routes');
 const wellKnownRoute = require('./routes/wellKnownRoute');
@@ -40,6 +41,13 @@ app.use(
             res.setHeader('Cache-Control', 'public, max-age=300');
         },
     })
+);
+
+// ElayShop product photos — public catalog imagery, not sensitive PII, so it
+// is served directly (unlike /files/:id/content which is auth-gated).
+app.use(
+    '/shop-images',
+    express.static(path.join(UPLOAD_ROOT, 'shop-products'), { maxAge: '7d' })
 );
 
 // Fallback page when the mobile app is not installed (universal link opens in browser).
@@ -171,6 +179,13 @@ const startServer = async () => {
         const port = process.env.PORT || 4000;
 
         initSocket(httpServer);
+
+        try {
+            const { startAutomationsScheduler } = require('./jobs/automationsScheduler');
+            startAutomationsScheduler();
+        } catch (err) {
+            console.error('Automations scheduler failed to start:', err.message);
+        }
 
         httpServer.listen(port, '0.0.0.0', () => {
             console.log(`Server is running on http://localhost:${port}`);

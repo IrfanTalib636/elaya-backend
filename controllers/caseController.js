@@ -17,6 +17,7 @@ const {
     formatCustomerPreview,
 } = require('../utils/pricingEngine');
 const { getEffectivePricingOverrides } = require('../utils/configService');
+const { isFeatureEnabled } = require('../utils/featureService');
 const {
     USER_ROLES,
     CASE_TYPE,
@@ -570,6 +571,12 @@ const createCase = asyncHandler(async (req, res) => {
     if (caseFields.zonen_aktiv && zonen.length > 0 && (zonen.length < 2 || zonen.length > 8)) {
         throw new ApiError(400, 'Zone mode requires between 2 and 8 zones');
     }
+    if (caseFields.zonen_aktiv) {
+        const zonenOk = await isFeatureEnabled(studioId, 'case_zonen');
+        if (!zonenOk) {
+            throw new ApiError(403, 'Feature case_zonen is disabled for this studio');
+        }
+    }
 
     let caseDoc = null;
     let zoneDocs = [];
@@ -818,10 +825,23 @@ const getCase = asyncHandler(async (req, res) => {
     if (access.transferiert) formatted.transferiert = true;
     if (access.read_only) formatted.read_only = true;
 
+    // Customer-level medical clearance — visible on every tattoo case
+    let medical_clearance = null;
+    try {
+        const { serializeClearance } = require('../utils/medicalClearanceService');
+        const Customer = require('../models/customerModel');
+        const custId = caseDoc.customer?._id || caseDoc.customer;
+        const cust = await Customer.findById(custId).select('medical_clearance').lean();
+        medical_clearance = serializeClearance(cust?.medical_clearance);
+    } catch (err) {
+        console.error('Case medical_clearance attach failed:', err.message);
+    }
+
     res.status(200).json({
         success: true,
         data: {
             case: formatted,
+            medical_clearance,
         },
     });
 });
@@ -857,6 +877,12 @@ const updateCase = asyncHandler(async (req, res) => {
         (req.body.zonen.length < 2 || req.body.zonen.length > 8)
     ) {
         throw new ApiError(400, 'Zone mode requires between 2 and 8 zones');
+    }
+    if (req.body.zonen_aktiv) {
+        const zonenOk = await isFeatureEnabled(caseDoc.studio, 'case_zonen');
+        if (!zonenOk) {
+            throw new ApiError(403, 'Feature case_zonen is disabled for this studio');
+        }
     }
 
     let zoneDocs = await applyCaseUpdate(caseDoc, req.body, req.user, req);

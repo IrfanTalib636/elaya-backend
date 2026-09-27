@@ -42,6 +42,7 @@ const formatCustomerProfileForMe = async (customer) => {
     const firma = customer.aktuelle_firma_id;
     const studioEmbed = buildStudioEmbed(firma);
     const firma_timeline = await formatFirmaTimeline(customer.firma_history ?? []);
+    const { serializeClearance } = require('./medicalClearanceService');
 
     return {
         ...customer,
@@ -53,6 +54,7 @@ const formatCustomerProfileForMe = async (customer) => {
         firma_timeline,
         firma_history: firma_timeline,
         elaycoins_balance: customer.elaycoins?.balance ?? 0,
+        medical_clearance: serializeClearance(customer.medical_clearance),
     };
 };
 

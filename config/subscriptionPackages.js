@@ -10,7 +10,7 @@
  * Editable copy lives on platform_config.subscription_packages; this file is the seed.
  */
 
-const { FEATURE_KEYS } = require('./featureCatalog');
+const { FEATURE_KEYS, migrateFeatureKeyList } = require('./featureCatalog');
 
 const PLAN_TO_PACKAGE = {
     basic: 'starter',
@@ -59,8 +59,38 @@ const DEFAULT_KI_GEWICHTUNGEN = {
     studio_ki_chat: 1,
 };
 
-const STARTER_FEATURES = ['booking', 'cases', 'elaycoins', 'anamnesis'];
-const PRO_EXTRA = ['elayshop', 'group_booking', 'crm', 'analytics', 'messaging'];
+/** Prototype STARTER_FEATURES / PRO_EXTRA / Network = all keys */
+const STARTER_FEATURES = [
+    'case_basic',
+    'case_zonen',
+    'terminbuchung',
+    'sitzungsprotokoll',
+    'anamnese',
+    'unterschrift',
+    'tattoocase_simulator',
+    'ki_nachsorge',
+    'ki_verblassung',
+    'ki_studio_assistent',
+    'online_buchung',
+    'plattform_gebuehren',
+    'elaya_chat_kunde',
+    'chat_studio_kunde',
+    'studio_chat',
+    'elaycoins_basic',
+    'elayshop',
+    'multi_mitarbeiter',
+];
+const PRO_EXTRA = [
+    'gruppen_buchung',
+    'analytics',
+    'crm_leads',
+    'export_rechte',
+    'automatisierungen',
+    'elaycoins_erweitert',
+    'studio_wechsel',
+    'gruppen_rabatt',
+    'shop_provision',
+];
 const NETWORK_FEATURES = [...FEATURE_KEYS];
 
 const packageLimitsDefault = (id) => {
@@ -184,9 +214,9 @@ const normalizePackage = (raw = {}) => {
     if (limits.shop_provision_prozent == null || limits.shop_provision_prozent < 0) {
         limits.shop_provision_prozent = baseLimits.shop_provision_prozent;
     }
-    const features = Array.isArray(raw.features)
-        ? raw.features.filter((k) => FEATURE_KEYS.includes(k))
-        : [];
+    const features = migrateFeatureKeyList(
+        Array.isArray(raw.features) ? raw.features : []
+    ).filter((k) => FEATURE_KEYS.includes(k));
     const plan =
         PACKAGE_TO_PLAN[id] ||
         (['basic', 'professional', 'enterprise'].includes(raw.plan) ? raw.plan : 'basic');

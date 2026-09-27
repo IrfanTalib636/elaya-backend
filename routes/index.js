@@ -51,5 +51,6 @@ router.use('/lasers', require('./laserRoute'));
 router.use('/ai-config', require('./aiConfigRoute'));
 router.use('/push-tokens', pushTokenRoute);
 router.use('/notifications', notificationRoute);
+router.use('/medical-clearance', require('./medicalClearanceRoute'));
 
 module.exports = router;
