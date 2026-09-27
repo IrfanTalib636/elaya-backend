@@ -233,6 +233,16 @@ const patchPlatformConfigSchema = z
                     )
                     .optional(),
                 aftercare_extra_max: z.record(z.string(), z.number()).optional(),
+                lifestyle_bmi_floors: z
+                    .array(
+                        z
+                            .object({
+                                min_bmi: z.number().min(0).max(100),
+                                min_score: z.number().min(0).max(30),
+                            })
+                            .strict()
+                    )
+                    .optional(),
             })
             .strict()
             .optional(),
@@ -266,6 +276,16 @@ const sessionPredictionPreviewSchema = z
                     )
                     .optional(),
                 aftercare_extra_max: z.record(z.string(), z.number()).optional(),
+                lifestyle_bmi_floors: z
+                    .array(
+                        z
+                            .object({
+                                min_bmi: z.number().min(0).max(100),
+                                min_score: z.number().min(0).max(30),
+                            })
+                            .strict()
+                    )
+                    .optional(),
             })
             .strict()
             .optional(),
