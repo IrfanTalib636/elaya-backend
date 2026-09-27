@@ -137,7 +137,10 @@ const sendChat = asyncHandler(async (req, res) => {
             : `Heute: ${new Date().toLocaleDateString('de-CH')}\nAdmin-Modus — kein Studio-Kontext geladen.`;
     }
 
-    const featureGate = await assertAiFeatureAllowed(req.user, 'ai_chat');
+    const featureGate = await assertAiFeatureAllowed(
+        req.user,
+        customerUser ? 'elaya_chat_kunde' : 'ki_studio_assistent'
+    );
     if (!featureGate.allowed || !isAiEnabled()) {
         return res.status(200).json({
             success: true,

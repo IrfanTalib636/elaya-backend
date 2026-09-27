@@ -10,6 +10,7 @@ const {
 const { USER_ROLES } = require('../config/constants');
 const { paginationQueryFields } = require('../validators/paginationValidator');
 const { z } = require('zod');
+const { requireFeature } = require('../utils/featureGate');
 
 const router = express.Router();
 
@@ -174,6 +175,7 @@ router.post(
     '/orders',
     protect,
     authorize(...customerOnly),
+    requireFeature('elayshop'),
     validate(createShopOrderSchema),
     shopCustomerController.createOrder
 );
@@ -182,6 +184,7 @@ router.post(
     '/orders/:id/confirm-payment',
     protect,
     authorize(...customerOnly),
+    requireFeature('elayshop'),
     shopCustomerController.confirmOrderPayment
 );
 

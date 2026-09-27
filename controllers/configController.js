@@ -14,7 +14,8 @@ const {
     rollbackConfigVersion,
     VERSIONED_CONFIG_DOMAINS,
 } = require('../utils/configService');
-const { getEffectiveFeaturesForStudio, FEATURE_CATALOG } = require('../utils/featureService');
+const { getEffectiveFeaturesForStudio, FEATURE_CATALOG, FEATURE_GROUPS } = require('../utils/featureService');
+const { migrateFeatureMap } = require('../config/featureCatalog');
 const { isAdmin, isStudio } = require('../utils/accessHelpers');
 const { USER_ROLES } = require('../config/constants');
 const Studio = require('../models/studioModel');
@@ -310,6 +311,12 @@ const patchStudioConfigHandler = asyncHandler(async (req, res) => {
                 'Use automatisierungen_overrides to change studio-editable automation fields'
             );
         }
+        if (patch.automatisierungen_overrides !== undefined) {
+            const { features } = await getEffectiveFeaturesForStudio(studio._id);
+            if (!features.automatisierungen) {
+                throw new ApiError(403, 'Feature automatisierungen is disabled for this studio');
+            }
+        }
     } else if (req.user.role !== USER_ROLES.SUPER_ADMIN) {
         if (patch.studio_pricing !== undefined) {
             throw new ApiError(403, 'Only super admin can change price calculation rules');
@@ -370,11 +377,12 @@ const getFeatureCatalog = asyncHandler(async (_req, res) => {
         success: true,
         data: {
             catalog: FEATURE_CATALOG,
+            groups: FEATURE_GROUPS,
             subscription_plans: platform.subscription_plans,
             subscription_seat_limits: platform.subscription_seat_limits,
             subscription_packages: platform.subscription_packages,
             ki_gewichtungen: platform.ki_gewichtungen,
-            feature_global: platform.feature_global || {},
+            feature_global: migrateFeatureMap(platform.feature_global || {}),
             shop_provision_prozent: platform.shop_provision_prozent,
             stripe_connect_enabled: Boolean(
                 process.env.STRIPE_SECRET_KEY && String(process.env.STRIPE_SECRET_KEY).trim()

@@ -167,11 +167,27 @@ function resolveWarnstufe(tageBis, forStudio) {
 
 async function getCoinVerfallStatus(customerId, { forStudio = false, studioId = null } = {}) {
     const [customer, platform] = await Promise.all([
-        Customer.findById(customerId).select('elaycoins.balance').lean(),
+        Customer.findById(customerId).select('elaycoins.balance aktuelle_firma_id').lean(),
         getPlatformConfig(),
     ]);
     const balance = customer?.elaycoins?.balance ?? 0;
     const letzteAktivitaet = await berechneLetzteAktivitaet(customerId);
+
+    // Advanced expiry is a separate feature flag (prototype elaycoins_erweitert).
+    const { isFeatureEnabled } = require('./featureService');
+    const studioForFlag = studioId || customer?.aktuelle_firma_id || null;
+    const advancedOk = await isFeatureEnabled(studioForFlag, 'elaycoins_erweitert');
+    if (!advancedOk) {
+        return {
+            balance,
+            letzteAktivitaet,
+            verfaelltAm: null,
+            tageBis: null,
+            warnstufe: 'keine',
+            expiry_enabled: false,
+        };
+    }
+
     const verfallMonate = platform.verfallMonate;
 
     const verfaelltAm = new Date(letzteAktivitaet.getTime());
@@ -189,6 +205,7 @@ async function getCoinVerfallStatus(customerId, { forStudio = false, studioId = 
         verfaelltAm,
         tageBis,
         warnstufe: resolveWarnstufe(tageBis, forStudio),
+        expiry_enabled: true,
     };
 }
 

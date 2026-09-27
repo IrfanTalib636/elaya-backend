@@ -11,6 +11,7 @@ const { bookingPrecheckBodySchema } = require('../validators/bookingPrecheckVali
 const { updateKlaerungSchema, updateStudioFreigabeSchema } = require('../validators/klaerungValidator');
 const { submitSignatureSchema, merkblattQuerySchema } = require('../validators/signatureValidator');
 const { USER_ROLES } = require('../config/constants');
+const { requireFeature } = require('../utils/featureGate');
 
 const router = express.Router();
 
@@ -89,6 +90,7 @@ router.post(
     '/',
     protect,
     authorize(...caseAccessRoles),
+    requireFeature('case_basic'),
     validateMiddleware(createCaseSchema),
     caseController.createCase
 );
@@ -453,6 +455,7 @@ router.post(
     '/:id/anamnesis/preview',
     protect,
     authorize(...caseAccessRoles),
+    requireFeature('anamnese'),
     validateMiddleware(previewAnamnesisSchema),
     anamnesisController.previewCaseAnamnesis
 );
@@ -489,6 +492,7 @@ router.put(
     '/:id/anamnesis',
     protect,
     authorize(...caseAccessRoles),
+    requireFeature('anamnese'),
     validateMiddleware(upsertAnamnesisSchema),
     anamnesisController.upsertCaseAnamnesis
 );
@@ -727,6 +731,7 @@ router.post(
     '/:id/signature',
     protect,
     authorize(...caseAccessRoles),
+    requireFeature('unterschrift'),
     validateMiddleware(submitSignatureSchema),
     signatureController.submitCaseSignature
 );
@@ -803,6 +808,7 @@ router.patch(
     '/:id',
     protect,
     authorize(...caseAccessRoles),
+    requireFeature('case_basic'),
     validateMiddleware(updateCaseSchema),
     caseController.updateCase
 );

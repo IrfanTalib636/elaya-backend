@@ -17,6 +17,7 @@ const {
     formatCustomerPreview,
 } = require('../utils/pricingEngine');
 const { getEffectivePricingOverrides } = require('../utils/configService');
+const { isFeatureEnabled } = require('../utils/featureService');
 const {
     USER_ROLES,
     CASE_TYPE,
@@ -570,6 +571,12 @@ const createCase = asyncHandler(async (req, res) => {
     if (caseFields.zonen_aktiv && zonen.length > 0 && (zonen.length < 2 || zonen.length > 8)) {
         throw new ApiError(400, 'Zone mode requires between 2 and 8 zones');
     }
+    if (caseFields.zonen_aktiv) {
+        const zonenOk = await isFeatureEnabled(studioId, 'case_zonen');
+        if (!zonenOk) {
+            throw new ApiError(403, 'Feature case_zonen is disabled for this studio');
+        }
+    }
 
     let caseDoc = null;
     let zoneDocs = [];
@@ -870,6 +877,12 @@ const updateCase = asyncHandler(async (req, res) => {
         (req.body.zonen.length < 2 || req.body.zonen.length > 8)
     ) {
         throw new ApiError(400, 'Zone mode requires between 2 and 8 zones');
+    }
+    if (req.body.zonen_aktiv) {
+        const zonenOk = await isFeatureEnabled(caseDoc.studio, 'case_zonen');
+        if (!zonenOk) {
+            throw new ApiError(403, 'Feature case_zonen is disabled for this studio');
+        }
     }
 
     let zoneDocs = await applyCaseUpdate(caseDoc, req.body, req.user, req);

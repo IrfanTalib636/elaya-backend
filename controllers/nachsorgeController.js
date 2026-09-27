@@ -323,7 +323,7 @@ const photoCheck = asyncHandler(async (req, res) => {
         });
     }
 
-    const featureGate = await assertAiFeatureAllowed(req.user, 'ai_nachsorge');
+    const featureGate = await assertAiFeatureAllowed(req.user, 'ki_nachsorge');
     if (!featureGate.allowed) {
         return res.status(200).json({
             success: true,
@@ -400,7 +400,7 @@ const createCheck = asyncHandler(async (req, res) => {
         photoStage = aiUnavailableFallback('photo');
         combined = aiUnavailableFallback('combined');
     } else {
-        const featureGate = await assertAiFeatureAllowed(req.user, 'ai_nachsorge');
+        const featureGate = await assertAiFeatureAllowed(req.user, 'ki_nachsorge');
         if (!featureGate.allowed) {
             photoStage = { ...aiUnavailableFallback('photo'), feature_disabled: true };
             combined = { ...aiUnavailableFallback('combined'), feature_disabled: true };
