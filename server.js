@@ -13,6 +13,7 @@ dotenv.config();
 
 const connectDB = require('./config/db');
 const { ensureUploadRoot } = require('./services/fileStorageService');
+const { UPLOAD_ROOT } = require('./config/storageConfig');
 const { setupSwagger, isSwaggerEnabled } = require('./config/swagger');
 const apiRoutes = require('./routes');
 const wellKnownRoute = require('./routes/wellKnownRoute');
@@ -40,6 +41,13 @@ app.use(
             res.setHeader('Cache-Control', 'public, max-age=300');
         },
     })
+);
+
+// ElayShop product photos — public catalog imagery, not sensitive PII, so it
+// is served directly (unlike /files/:id/content which is auth-gated).
+app.use(
+    '/shop-images',
+    express.static(path.join(UPLOAD_ROOT, 'shop-products'), { maxAge: '7d' })
 );
 
 // Fallback page when the mobile app is not installed (universal link opens in browser).

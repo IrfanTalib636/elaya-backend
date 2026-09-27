@@ -1,5 +1,6 @@
 const ShopProduct = require('../models/shopProductModel');
 const ShopOrder = require('../models/shopOrderModel');
+const ShopPromotion = require('../models/shopPromotionModel');
 const Studio = require('../models/studioModel');
 const ApiError = require('../utils/ApiError');
 const asyncHandler = require('../utils/asyncHandler');
@@ -11,7 +12,16 @@ const {
     SHOP_CATEGORIES,
     DEFAULT_SHOP_SHIPPING,
     SHOP_COUNTRIES,
+    SHOP_CURRENCIES,
 } = require('../config/shopDefaults');
+const {
+    resolveProductPrice,
+    getActiveGeneralPromotion,
+} = require('../utils/shopPricingService');
+const {
+    saveShopProductImages,
+    deleteShopProductImageByUrl,
+} = require('../services/shopImageService');
 
 const round2 = (n) => Math.round(n * 100) / 100;
 
@@ -20,21 +30,59 @@ const resolveShopCategories = (platform) =>
         ? platform.shop_categories
         : SHOP_CATEGORIES;
 
-const formatProduct = (doc) => ({
+/** @param {object} [pricing] - optional precomputed { generalPromo, now } to avoid a query per product. */
+const formatProduct = (doc, pricing = {}) => {
+    const generalPromo = pricing.generalPromo ?? null;
+    const now = pricing.now ?? new Date();
+    const price = resolveProductPrice(doc, { now, generalPromo });
+
+    return {
+        id: doc._id.toString(),
+        product_code: doc.product_code,
+        artikelnummer: doc.artikelnummer,
+        name: doc.name,
+        beschreibung: doc.beschreibung ?? '',
+        preis_chf: doc.preis_chf,
+        waehrung: doc.waehrung || 'CHF',
+        kategorie: doc.kategorie,
+        ean: doc.ean ?? '',
+        ursprung: doc.ursprung ?? '',
+        bild_url: doc.bild_url ?? '',
+        bilder: Array.isArray(doc.bilder) ? doc.bilder : [],
+        lagerbestand: doc.lagerbestand,
+        aktiv: doc.aktiv,
+        rabatt: {
+            aktiv: doc.rabatt?.aktiv ?? false,
+            typ: doc.rabatt?.typ ?? 'percent',
+            wert: doc.rabatt?.wert ?? 0,
+            von: doc.rabatt?.von ?? null,
+            bis: doc.rabatt?.bis ?? null,
+            stackable_with_general: doc.rabatt?.stackable_with_general ?? false,
+            exclude_from_general: doc.rabatt?.exclude_from_general ?? false,
+        },
+        // Resolved pricing preview (product discount + active general promo).
+        preis_final: price.final,
+        discount_active: price.savings > 0,
+        discount_label: price.discount_label,
+        savings: price.savings,
+        discount_applied: price.applied,
+        sort_order: doc.sort_order ?? 0,
+        createdAt: doc.createdAt,
+        updatedAt: doc.updatedAt,
+    };
+};
+
+const formatPromotion = (doc) => ({
     id: doc._id.toString(),
-    product_code: doc.product_code,
-    artikelnummer: doc.artikelnummer,
     name: doc.name,
-    beschreibung: doc.beschreibung ?? '',
-    preis_chf: doc.preis_chf,
-    kategorie: doc.kategorie,
-    ean: doc.ean ?? '',
-    ursprung: doc.ursprung ?? '',
-    bild_url: doc.bild_url ?? '',
-    lagerbestand: doc.lagerbestand,
     aktiv: doc.aktiv,
-    rabatt_prozent: doc.rabatt_prozent ?? 0,
-    sort_order: doc.sort_order ?? 0,
+    typ: doc.typ,
+    wert: doc.wert,
+    waehrung: doc.waehrung || 'CHF',
+    von: doc.von ?? null,
+    bis: doc.bis ?? null,
+    exclude_product_ids: (doc.exclude_product_ids || []).map((id) => id.toString()),
+    created_by: doc.created_by ? doc.created_by.toString() : null,
     createdAt: doc.createdAt,
     updatedAt: doc.updatedAt,
 });
@@ -50,6 +98,7 @@ const formatAdminOrder = (order) => ({
         : '',
     produkte: order.produkte ?? [],
     total_chf: order.total_chf,
+    waehrung: order.waehrung || 'CHF',
     versandkosten: order.versandkosten ?? 0,
     provision_prozent: order.provision_prozent ?? DEFAULT_SHOP_PROVISION_PROZENT,
     provision_betrag: order.provision_betrag ?? 0,
@@ -80,17 +129,19 @@ const listProductsAdmin = asyncHandler(async (req, res) => {
         ];
     }
 
-    const [products, total, platform] = await Promise.all([
+    const [products, total, platform, generalPromo] = await Promise.all([
         ShopProduct.find(filter).sort({ sort_order: 1, name: 1 }).skip(skip).limit(limit).lean(),
         ShopProduct.countDocuments(filter),
         getPlatformConfig(),
+        getActiveGeneralPromotion(),
     ]);
 
     res.json({
         success: true,
         data: {
-            products: products.map(formatProduct),
+            products: products.map((p) => formatProduct(p, { generalPromo })),
             categories: resolveShopCategories(platform),
+            currencies: SHOP_CURRENCIES,
             pagination: buildPaginationMeta(page, limit, total),
         },
     });
@@ -120,15 +171,18 @@ const updateProduct = asyncHandler(async (req, res) => {
         'name',
         'beschreibung',
         'preis_chf',
+        'waehrung',
         'kategorie',
         'ean',
         'ursprung',
         'bild_url',
+        'bilder',
         'lagerbestand',
         'aktiv',
         'sort_order',
         'product_code',
         'artikelnummer',
+        'rabatt',
     ];
     for (const f of fields) {
         if (req.body[f] !== undefined) product[f] = req.body[f];
@@ -139,6 +193,100 @@ const updateProduct = asyncHandler(async (req, res) => {
         success: true,
         data: { product: formatProduct(product.toObject()) },
     });
+});
+
+/** POST /admin/shop/products/upload-image — multipart, field "files" (up to 8). Returns public URLs. */
+const uploadProductImages = asyncHandler(async (req, res) => {
+    if (!req.files || !req.files.length) {
+        throw new ApiError(400, 'No image files provided');
+    }
+    const urls = await saveShopProductImages(req.files);
+    res.status(201).json({
+        success: true,
+        message: 'Images uploaded',
+        data: { urls },
+    });
+});
+
+/** DELETE /admin/shop/products/:id/images — body: { url }. Removes from product.bilder + best-effort disk cleanup. */
+const removeProductImage = asyncHandler(async (req, res) => {
+    const product = await ShopProduct.findById(req.params.id);
+    if (!product) throw new ApiError(404, 'Product not found');
+
+    const { url } = req.body || {};
+    if (!url) throw new ApiError(400, 'url is required');
+
+    product.bilder = (product.bilder || []).filter((u) => u !== url);
+    if (product.bild_url === url) {
+        product.bild_url = product.bilder[0] || '';
+    }
+    await product.save();
+    await deleteShopProductImageByUrl(url);
+
+    res.json({
+        success: true,
+        data: { product: formatProduct(product.toObject()) },
+    });
+});
+
+// ── Promotions (platform-wide general discount) ───────────────────────────
+
+/** GET /admin/shop/promotions */
+const listPromotionsAdmin = asyncHandler(async (req, res) => {
+    const { page, limit, skip } = parsePagination(req.query);
+    const filter = {};
+    if (req.query.aktiv === 'true') filter.aktiv = true;
+    if (req.query.aktiv === 'false') filter.aktiv = false;
+
+    const [promotions, total] = await Promise.all([
+        ShopPromotion.find(filter).sort({ createdAt: -1 }).skip(skip).limit(limit).lean(),
+        ShopPromotion.countDocuments(filter),
+    ]);
+
+    res.json({
+        success: true,
+        data: {
+            promotions: promotions.map(formatPromotion),
+            pagination: buildPaginationMeta(page, limit, total),
+        },
+    });
+});
+
+/** POST /admin/shop/promotions */
+const createPromotion = asyncHandler(async (req, res) => {
+    const promotion = await ShopPromotion.create({
+        ...req.body,
+        created_by: req.user._id,
+    });
+    res.status(201).json({
+        success: true,
+        data: { promotion: formatPromotion(promotion.toObject()) },
+    });
+});
+
+/** PATCH /admin/shop/promotions/:id */
+const updatePromotion = asyncHandler(async (req, res) => {
+    const promotion = await ShopPromotion.findById(req.params.id);
+    if (!promotion) throw new ApiError(404, 'Promotion not found');
+
+    const fields = ['name', 'aktiv', 'typ', 'wert', 'waehrung', 'von', 'bis', 'exclude_product_ids'];
+    for (const f of fields) {
+        if (req.body[f] !== undefined) promotion[f] = req.body[f];
+    }
+    await promotion.save();
+
+    res.json({
+        success: true,
+        data: { promotion: formatPromotion(promotion.toObject()) },
+    });
+});
+
+/** DELETE /admin/shop/promotions/:id */
+const deletePromotion = asyncHandler(async (req, res) => {
+    const promotion = await ShopPromotion.findById(req.params.id);
+    if (!promotion) throw new ApiError(404, 'Promotion not found');
+    await ShopPromotion.deleteOne({ _id: promotion._id });
+    res.json({ success: true, message: 'Promotion deleted' });
 });
 
 /** GET /admin/shop/orders */
@@ -338,6 +486,12 @@ module.exports = {
     listProductsAdmin,
     createProduct,
     updateProduct,
+    uploadProductImages,
+    removeProductImage,
+    listPromotionsAdmin,
+    createPromotion,
+    updatePromotion,
+    deletePromotion,
     listOrdersAdmin,
     patchOrderCommission,
     getShopFinanceSummary,
@@ -346,5 +500,6 @@ module.exports = {
     getShippingAdmin,
     patchShopCatalogAdmin,
     formatProduct,
+    formatPromotion,
     formatAdminOrder,
 };

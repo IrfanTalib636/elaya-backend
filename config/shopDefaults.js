@@ -11,6 +11,9 @@ const SHOP_CATEGORIES = [
     'Sonstiges',
 ];
 
+/** Currencies selectable on products / promotions. */
+const SHOP_CURRENCIES = ['CHF', 'EUR'];
+
 const SHOP_COUNTRIES = [
     'Schweiz',
     'Deutschland',
@@ -126,6 +129,7 @@ module.exports = {
     DEFAULT_SHOP_PROVISION_PROZENT,
     SHOP_CATEGORIES,
     SHOP_COUNTRIES,
+    SHOP_CURRENCIES,
     DEFAULT_SHOP_SHIPPING,
     DEFAULT_SHOP_PRODUCTS,
     calculateShipping,
