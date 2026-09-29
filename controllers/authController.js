@@ -118,6 +118,7 @@ const registerCustomer = asyncHandler(async (req, res) => {
         message: 'Customer registered successfully',
         data: {
             accessToken: tokens.accessToken,
+            refreshToken: tokens.refreshToken,
             expiresIn: tokens.expiresIn,
             user: {
                 id: user._id,
@@ -251,6 +252,7 @@ const login = asyncHandler(async (req, res) => {
         message: 'Login successful',
         data: {
             accessToken: tokens.accessToken,
+            refreshToken: tokens.refreshToken,
             expiresIn: tokens.expiresIn,
             user: {
                 id: user._id,
@@ -269,7 +271,11 @@ const login = asyncHandler(async (req, res) => {
 });
 
 const refresh = asyncHandler(async (req, res) => {
-    const token = req.cookies.refreshToken;
+    // Mobile clients send the refresh token in the body (SecureStore).
+    // Web clients keep using the HttpOnly cookie.
+    const token =
+        (typeof req.body?.refreshToken === 'string' && req.body.refreshToken) ||
+        req.cookies.refreshToken;
 
     if (!token) {
         throw new ApiError(401, 'Refresh token not found');
@@ -299,13 +305,16 @@ const refresh = asyncHandler(async (req, res) => {
         message: 'Token refreshed',
         data: {
             accessToken: tokens.accessToken,
+            refreshToken: tokens.refreshToken,
             expiresIn: tokens.expiresIn,
         },
     });
 });
 
 const logout = asyncHandler(async (req, res) => {
-    const token = req.cookies.refreshToken;
+    const token =
+        (typeof req.body?.refreshToken === 'string' && req.body.refreshToken) ||
+        req.cookies.refreshToken;
 
     if (token) {
         await revokeRefreshToken(token);

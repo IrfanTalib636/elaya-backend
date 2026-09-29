@@ -44,15 +44,17 @@ const getEffectiveFeaturesForStudio = async (studioIdOrDoc) => {
 
     const features = {};
     for (const key of FEATURE_KEYS) {
-        if (global[key] === false) {
-            features[key] = false;
-            continue;
-        }
+        // Per-studio force ON/OFF wins — needed for pilot studios (e.g. INKFREE)
+        // even when a global kill-switch exists for other studios.
         if (overrides[key] === true) {
             features[key] = true;
             continue;
         }
         if (overrides[key] === false) {
+            features[key] = false;
+            continue;
+        }
+        if (global[key] === false) {
             features[key] = false;
             continue;
         }

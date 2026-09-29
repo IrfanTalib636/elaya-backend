@@ -97,6 +97,7 @@ const issueAuthTokens = async ({ user, res, req }) => {
 
     return {
         accessToken: generateAccessToken(buildAuthPayload(user)),
+        refreshToken,
         expiresIn: process.env.JWT_ACCESS_EXPIRES_IN || '15m',
     };
 };

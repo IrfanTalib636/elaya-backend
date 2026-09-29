@@ -200,28 +200,57 @@ const mergePlatformConfig = (doc) => {
             ...(merged.shop_shipping || {}),
         },
         gruppen_groessen: merged.gruppen_groessen,
-        subscription_plans: Object.fromEntries(
-            Object.entries({
-                ...PLATFORM_CONFIG_DEFAULTS.subscription_plans,
-                ...(merged.subscription_plans || {}),
-            }).map(([planKey, list]) => [
-                planKey,
-                migrateFeatureKeyList(Array.isArray(list) ? list : []),
-            ])
-        ),
-        subscription_seat_limits: {
-            ...PLATFORM_CONFIG_DEFAULTS.subscription_seat_limits,
-            ...(merged.subscription_seat_limits || {}),
-        },
-        subscription_packages: (() => {
+        ...(() => {
             const rawPackagesInput =
-                Array.isArray(merged.subscription_packages) && merged.subscription_packages.length
+                Array.isArray(merged.subscription_packages) &&
+                merged.subscription_packages.length
                     ? merged.subscription_packages
                     : PLATFORM_CONFIG_DEFAULTS.subscription_packages;
             const normalized = normalizePackagesList(rawPackagesInput);
-            return packagesLookStale(rawPackagesInput, normalized)
+            const packagesStale = packagesLookStale(rawPackagesInput, normalized);
+            const subscription_packages = packagesStale
                 ? upgradeStalePackageFeatures(normalized)
                 : normalized;
+
+            const migratedPlans = Object.fromEntries(
+                Object.entries({
+                    ...PLATFORM_CONFIG_DEFAULTS.subscription_plans,
+                    ...(merged.subscription_plans || {}),
+                }).map(([planKey, list]) => [
+                    planKey,
+                    migrateFeatureKeyList(Array.isArray(list) ? list : []),
+                ])
+            );
+            const basic = migratedPlans.basic || [];
+            const plansStale =
+                !basic.includes('case_basic') ||
+                basic.length < MIN_STARTER_FEATURES ||
+                !basic.includes('elaya_chat_kunde');
+
+            // When packages or plans are still on the pre-30-key shape, derive
+            // plan entitlements from (possibly upgraded) packages so flags like
+            // elaya_chat_kunde actually turn on for Starter/Pro.
+            if (packagesStale || plansStale) {
+                const derived = derivePlanConfigFromPackages(subscription_packages);
+                return {
+                    subscription_packages,
+                    subscription_plans: derived.subscription_plans,
+                    subscription_seat_limits: {
+                        ...PLATFORM_CONFIG_DEFAULTS.subscription_seat_limits,
+                        ...(merged.subscription_seat_limits || {}),
+                        ...derived.subscription_seat_limits,
+                    },
+                };
+            }
+
+            return {
+                subscription_packages,
+                subscription_plans: migratedPlans,
+                subscription_seat_limits: {
+                    ...PLATFORM_CONFIG_DEFAULTS.subscription_seat_limits,
+                    ...(merged.subscription_seat_limits || {}),
+                },
+            };
         })(),
         ki_gewichtungen: normalizeKiGewichtungen(
             merged.ki_gewichtungen || PLATFORM_CONFIG_DEFAULTS.ki_gewichtungen

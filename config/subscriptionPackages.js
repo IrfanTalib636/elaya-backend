@@ -115,6 +115,7 @@ const buildDefaultPackage = (id, extras = {}) => {
         name_de: extras.name_de || extras.name || id,
         name_en: extras.name_en || extras.name || id,
         beschreibung: extras.beschreibung || '',
+        beschreibung_en: extras.beschreibung_en || extras.beschreibung || '',
         preis_monat: extras.preis_monat ?? 0,
         limits: { ...limits },
         max_standorte: limits.standorte_max,
@@ -132,6 +133,7 @@ const defaultSubscriptionPackages = () => [
         name_en: 'Starter',
         preis_monat: 29,
         beschreibung: 'Einstiegspaket',
+        beschreibung_en: 'Starter package',
         features: STARTER_FEATURES.slice(),
     }),
     buildDefaultPackage('pro', {
@@ -140,6 +142,7 @@ const defaultSubscriptionPackages = () => [
         name_en: 'Pro',
         preis_monat: 49,
         beschreibung: 'Für wachsende Studios',
+        beschreibung_en: 'For growing studios',
         features: STARTER_FEATURES.concat(PRO_EXTRA),
     }),
     buildDefaultPackage('network', {
@@ -148,6 +151,7 @@ const defaultSubscriptionPackages = () => [
         name_en: 'Network',
         preis_monat: 99,
         beschreibung: 'Alle Features freigeschaltet',
+        beschreibung_en: 'All features unlocked',
         features: NETWORK_FEATURES.slice(),
     }),
 ];
@@ -229,6 +233,7 @@ const normalizePackage = (raw = {}) => {
         name_de: String(raw.name_de || name).trim(),
         name_en: String(raw.name_en || name).trim(),
         beschreibung: String(raw.beschreibung || '').trim(),
+        beschreibung_en: String(raw.beschreibung_en || raw.beschreibung || '').trim(),
         preis_monat: Math.max(0, Number(raw.preis_monat) || 0),
         limits,
         max_standorte: limits.standorte_max,

@@ -17,27 +17,37 @@ const STUDIO_ACCOUNT_ROLE_META = [
     {
         key: STUDIO_ACCOUNT_ROLES.OWNER,
         label: 'Studio Owner',
+        label_de: 'Studio-Inhaber',
         description: 'Full studio control including team invites and billing',
+        description_de: 'Volle Studio-Kontrolle inkl. Team-Einladungen und Abrechnung',
     },
     {
         key: STUDIO_ACCOUNT_ROLES.MANAGER,
         label: 'Manager',
+        label_de: 'Manager',
         description: 'Manage customers, sessions, appointments, and staff profiles',
+        description_de: 'Kunden, Sitzungen, Termine und Mitarbeiter-Profile verwalten',
     },
     {
         key: STUDIO_ACCOUNT_ROLES.TREATMENT,
         label: 'Treatment Staff',
+        label_de: 'Behandlungsmitarbeiter',
         description: 'Document sessions and view assigned customers',
+        description_de: 'Sitzungen dokumentieren und zugewiesene Kunden einsehen',
     },
     {
         key: STUDIO_ACCOUNT_ROLES.RECEPTION,
         label: 'Reception',
+        label_de: 'Empfang',
         description: 'Book appointments and manage front-desk workflows',
+        description_de: 'Termine buchen und Empfangsabläufe verwalten',
     },
     {
         key: STUDIO_ACCOUNT_ROLES.READONLY,
         label: 'Read Only',
+        label_de: 'Nur Lesen',
         description: 'View studio data without write access',
+        description_de: 'Studio-Daten ohne Schreibrechte einsehen',
     },
 ];
 
