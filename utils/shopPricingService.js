@@ -27,9 +27,41 @@ const ShopPromotion = require('../models/shopPromotionModel');
 
 const round2 = (n) => Math.round((Number(n) || 0) * 100) / 100;
 
+/** Shop dates are Swiss business days, inclusive of the whole From and Until day. */
+const BUSINESS_TZ = 'Europe/Zurich';
+
+const businessDay = (date) =>
+    new Intl.DateTimeFormat('en-CA', {
+        timeZone: BUSINESS_TZ,
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+    }).format(date);
+
+const pickedDay = (value) => {
+    if (value == null || value === '') return null;
+    if (typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value)) return value;
+    const date = value instanceof Date ? value : new Date(value);
+    if (Number.isNaN(date.getTime())) return null;
+    if (
+        date.getUTCHours() === 0 &&
+        date.getUTCMinutes() === 0 &&
+        date.getUTCSeconds() === 0 &&
+        date.getUTCMilliseconds() === 0
+    ) {
+        const month = String(date.getUTCMonth() + 1).padStart(2, '0');
+        const day = String(date.getUTCDate()).padStart(2, '0');
+        return `${date.getUTCFullYear()}-${month}-${day}`;
+    }
+    return businessDay(date);
+};
+
 const isWithinRange = (now, von, bis) => {
-    if (von && now < new Date(von)) return false;
-    if (bis && now > new Date(bis)) return false;
+    const today = businessDay(now);
+    const start = pickedDay(von);
+    const end = pickedDay(bis);
+    if (start && today < start) return false;
+    if (end && today > end) return false;
     return true;
 };
 
