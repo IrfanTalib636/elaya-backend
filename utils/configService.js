@@ -1,5 +1,7 @@
 const PlatformConfig = require('../models/platformConfigModel');
 const Studio = require('../models/studioModel');
+const LaserDevice = require('../models/laserDeviceModel');
+const { colorDeltasForDevice } = require('../config/laserColorProfiles');
 const ApiError = require('./ApiError');
 const {
     PLATFORM_CONFIG_DEFAULTS,
@@ -23,17 +25,9 @@ const {
     LEGACY_FEATURE_ALIASES,
 } = require('../config/featureCatalog');
 
-/** Canonical package ids that get auto-upgraded when they still hold the pre-catalog feature list. */
 const CANONICAL_PACKAGE_IDS = ['starter', 'pro', 'network'];
-/** Starter should have ~18 features under the 30-key catalog; anything under this is pre-migration. */
 const MIN_STARTER_FEATURES = 10;
 
-/**
- * True when a stored `subscription_packages` list is still on the old (pre-catalog)
- * feature shape: canonical starter/pro/network entries whose raw features are legacy
- * aliases (booking/cases/…), or whose normalized starter list is too small / missing
- * `case_basic`. Custom (non-canonical) package ids are never considered stale.
- */
 const packagesLookStale = (rawList, normalizedList) => {
     const rawById = Object.fromEntries(
         (Array.isArray(rawList) ? rawList : [])
@@ -61,7 +55,6 @@ const packagesLookStale = (rawList, normalizedList) => {
     return false;
 };
 
-/** Replace starter/pro/network `features` with the 30-key defaults, keeping price/limits/name intact. */
 const upgradeStalePackageFeatures = (normalizedList) => {
     const defaultsById = Object.fromEntries(defaultSubscriptionPackages().map((p) => [p.id, p]));
     return normalizedList.map((pkg) => {
@@ -76,10 +69,6 @@ const { mergeSessionPrediction } = require('../config/sessionPredictionDefaults'
 const { ELAYCOIN_SITUATIONS } = require('../config/elaycoinConfig');
 const { cloneAutomations } = require('../config/automationsDefaults');
 
-/**
- * Merge platform Automatisierungen catalog with studio overrides.
- * Studio may only change aktiv + tage (wert) when editierbar_studio=true.
- */
 const mergeEffectiveAutomations = (platform = {}, studioOverrides = {}) => {
     const base =
         Array.isArray(platform.automatisierungen?.kategorien) &&
@@ -133,13 +122,11 @@ const pickStudioPricing = (raw = {}) => {
     return picked;
 };
 
-/** Static code defaults ← platform default_pricing overrides. */
 const mergeDefaultPricing = (platform) => ({
     ...DEFAULT_PRICING_CONFIG,
     ...pickStudioPricing(platform?.default_pricing || {}),
 });
 
-/** Three-layer merge for one numeric settings block: defaults → platform → studio. */
 const mergeNumericBlock = (block, platform, studioDoc) => ({
     ...PLATFORM_CONFIG_DEFAULTS[block],
     ...(platform?.[block] || {}),
@@ -200,28 +187,54 @@ const mergePlatformConfig = (doc) => {
             ...(merged.shop_shipping || {}),
         },
         gruppen_groessen: merged.gruppen_groessen,
-        subscription_plans: Object.fromEntries(
-            Object.entries({
-                ...PLATFORM_CONFIG_DEFAULTS.subscription_plans,
-                ...(merged.subscription_plans || {}),
-            }).map(([planKey, list]) => [
-                planKey,
-                migrateFeatureKeyList(Array.isArray(list) ? list : []),
-            ])
-        ),
-        subscription_seat_limits: {
-            ...PLATFORM_CONFIG_DEFAULTS.subscription_seat_limits,
-            ...(merged.subscription_seat_limits || {}),
-        },
-        subscription_packages: (() => {
+        ...(() => {
             const rawPackagesInput =
-                Array.isArray(merged.subscription_packages) && merged.subscription_packages.length
+                Array.isArray(merged.subscription_packages) &&
+                merged.subscription_packages.length
                     ? merged.subscription_packages
                     : PLATFORM_CONFIG_DEFAULTS.subscription_packages;
             const normalized = normalizePackagesList(rawPackagesInput);
-            return packagesLookStale(rawPackagesInput, normalized)
+            const packagesStale = packagesLookStale(rawPackagesInput, normalized);
+            const subscription_packages = packagesStale
                 ? upgradeStalePackageFeatures(normalized)
                 : normalized;
+
+            const migratedPlans = Object.fromEntries(
+                Object.entries({
+                    ...PLATFORM_CONFIG_DEFAULTS.subscription_plans,
+                    ...(merged.subscription_plans || {}),
+                }).map(([planKey, list]) => [
+                    planKey,
+                    migrateFeatureKeyList(Array.isArray(list) ? list : []),
+                ])
+            );
+            const basic = migratedPlans.basic || [];
+            const plansStale =
+                !basic.includes('case_basic') ||
+                basic.length < MIN_STARTER_FEATURES ||
+                !basic.includes('elaya_chat_kunde');
+
+            if (packagesStale || plansStale) {
+                const derived = derivePlanConfigFromPackages(subscription_packages);
+                return {
+                    subscription_packages,
+                    subscription_plans: derived.subscription_plans,
+                    subscription_seat_limits: {
+                        ...PLATFORM_CONFIG_DEFAULTS.subscription_seat_limits,
+                        ...(merged.subscription_seat_limits || {}),
+                        ...derived.subscription_seat_limits,
+                    },
+                };
+            }
+
+            return {
+                subscription_packages,
+                subscription_plans: migratedPlans,
+                subscription_seat_limits: {
+                    ...PLATFORM_CONFIG_DEFAULTS.subscription_seat_limits,
+                    ...(merged.subscription_seat_limits || {}),
+                },
+            };
         })(),
         ki_gewichtungen: normalizeKiGewichtungen(
             merged.ki_gewichtungen || PLATFORM_CONFIG_DEFAULTS.ki_gewichtungen
@@ -309,15 +322,8 @@ const validateSessionPredictionPatch = (patch) => {
     }
 };
 
-/** Nested object keys inside sperrfristen (not day-count numbers). */
 const SPERRFRISTEN_OBJECT_KEYS = new Set(['condition_locks', 'studio_exceptions']);
 
-/**
- * Every value in a numeric settings block must be a known key and a
- * non-negative number. Shared by the platform and studio update paths so both
- * reject the same input. Sperrfristen also allows condition_locks /
- * studio_exceptions objects (Medical & Safety).
- */
 const assertNumericBlockPatch = (block, patch) => {
     if (patch === undefined) return;
     if (typeof patch !== 'object' || Array.isArray(patch) || patch == null) {
@@ -340,12 +346,10 @@ const assertNumericBlockPatch = (block, patch) => {
     }
 };
 
-/** Cross-field rules that a single value cannot express on its own. */
 const assertBlockInvariants = (block, next) => {
     if (block === 'gruppen_groessen') {
         const defaults = PLATFORM_CONFIG_DEFAULTS.gruppen_groessen;
-        // Strict: equal thresholds would leave the medium tier unreachable,
-        // since a case is medium only when klein < area <= mittelgross.
+
         if (
             (next.klein_max_cm2 ?? defaults.klein_max_cm2) >=
             (next.mittelgross_max_cm2 ?? defaults.mittelgross_max_cm2)
@@ -472,7 +476,6 @@ const updatePlatformConfig = async (patch) => {
     const current = await getPlatformConfig();
     validatePlatformPatch(patch, current);
 
-    // Dotted paths so a partial patch never wipes sibling keys.
     const setFields = { ...patch };
     for (const block of NUMERIC_CONFIG_BLOCKS) {
         if (!patch[block]) continue;
@@ -528,7 +531,6 @@ const updatePlatformConfig = async (patch) => {
         const coins = Number(next.geldwert_coins);
         const chf = Number(next.geldwert_chf);
         if (coins > 0 && Number.isFinite(chf)) {
-            // Keep legacy coinWert in sync: CHF per coin = chf / coins (100→5 ⇒ 0.05).
             setFields.coinWert = Math.round((chf / coins) * 10000) / 10000;
         }
     }
@@ -580,11 +582,6 @@ const getEffectiveGruppenGroessen = async (studioId) => {
     return mergeGruppenGroessen(platform, studio);
 };
 
-/**
- * Blocking periods and appointment settings for one studio, resolved in a
- * single pair of reads. The booking and lockout paths call this per request, so
- * no duration is ever read from a hardcoded constant.
- */
 const getEffectiveBookingConfig = async (studioId) => {
     const platform = await getPlatformConfig();
     const studio = studioId
@@ -595,7 +592,6 @@ const getEffectiveBookingConfig = async (studioId) => {
         studioId && platform.sperrfristen?.studio_exceptions
             ? platform.sperrfristen.studio_exceptions[String(studioId)]
             : null;
-    // Prototype §22: Date Locks can be disabled per studio; Condition Locks stay mandatory.
     if (exc?.date_locks_disabled) {
         sperrfristen = {
             ...sperrfristen,
@@ -680,6 +676,28 @@ const validateElaycoinStudioCfg = (cfg = {}) => {
     }
 };
 
+const laserColorsFromRoom = async (room) => {
+    if (!room) return null;
+    const fromName = colorDeltasForDevice(room.laser_brand, room.laser_model);
+    if (fromName) return fromName;
+    if (!room.laser_device_id) return null;
+    const device = await LaserDevice.findById(room.laser_device_id)
+        .select('manufacturer model')
+        .lean();
+    return colorDeltasForDevice(device?.manufacturer, device?.model);
+};
+
+const laserColorsForStudio = async (studio) => {
+    const rooms = Array.isArray(studio?.behandlungsraeume) ? studio.behandlungsraeume : [];
+    const room = rooms.find(
+        (entry) =>
+            entry &&
+            entry.aktiv !== false &&
+            (entry.laser_brand || entry.laser_model || entry.laser_device_id)
+    );
+    return laserColorsFromRoom(room);
+};
+
 const getEffectivePricingOverrides = async (studioId) => {
     const platform = await getPlatformConfig();
     const groupOverrides = platform.gruppen_groessen || {};
@@ -693,12 +711,16 @@ const getEffectivePricingOverrides = async (studioId) => {
         };
     }
 
-    const studio = await Studio.findById(studioId).select('studio_pricing').lean();
+    const studio = await Studio.findById(studioId)
+        .select('studio_pricing behandlungsraeume')
+        .lean();
+    const laserColorDeltas = await laserColorsForStudio(studio);
     return {
         ...base,
         ...pickStudioPricing(studio?.studio_pricing || {}),
         ...groupOverrides,
         session_prediction: platform.session_prediction,
+        ...(laserColorDeltas ? { laser_color_deltas: laserColorDeltas } : {}),
     };
 };
 
@@ -721,15 +743,10 @@ const formatStudioConfig = (studio, platform) => {
         firma: doc.firma,
         coin_wert: coinWert,
         studio_pricing: pickStudioPricing(doc.studio_pricing || {}),
-        /** Platform price rules (code defaults ← platform default_pricing). */
         pricing_defaults: mergeDefaultPricing(platform),
         elaycoin_studio_cfg: doc.elaycoin_studio_cfg || {},
-        /** Platform Elaycoin-Regeln — studio read-only reference. */
         elaycoin_regeln: platform.elaycoin_regeln,
-        /**
-         * Effective Automations (platform catalog + studio overrides).
-         * Studio may PATCH automatisierungen_overrides for editierbar_studio rules only.
-         */
+        
         automatisierungen: mergeEffectiveAutomations(
             platform,
             doc.automatisierungen_overrides || {}
@@ -746,12 +763,10 @@ const formatStudioConfig = (studio, platform) => {
             shop_provision_prozent: platform.shop_provision_prozent,
         },
         session_prediction: platform.session_prediction,
-        /** Points per size category — read-only, so the UI can label each tier. */
         gruppen_punkte: GRUPPEN_PUNKTE,
         ...Object.fromEntries(
             NUMERIC_CONFIG_BLOCKS.flatMap((block) => [
                 [block, mergeNumericBlock(block, platform, doc)],
-                // Platform values, so the UI can show what a cleared field falls back to.
                 [`${block}_defaults`, mergeNumericBlock(block, platform, null)],
             ])
         ),
@@ -853,8 +868,6 @@ const updateStudioConfig = async (studioId, patch) => {
         studio.markModified(block);
     }
 
-    // Medical lockouts: only applied when the controller has already authorized
-    // the caller as super_admin (studio users never reach this with sperrfristen).
     for (const block of SUPER_ADMIN_ONLY_CONFIG_BLOCKS) {
         if (patch[block] === undefined) continue;
         assertNumericBlockPatch(block, patch[block]);
@@ -1045,7 +1058,6 @@ const publishConfigDomain = async (
 
     let toPublish;
     if (rolledBackFrom != null && data && typeof data === 'object') {
-        // Exact snapshot restore (no merge with current live extras).
         toPublish = cloneDomainSnapshot(domain, data);
         validatePlatformPatch({ [domain]: toPublish }, live);
     } else if (data && typeof data === 'object' && !Array.isArray(data)) {

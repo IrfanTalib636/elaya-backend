@@ -1,4 +1,5 @@
 const Studio = require('../models/studioModel');
+const mongoose = require('mongoose');
 const { getPlatformConfig } = require('./configService');
 const {
     FEATURE_CATALOG,
@@ -23,19 +24,50 @@ const resolvePlanFeatures = (platform, planKey) => {
 };
 
 /**
+ * True when `value` is already a Studio document/lean object (not a bare ObjectId / id string).
+ * Important: mongoose ObjectId exposes `_id` as a self-getter, so `id && id._id` is NOT a
+ * reliable doc check — that bug caused customer effective-features to ignore studio overrides.
+ */
+const isStudioDocument = (value) => {
+    if (!value || typeof value !== 'object') return false;
+    if (value instanceof mongoose.Types.ObjectId) return false;
+    if (typeof value.equals === 'function' && value._bsontype === 'ObjectId') return false;
+    return (
+        value.subscription_plan !== undefined ||
+        value.feature_overrides !== undefined ||
+        value.firma !== undefined ||
+        value.studio_code !== undefined
+    );
+};
+
+const studioIdFrom = (value) => {
+    if (!value) return null;
+    if (typeof value === 'string' || typeof value === 'number') return String(value);
+    if (value instanceof mongoose.Types.ObjectId) return value.toString();
+    if (value._id) return String(value._id);
+    if (typeof value.toString === 'function' && mongoose.isValidObjectId(value)) {
+        return String(value);
+    }
+    return null;
+};
+
+/**
  * Effective feature map for a studio: { [featureKey]: boolean }.
  * Includes canonical keys + legacy aliases (same boolean) for old clients.
  */
 const getEffectiveFeaturesForStudio = async (studioIdOrDoc) => {
     const platform = await getPlatformConfig();
-    const studio =
-        studioIdOrDoc && studioIdOrDoc._id
-            ? studioIdOrDoc
-            : studioIdOrDoc
-              ? await Studio.findById(studioIdOrDoc)
-                    .select('subscription_plan feature_overrides firma studio_code')
-                    .lean()
-              : null;
+    let studio = null;
+    if (isStudioDocument(studioIdOrDoc)) {
+        studio = studioIdOrDoc;
+    } else {
+        const id = studioIdFrom(studioIdOrDoc);
+        if (id) {
+            studio = await Studio.findById(id)
+                .select('subscription_plan feature_overrides firma studio_code')
+                .lean();
+        }
+    }
 
     const plan = studio?.subscription_plan || 'professional';
     const planSet = resolvePlanFeatures(platform, plan);
@@ -44,15 +76,17 @@ const getEffectiveFeaturesForStudio = async (studioIdOrDoc) => {
 
     const features = {};
     for (const key of FEATURE_KEYS) {
-        if (global[key] === false) {
-            features[key] = false;
-            continue;
-        }
+        // Per-studio force ON/OFF wins — needed for pilot studios (e.g. INKFREE)
+        // even when a global kill-switch exists for other studios.
         if (overrides[key] === true) {
             features[key] = true;
             continue;
         }
         if (overrides[key] === false) {
+            features[key] = false;
+            continue;
+        }
+        if (global[key] === false) {
             features[key] = false;
             continue;
         }
@@ -74,7 +108,7 @@ const getEffectiveFeaturesForStudio = async (studioIdOrDoc) => {
     }
 
     return {
-        studio_id: studio?._id?.toString() || null,
+        studio_id: studio?._id?.toString() || studioIdFrom(studioIdOrDoc),
         subscription_plan: plan,
         features,
         catalog: FEATURE_CATALOG,

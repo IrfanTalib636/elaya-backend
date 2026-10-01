@@ -1,5 +1,6 @@
 const LaserDevice = require('../models/laserDeviceModel');
 const { LASER_CATALOG_DEFAULTS } = require('../config/laserCatalogDefaults');
+const { colorDeltasForDevice } = require('../config/laserColorProfiles');
 const ApiError = require('./ApiError');
 
 const formatLaserDevice = (doc) => {
@@ -11,6 +12,7 @@ const formatLaserDevice = (doc) => {
         model: d.model,
         wavelengths_nm: Array.isArray(d.wavelengths_nm) ? d.wavelengths_nm : [],
         notes: d.notes || '',
+        color_deltas: colorDeltasForDevice(d.manufacturer, d.model),
         active: Boolean(d.active),
         label: `${d.manufacturer} ${d.model}`.trim(),
         created_at: d.createdAt || null,

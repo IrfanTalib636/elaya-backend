@@ -25,24 +25,6 @@ const mergePricingConfig = (overrides = {}) => ({
     ...overrides,
 });
 
-/**
- * Ink-density surcharge per zone.
- *
- * Keys must match the `QUALITY_LEVEL` values both clients send (`low`…
- * `very_high`). The German aliases are kept so zones stored before the naming
- * was aligned still resolve instead of silently falling back to 1.0.
- */
-const ZONE_DICHTE_MULT = {
-    low: 0.85,
-    medium: 1.0,
-    high: 1.15,
-    very_high: 1.3,
-    leicht: 0.85,
-    mittel: 1.0,
-    dicht: 1.15,
-    sehr_dicht: 1.3,
-};
-
 const resolveArea = (caseInput) => {
     const explicitArea = parseFloat(caseInput.flaeche_cm2);
     if (explicitArea > 0) {
@@ -74,7 +56,6 @@ const resolveAgeMultKey = (caseInput) => {
     }
 
     const years = Number(tcAgeYears);
-    // Price bands from Multipliers + Examples: 3 years = ×1.05 (3–5), 8 years = ×1.0 (5–10), 2 years = ×1.1 (1–3).
     if (years < 1) return 'age_under1';
     if (years < 3) return 'age_1to3';
     if (years < 5) return 'age_3to5';
@@ -104,26 +85,17 @@ const resolveBodyLocation = (caseInput) => {
     return 'arm';
 };
 
-/**
- * Which colour multiplier applies.
- *
- * Returns the config key as well as the value, so a price breakdown can name the
- * multiplier that was used instead of showing a bare number.
- */
 const resolveColorMultiplier = (colors, config) => {
     const list = Array.isArray(colors) ? colors.filter(Boolean) : [];
-    // Excel Multiplikatoren: Weiss/Gelb/Hautfarbe dominates.
     if (list.some((color) => DIFFICULT_COLORS.includes(color))) {
         return { key: 'color_difficult', value: config.color_difficult };
     }
-    // Nur Schwarz (grey counts as black). Extra chromatic inks: +1–2 → 1.2, 3+ → 1.4.
     const extra = list.filter((color) => !BLACK_FAMILY_COLORS.includes(color));
     if (extra.length === 0) return { key: 'color_black', value: config.color_black };
     if (extra.length <= 2) return { key: 'color_mixed', value: config.color_mixed };
     return { key: 'color_multi', value: config.color_multi };
 };
 
-/** Which ink-depth multiplier applies, with the config key it came from. */
 const resolveDepthMultiplier = (caseInput, config) => {
     const at = (key) => ({ key, value: config[key] });
 
@@ -133,7 +105,6 @@ const resolveDepthMultiplier = (caseInput, config) => {
         caseInput.depth ||
         (caseInput.type !== CASE_TYPE.PMU ? caseInput.stitch_depth : null);
 
-    // Input aliases (German and English) mapped onto the config keys.
     const depthMap = {
         shallow: 'depth_shallow',
         surface: 'depth_shallow',
@@ -155,7 +126,6 @@ const resolveDepthMultiplier = (caseInput, config) => {
         return at(alias);
     }
 
-    // Excel: Very deep / Cover-up = 1.3 (example 3 uses both layering ×1.4 and depth ×1.3).
     if (
         caseInput.tc_coverup === TC_COVERUP.ONCE ||
         caseInput.tc_coverup === TC_COVERUP.MULTIPLE
@@ -163,7 +133,6 @@ const resolveDepthMultiplier = (caseInput, config) => {
         return at('depth_very_deep');
     }
 
-    // Excel: Oberflächlich/Amateur=0.9, Normal=1.0, Tief (professionell)=1.1, Cover-Up=1.3.
     if ([TC_TYPE.AMATEUR, TC_TYPE.COSMETIC].includes(caseInput.tc_type)) {
         return at('depth_shallow');
     }
@@ -190,7 +159,6 @@ const resolveMultipliers = (caseInput, config) => {
     const skinM = config[skinKey] ?? 1.0;
 
     const location = resolveBodyLocation(caseInput);
-    // Eleven body locations collapse onto seven configurable keys.
     const locationMap = {
         face: 'location_face',
         neck: 'location_neck',
@@ -234,7 +202,6 @@ const resolveMultipliers = (caseInput, config) => {
         layM,
         goalM,
         bodyLocation: location,
-        /** Config key each multiplier was read from, for the price breakdown. */
         keys: {
             color: color.key,
             depth: depth.key,
@@ -263,16 +230,19 @@ const computeConfidence = (caseInput) => {
 };
 
 const splitOverrides = (overrides = {}) => {
-    const { session_prediction, ...pricingOverrides } = overrides;
+    const { session_prediction, laser_color_deltas, ...pricingOverrides } = overrides;
     return {
         pricingOverrides,
         sessionPrediction: mergeSessionPrediction(session_prediction),
+        laserColorDeltas: laser_color_deltas,
     };
 };
 
-/**
- * Session estimate from platform Sitzungsprognose parameters (Master Excel).
- */
+const withLaserColors = (caseInput, laserColorDeltas) => {
+    if (caseInput.laser_color_deltas || !laserColorDeltas) return caseInput;
+    return { ...caseInput, laser_color_deltas: laserColorDeltas };
+};
+
 const estimateSessions = (caseInput, sessionPrediction = {}) => {
     const result = estimateSessionsFromConfig(caseInput, sessionPrediction);
     return {
@@ -281,10 +251,9 @@ const estimateSessions = (caseInput, sessionPrediction = {}) => {
     };
 };
 
-const calculatePriceForInput = (caseInput, pricingOverrides = {}, options = {}) => {
+const calculatePriceForInput = (caseInput, pricingOverrides = {}) => {
     const { pricingOverrides: pricingOnly } = splitOverrides(pricingOverrides);
     const config = mergePricingConfig(pricingOnly);
-    const dichteMult = options.dichteMult ?? 1;
 
     if (caseInput.type === CASE_TYPE.PMU) {
         const pmuPrice = config.pmuPrice ?? 149;
@@ -295,7 +264,6 @@ const calculatePriceForInput = (caseInput, pricingOverrides = {}, options = {}) 
             rawPrice: pmuPrice,
             confidence_pct: 100,
             multipliers: null,
-            // PMU is a flat price, so the breakdown is a single row.
             breakdown: {
                 area: null,
                 basePricePerCm2: null,
@@ -310,91 +278,42 @@ const calculatePriceForInput = (caseInput, pricingOverrides = {}, options = {}) 
     }
 
     const area = Math.round(resolveArea(caseInput) * 10) / 10;
-    const multipliers = resolveMultipliers(caseInput, config);
     const basePricePerCm2 = config.basePricePerCm2 ?? 3;
-    // Excel Preisformel:
-    // Rohpreis = Fläche × Basis × Farbe × Tiefe × Alter × Haut × Stelle × CoverUp × Ziel
-    // Preis/Sitzung = MAX(Mindestpreis, Rohpreis auf nächste 5 CHF aufgerundet)
-    const product =
-        area *
-        basePricePerCm2 *
-        multipliers.colorM *
-        multipliers.depthM *
-        multipliers.ageM *
-        multipliers.skinM *
-        multipliers.locM *
-        multipliers.layM *
-        multipliers.goalM *
-        dichteMult;
-
-    const rounded = roundSessionPrice(product);
-    const pricePerSession = Math.max(config.minPrice ?? 90, rounded);
-
-    // Ordered walk of the same formula, so a studio can see how each of its own
-    // values moves the price. `running` is the subtotal after applying the step.
-    const steps = [];
-    let running = area * basePricePerCm2;
-    steps.push({
-        id: 'base',
-        config_key: 'basePricePerCm2',
-        value: basePricePerCm2,
-        running: round2(running),
-    });
-    const factorSteps = [
-        ['color', multipliers.keys.color, multipliers.colorM],
-        ['depth', multipliers.keys.depth, multipliers.depthM],
-        ['age', multipliers.keys.age, multipliers.ageM],
-        ['skin', multipliers.keys.skin, multipliers.skinM],
-        ['location', multipliers.keys.location, multipliers.locM],
-        ['layering', multipliers.keys.layering, multipliers.layM],
-        ['goal', multipliers.keys.goal, multipliers.goalM],
-    ];
-    for (const [id, configKey, value] of factorSteps) {
-        running *= value;
-        steps.push({ id, config_key: configKey, value, running: round2(running) });
-    }
-    if (dichteMult !== 1) {
-        running *= dichteMult;
-        // Density is a platform constant, not a studio-editable value.
-        steps.push({ id: 'density', config_key: null, value: dichteMult, running: round2(running) });
-    }
+  
+    const raw = area * basePricePerCm2;
+    const minPrice = config.minPrice ?? 90;
+    const pricePerSession = roundSessionPrice(Math.max(minPrice, raw));
+    const minPriceApplied = raw < minPrice;
 
     return {
         type: CASE_TYPE.TATTOO,
         area,
         pricePerSession,
-        rawPrice: Math.round(product * 100) / 100,
+        rawPrice: round2(raw),
         confidence_pct: computeConfidence(caseInput),
-        multipliers: {
-            color: multipliers.colorM,
-            depth: multipliers.depthM,
-            age: multipliers.ageM,
-            skin: multipliers.skinM,
-            location: multipliers.locM,
-            layering: multipliers.layM,
-            goal: multipliers.goalM,
-            bodyLocation: multipliers.bodyLocation,
-            keys: multipliers.keys,
-        },
-        basePricePerCm2: config.basePricePerCm2,
-        minPrice: config.minPrice,
+        multipliers: null,
+        basePricePerCm2,
+        minPrice,
         breakdown: {
             area,
             basePricePerCm2,
-            steps,
-            rawPrice: round2(product),
-            roundedPrice: rounded,
-            minPrice: config.minPrice ?? 90,
-            // True when the minimum floor, not the formula, decided the price.
-            minPriceApplied: pricePerSession > rounded,
+            steps: [
+                {
+                    id: 'base',
+                    config_key: 'basePricePerCm2',
+                    value: basePricePerCm2,
+                    running: round2(raw),
+                },
+            ],
+            rawPrice: round2(raw),
+            roundedPrice: pricePerSession,
+            minPrice,
+            minPriceApplied,
             pricePerSession,
         },
     };
 };
 
-/**
- * Prototype calcPmuSessions — session estimate for PMU intake.
- */
 const calcPmuSessions = (caseInput = {}, sessionPrediction = {}) => {
     const result = estimatePmuSessionsFromConfig(caseInput, sessionPrediction);
     return {
@@ -403,11 +322,9 @@ const calcPmuSessions = (caseInput = {}, sessionPrediction = {}) => {
     };
 };
 
-/**
- * Full intake preview — price + sessions for single tattoo, zone mode, or PMU.
- */
 const calculateCasePreview = (caseInput, pricingOverrides = {}) => {
-    const { sessionPrediction } = splitOverrides(pricingOverrides);
+    const { sessionPrediction, laserColorDeltas } = splitOverrides(pricingOverrides);
+    caseInput = withLaserColors(caseInput, laserColorDeltas);
 
     if (caseInput.type === CASE_TYPE.PMU) {
         const price = calculatePriceForInput(caseInput, pricingOverrides);
@@ -431,14 +348,12 @@ const calculateCasePreview = (caseInput, pricingOverrides = {}) => {
                 ...caseInput,
                 tc_colors_present: zone.farben || [],
                 tc_body_location_main: zone.koerperstelle || caseInput.tc_body_location_main,
-                // The zone's own measurements — never the case-level ones, which
-                // describe the tattoo as a whole.
+              
                 flaeche_cm2: zone.flaeche_cm2,
                 tc_size_length: zone.laenge_cm ?? null,
                 tc_size_width: zone.breite_cm ?? null,
             };
-            const dichteMult = ZONE_DICHTE_MULT[zone.dichte] ?? 1;
-            const price = calculatePriceForInput(zoneInput, pricingOverrides, { dichteMult });
+            const price = calculatePriceForInput(zoneInput, pricingOverrides);
             const sessions = estimateSessions(zoneInput, sessionPrediction);
 
             return {
@@ -499,10 +414,6 @@ const calculateCasePreview = (caseInput, pricingOverrides = {}) => {
     );
 };
 
-/**
- * 7-factor session price (Excel PriceFormula + Examples).
- * Plausibility: scripts/verifyExcelExamples.js / IT_Clarifications §7.
- */
 const calculatePrice = (caseInput, pricingOverrides = {}) =>
     calculatePriceForInput(caseInput, pricingOverrides);
 
@@ -532,7 +443,6 @@ const calculateGroupPricing = (cases, pricingOverrides = {}) => {
     };
 };
 
-/** Pricing keys that are multipliers rather than absolute CHF amounts. */
 const MULTIPLIER_KEY_PREFIXES = [
     'color_',
     'depth_',
@@ -545,14 +455,6 @@ const MULTIPLIER_KEY_PREFIXES = [
 
 const isMultiplierKey = (key) => MULTIPLIER_KEY_PREFIXES.some((p) => key.startsWith(p));
 
-/**
- * Flag pricing values that would produce a nonsensical price, so a studio finds
- * out while editing rather than from a customer quote.
- *
- * `error` means the price is definitely wrong (a zero multiplier collapses the
- * whole formula); `warning` means the value is legal but far outside the range
- * studios normally use.
- */
 const checkPricingConfig = (overrides = {}) => {
     const config = mergePricingConfig(overrides);
     const issues = [];
@@ -594,12 +496,6 @@ const checkPricingConfig = (overrides = {}) => {
     };
 };
 
-/**
- * Price preview for the studio's pricing settings.
- *
- * Runs the real engine twice — once with the saved config and once with the
- * unsaved draft — so the UI can show the effect of an edit before it is saved.
- */
 const previewPricing = (caseInput = {}, draftPricing = {}, options = {}) => {
     const live = calculatePriceForInput(caseInput, draftPricing);
     const baselinePricing = options.baselinePricing;

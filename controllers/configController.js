@@ -397,12 +397,18 @@ const getEffectiveFeatures = asyncHandler(async (req, res) => {
     if (isStudio(req.user.role) && req.user.studio_id) {
         studioId = req.user.studio_id;
     }
-    if (req.user.role === USER_ROLES.CUSTOMER && req.user.customer_id && !studioId) {
+    if (req.user.role === USER_ROLES.CUSTOMER && !studioId) {
         const Customer = require('../models/customerModel');
-        const c = await Customer.findById(req.user.customer_id)
-            .select('aktuelle_firma_id')
-            .lean();
-        studioId = c?.aktuelle_firma_id || null;
+        if (req.user.customer_id) {
+            const c = await Customer.findById(req.user.customer_id)
+                .select('aktuelle_firma_id')
+                .lean();
+            studioId = c?.aktuelle_firma_id || null;
+        }
+        // Fall back to studio_id on the user doc (some customer accounts mirror it)
+        if (!studioId && req.user.studio_id) {
+            studioId = req.user.studio_id;
+        }
     }
 
     const data = await getEffectiveFeaturesForStudio(studioId);

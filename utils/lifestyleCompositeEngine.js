@@ -1,15 +1,3 @@
-/**
- * Lifestyle composite score — Master Excel IT_Clarifications §5.
- *
- * Average the 7 main factors (do not double-count sleep):
- *   smoker, alcohol, sleep_score, stress, activity, hydration, nutrition
- *
- * sleep_score = average(sleep_quality, sleep_hours)
- * Aftercare is NOT in this composite (compliance extra on max sessions).
- * BMI is internal only: it floors the discrete 1–5 score, it is not an 8th averaged factor.
- * SessionLogic extras absorbed here (not tattoo deltas): cigarettes_per_day, sport_frequency.
- */
-
 const VALUE_ALIASES = {
     '<5': 'under_5',
     under5: 'under_5',
@@ -89,15 +77,6 @@ const resolveLifestyleBand = (avg, bands) => {
     };
 };
 
-const bandForScore = (score, bands) => {
-    const match = (bands || []).find((band) => Number(band.score) === Number(score));
-    if (!match) return { score, multiplier: 1 };
-    return {
-        score: Number(match.score) || score,
-        multiplier: Number(match.multiplier) || 1,
-    };
-};
-
 const applyBmiFloor = (score, bmi, floors = []) => {
     if (bmi == null || !floors.length) return { score, bmi_floor: null };
     const sorted = [...floors].sort((a, b) => Number(b.min_bmi) - Number(a.min_bmi));
@@ -127,16 +106,14 @@ const computeLifestyleComposite = (caseInput = {}, cfg = {}) => {
     const present = Object.values(factors).filter((n) => n != null && Number.isFinite(n));
     const bmi = computeBmi(caseInput.life_height_cm, caseInput.life_weight_kg);
 
-    let averageValue = present.length ? present.reduce((sum, n) => sum + n, 0) / present.length : null;
-    let { score, multiplier } =
-        averageValue == null
+    const averageValue = present.length ? present.reduce((sum, n) => sum + n, 0) / present.length : null;
+    const bmiFloor = averageValue == null ? null : applyBmiFloor(averageValue, bmi, cfg.lifestyle_bmi_floors);
+    const lookupAverage =
+        bmiFloor?.bmi_floor != null ? Math.max(averageValue, bmiFloor.score) : averageValue;
+    const { score, multiplier } =
+        lookupAverage == null
             ? { score: 3, multiplier: 1 }
-            : resolveLifestyleBand(averageValue, bands);
-
-    const floored = applyBmiFloor(score, bmi, cfg.lifestyle_bmi_floors);
-    if (floored.score > score) {
-        ({ score, multiplier } = bandForScore(floored.score, bands));
-    }
+            : resolveLifestyleBand(lookupAverage, bands);
 
     return {
         score,
@@ -152,7 +129,7 @@ const computeLifestyleComposite = (caseInput = {}, cfg = {}) => {
         sleep_hours: lookupScore(scores.sleep_hours, caseInput.life_sleep_hours),
         sleep_quality: lookupScore(scores.sleep_quality, caseInput.life_sleep_quality),
         bmi,
-        bmi_floor: floored.bmi_floor,
+        bmi_floor: bmiFloor?.bmi_floor ?? null,
     };
 };
 
