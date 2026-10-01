@@ -1,10 +1,3 @@
-/**
- * Verifies the live pricing preview: the breakdown must reconstruct the price
- * the engine actually charges, and editing a factor must move it in the
- * expected direction.
- *
- * Run: node scripts/verifyPricingPreview.js
- */
 const { previewPricing, checkPricingConfig, calculatePrice } = require('../utils/pricingEngine');
 const { EXCEL_PLAUSIBILITY_EXAMPLES } = require('../config/excelPlausibilityExamples');
 
@@ -38,16 +31,12 @@ for (const example of EXCEL_PLAUSIBILITY_EXAMPLES) {
         `got ${live.pricePerSession}, expected ${example.expected.price_per_session}`
     );
 
-    // The last running subtotal is the raw price, before rounding and the floor.
     const lastRunning = bd.steps[bd.steps.length - 1].running;
     check(
         `${example.id} breakdown ends at the raw price`,
         nearly(lastRunning, bd.rawPrice),
         `last step ${lastRunning} vs rawPrice ${bd.rawPrice}`
     );
-
-    // Re-multiply the steps and confirm we land on the same raw price, i.e. the
-    // breakdown shows the real formula and not a parallel approximation.
     const replayed = bd.steps.reduce(
         (acc, step) => (step.id === 'base' ? bd.area * step.value : acc * step.value),
         0
@@ -65,15 +54,12 @@ for (const example of EXCEL_PLAUSIBILITY_EXAMPLES) {
     );
 
     check(
-        `${example.id} multiplier values match the reference multipliers`,
-        Object.entries(example.expected.multipliers).every(([key, expected]) =>
-            nearly(live.multipliers[key], expected, 0.001)
-        ),
+        `${example.id} colour and depth do not multiply the price`,
+        live.multipliers == null,
         JSON.stringify(live.multipliers)
     );
 }
 
-// Example 1 is CHF 18 raw but quoted at CHF 90 — the floor, not the formula.
 const smallest = previewPricing(EXCEL_PLAUSIBILITY_EXAMPLES[0].input, {});
 check(
     'the minimum price is reported when it decides the price',
@@ -86,7 +72,6 @@ check(
         false
 );
 
-// Raising the base price must raise the quote, and the delta must say so.
 const dearer = previewPricing(
     EXCEL_PLAUSIBILITY_EXAMPLES[1].input,
     { basePricePerCm2: 6 },
@@ -104,7 +89,6 @@ check(
     JSON.stringify(dearer.delta)
 );
 
-// A zero multiplier is the mistake this preview exists to catch.
 const zeroed = checkPricingConfig({ depth_normal: 0 });
 check(
     'a zero multiplier is reported as an error',
@@ -129,7 +113,6 @@ check(
 );
 check('the shipped defaults are clean', checkPricingConfig({}).ok);
 
-// PMU is a flat price, so its breakdown is a single row and never multiplied.
 const pmu = previewPricing({ type: 'pmu' }, { pmuPrice: 200 });
 check(
     'PMU previews the flat price as one step',

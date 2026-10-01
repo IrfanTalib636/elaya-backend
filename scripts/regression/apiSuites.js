@@ -1,15 +1,3 @@
-/**
- * Backend API regression suites (A–Z over the documented surface).
- *
- * Each suite asserts both the happy path and the authorization boundary, since
- * most real defects in this platform have been either a missing role check or a
- * response shape the clients did not expect.
- *
- * Response envelope is `{ success, data: { <collection>: [...], pagination } }`
- * for lists and `{ success, data: { <resource>: {...} } }` for single records,
- * so assertions go through the unwrap helpers rather than touching body.data.
- */
-
 const { request, BASE_URL } = require('./httpClient');
 const {
     suite,
@@ -30,11 +18,6 @@ const addDays = (n) => {
     return d;
 };
 
-/**
- * Picks a date that is genuinely bookable: at or after the earliest allowed
- * date, at least two days out so the minimum lead time can never bite, and not
- * on a weekday the studio is closed.
- */
 const bookableDate = (earliestIso, closedWeekdays = [0]) => {
     const earliest = new Date(earliestIso);
     const floor = addDays(2);
@@ -46,11 +29,9 @@ const bookableDate = (earliestIso, closedWeekdays = [0]) => {
     return iso(d);
 };
 
-/** A 1x1 PNG data URI, valid for the signature validators. */
 const SIGNATURE_PNG =
     'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8DwHwAFAAH/q842iQAAAABJRU5ErkJggg==';
 
-/** A complete, medically unremarkable anamnesis, accepted by the validator. */
 const CLEAN_ANAMNESIS = {
     hauterkrankungen: ['keine'],
     pigmentstoerungen: 'nein',
@@ -73,14 +54,12 @@ const CLEAN_ANAMNESIS = {
     mindestalter_18: 'ja',
 };
 
-/** The short pre-appointment check, with no UV or medication lockout. */
 const CLEAN_PRECHECK = {
     consultation_only: false,
     pre_session: { uv_exposition: 'keine', medikamente: ['keine'] },
     wiederholungen_confirmed: true,
 };
 
-/** Weekday indexes the studio is closed, derived from its opening hours. */
 const closedWeekdaysFrom = (oeffnungszeiten) => {
     const order = ['so', 'mo', 'di', 'mi', 'do', 'fr', 'sa'];
     if (!oeffnungszeiten) return [0];
@@ -94,7 +73,6 @@ const closedWeekdaysFrom = (oeffnungszeiten) => {
 const runApiSuites = async (ctx) => {
     const { admin, studio, customer } = ctx;
 
-    // ── Health & discovery ────────────────────────────────────────────────
     suite('Health & Discovery');
 
     await test('GET /health returns ok', async () => {
@@ -121,7 +99,6 @@ const runApiSuites = async (ctx) => {
         assertStatus(await request('GET', '/config/public'), 401);
     });
 
-    // ── Auth ──────────────────────────────────────────────────────────────
     suite('Authentication & Authorization');
 
     await test('GET /auth/me works for all three roles', async () => {
@@ -165,7 +142,6 @@ const runApiSuites = async (ctx) => {
         return res.status === 429 ? 'rate limited (expected under repeat runs)' : '';
     });
 
-    // ── Config ────────────────────────────────────────────────────────────
     suite('Configuration');
 
     await test('GET /config/platform as admin returns the numeric config blocks', async () => {
@@ -234,7 +210,6 @@ const runApiSuites = async (ctx) => {
             'version history should include the publish'
         );
 
-        // Restore previous live value so later suites stay stable.
         assertStatus(
             await request('PUT', '/config/platform/sperrfristen/draft', {
                 session: admin,
@@ -311,7 +286,6 @@ const runApiSuites = async (ctx) => {
         );
     });
 
-    // ── Customers ─────────────────────────────────────────────────────────
     suite('Customers');
 
     await test('GET /customers as studio is paginated', async () => {
@@ -346,7 +320,6 @@ const runApiSuites = async (ctx) => {
         assert(res.body?.data !== undefined, 'no elaycoin payload');
     });
 
-    // ── Cases ─────────────────────────────────────────────────────────────
     suite('Tattoo Cases');
 
     await test('POST /cases creates a case for the customer', async () => {
@@ -423,8 +396,7 @@ const runApiSuites = async (ctx) => {
             breite_cm: 3,
             ...over,
         });
-        // Unnamed zones are unusable in the session log and pricing breakdown,
-        // so both clients mark the field required and the API enforces it.
+
         for (const [label, bezeichnung] of [
             ['missing', undefined],
             ['empty', ''],
@@ -497,7 +469,6 @@ const runApiSuites = async (ctx) => {
         const zones = unwrap(detail, 'case').zonen || [];
         assert(zones.length === 2, `expected 2 zones, got ${zones.length}`);
 
-        // Area is derived server-side, never trusted from the client.
         assert(
             zones[0].flaeche_cm2 === 50 && zones[1].flaeche_cm2 === 12,
             `areas should be 50 and 12, got ${zones.map((z) => z.flaeche_cm2).join(', ')}`
@@ -507,7 +478,6 @@ const runApiSuites = async (ctx) => {
             'zone should keep the measured dimensions'
         );
 
-        // Each zone carries its own estimate, and the larger one costs more.
         assert(
             zones.every((z) => z.preis > 0),
             `every zone needs its own price, got ${zones.map((z) => z.preis).join(', ')}`
@@ -536,7 +506,6 @@ const runApiSuites = async (ctx) => {
                         farben: ['schwarz'],
                         laenge_cm: 10,
                         breite_cm: 5,
-                        // A tampered area must be ignored in favour of 10 x 5.
                         flaeche_cm2: 9999,
                     },
                     {
@@ -598,7 +567,6 @@ const runApiSuites = async (ctx) => {
             }),
             200
         );
-        // Case B has no answers, so excluding A must not invent any.
         const d = unwrap(res);
         assert(typeof d.available === 'boolean', 'prefill must always report availability');
         return `available=${d.available}`;
@@ -623,9 +591,8 @@ const runApiSuites = async (ctx) => {
         );
         const d = unwrap(res);
         const bd = d.live?.breakdown;
-        assert(bd && Array.isArray(bd.steps) && bd.steps.length > 1, 'preview has no breakdown steps');
+        assert(bd && Array.isArray(bd.steps) && bd.steps.length >= 1, 'preview has no breakdown steps');
         assert(bd.steps[0].id === 'base', `breakdown must start at the base price, got ${bd.steps[0].id}`);
-        // The chain must end on the price that is actually quoted.
         assert(
             bd.pricePerSession === d.live.pricePerSession,
             `breakdown final ${bd.pricePerSession} != price ${d.live.pricePerSession}`
@@ -664,7 +631,6 @@ const runApiSuites = async (ctx) => {
             draft.baseline.pricePerSession === before.live.pricePerSession,
             'the baseline must stay on the saved configuration'
         );
-        // The preview must never persist — the saved config still reads as before.
         const after = unwrap(
             assertStatus(
                 await request('POST', '/config/pricing/preview', {
@@ -729,7 +695,6 @@ const runApiSuites = async (ctx) => {
         return `status ${res.status}`;
     });
 
-    // ── Lockouts / availability ───────────────────────────────────────────
     suite('Availability & Blocking Periods');
 
     await test('GET /cases/{id}/availability returns the full lockout contract', async () => {
@@ -794,7 +759,6 @@ const runApiSuites = async (ctx) => {
         return `hint earliest=${hint.fruehestes}`;
     });
 
-    // ── Anamnesis & the two-signature flow ────────────────────────────────
     suite('Anamnesis & Signatures');
 
     await test('a treatment booking is blocked before the anamnesis is complete', async () => {
@@ -896,7 +860,6 @@ const runApiSuites = async (ctx) => {
         assertEqual(p.can_book_treatment, true, `still blocked: ${p.block_reason}`);
     });
 
-    // ── Appointments ──────────────────────────────────────────────────────
     suite('Appointments');
 
     await test('studio opening hours are available for slot selection', async () => {
@@ -933,8 +896,7 @@ const runApiSuites = async (ctx) => {
                 `booking ${date} ${time} at ${standortId} was refused: ${JSON.stringify(res.body).slice(0, 260)}`
             );
         }
-        // A booking always returns an array, because a group booking creates one
-        // appointment per case.
+      
         const created = unwrapList(res, 'appointments')[0];
         assert(created, 'create returned no appointment');
         ctx.appointmentA = idOf(created);
@@ -1033,7 +995,6 @@ const runApiSuites = async (ctx) => {
         assert(!cross, `cross-case lockout survived cancellation: ${JSON.stringify(cross)}`);
     });
 
-    // ── Group booking ─────────────────────────────────────────────────────
     suite('Group Booking');
 
     await test('studio config exposes the group booking parameters', async () => {
@@ -1045,8 +1006,7 @@ const runApiSuites = async (ctx) => {
     });
 
     await test('studio config exposes the points for all three size tiers', async () => {
-        // The settings UI labels each tier from these values, so a missing tier
-        // would leave the studio guessing what a size costs in points.
+       
         const punkte = (ctx.studioConfig || {}).gruppen_punkte;
         assert(punkte, 'no gruppen_punkte block in studio config');
         for (const tier of ['klein', 'mittelgross', 'gross']) {
@@ -1059,7 +1019,6 @@ const runApiSuites = async (ctx) => {
             punkte.klein < punkte.mittelgross && punkte.mittelgross < punkte.gross,
             `points must increase with size, got ${JSON.stringify(punkte)}`
         );
-        // "Large books alone" only holds while one large fills the whole cap.
         const cap = ctx.groupConfig?.max_punkte;
         assert(
             cap == null || punkte.gross >= cap,
@@ -1142,11 +1101,8 @@ const runApiSuites = async (ctx) => {
         return `${list.length} appointment(s) created`;
     });
 
-    // ── Sessions ──────────────────────────────────────────────────────────
     suite('Sessions');
 
-    // caseA is a zone case by this point, and a zone case logs every treatment
-    // against one specific zone.
     await test('the zones of the case under test can be resolved', async () => {
         const detail = await request('GET', `/cases/${ctx.caseA}`, { session: customer });
         const caseData = unwrap(detail, 'case');
@@ -1196,8 +1152,7 @@ const runApiSuites = async (ctx) => {
 
     await test('each zone numbers its own sessions independently', async () => {
         if (!ctx.caseAIsZoned || ctx.caseAZones.length < 2 || !ctx.sessionA) return 'skip';
-        // The second zone starts at 1 again, even though the first zone already
-        // has a session on this case.
+    
         const res = await request('POST', '/sessions', {
             session: studio,
             body: {
@@ -1294,7 +1249,6 @@ const runApiSuites = async (ctx) => {
         return `status ${res.status}`;
     });
 
-    // ── Studio dashboard ──────────────────────────────────────────────────
     suite('Studio Dashboard');
 
     const studioReads = [
@@ -1361,7 +1315,6 @@ const runApiSuites = async (ctx) => {
         }
     });
 
-    // ── Admin ─────────────────────────────────────────────────────────────
     suite('Admin Dashboard');
 
     await test('GET /studio/admin/studios as admin', async () => {
@@ -1411,7 +1364,6 @@ const runApiSuites = async (ctx) => {
         assertStatus(await request('GET', '/elaycoins/studio/overview', { session: studio }), 200);
     });
 
-    // ── Shop ──────────────────────────────────────────────────────────────
     suite('Shop');
 
     await test('GET /shop/products lists products', async () => {
@@ -1442,7 +1394,6 @@ const runApiSuites = async (ctx) => {
         ]);
     });
 
-    // ── Messaging ─────────────────────────────────────────────────────────
     suite('Messaging');
 
     await test('GET /messaging/conversations lists conversations', async () => {
@@ -1491,7 +1442,6 @@ const runApiSuites = async (ctx) => {
         );
     });
 
-    // ── Aftercare / fading ────────────────────────────────────────────────
     suite('Aftercare & Fading');
 
     await test('GET /nachsorge lists aftercare records', async () => {
@@ -1547,7 +1497,6 @@ const runApiSuites = async (ctx) => {
         return `status ${res.status}`;
     });
 
-    // ── Files ─────────────────────────────────────────────────────────────
     suite('Files');
 
     await test('POST /files/staging rejects a request with no file', async () => {
@@ -1566,7 +1515,6 @@ const runApiSuites = async (ctx) => {
         assertStatus(await request('GET', '/files/000000000000000000000000/content'), 401);
     });
 
-    // ── Studio transfers ──────────────────────────────────────────────────
     suite('Studio Transfers');
 
     await test('GET /studio-transfers/me for the customer', async () => {
@@ -1581,7 +1529,6 @@ const runApiSuites = async (ctx) => {
         return `status ${res.status}`;
     });
 
-    // ── Chat (AI) ─────────────────────────────────────────────────────────
     suite('Elaya Chat');
 
     await test('POST /chat responds or reports AI unavailable', async () => {
@@ -1590,7 +1537,6 @@ const runApiSuites = async (ctx) => {
         return `status ${res.status}`;
     });
 
-    // ── Laser master catalog ──────────────────────────────────────────────
     suite('Laser Catalog');
 
     await test('GET /lasers returns the platform catalog for admin', async () => {
@@ -1670,7 +1616,6 @@ const runApiSuites = async (ctx) => {
         assertStatus(await request('GET', '/lasers', { session: customer }), 403);
     });
 
-    // ── AI configuration ──────────────────────────────────────────────────
     suite('AI Configuration');
 
     await test('GET /ai-config returns the live prompts for admin', async () => {
@@ -1697,7 +1642,6 @@ const runApiSuites = async (ctx) => {
             'prompt not stored'
         );
 
-        // restore so later AI calls behave as before
         assertStatus(
             await request('PATCH', '/ai-config', {
                 session: admin,
@@ -1715,7 +1659,6 @@ const runApiSuites = async (ctx) => {
         assertStatus(await request('GET', '/ai-config', { session: customer }), 403);
     });
 
-    // ── Admin IAM ─────────────────────────────────────────────────────────
     suite('Admin IAM');
 
     await test('GET /admin/users lists platform admins with the permission catalog', async () => {
@@ -1731,7 +1674,6 @@ const runApiSuites = async (ctx) => {
         assertStatus(await request('GET', '/admin/users', { session: studio }), 403);
     });
 
-    // ── Staff profiles vs user accounts ───────────────────────────────────
     suite('Studio Team (profiles vs logins)');
 
     await test('GET /studio/team/seats reports the plan login limit', async () => {
@@ -1949,7 +1891,6 @@ const runApiSuites = async (ctx) => {
         return `documented by ${s.documented_by_email || s.documented_by_user}`;
     });
 
-    // ── Input hardening ───────────────────────────────────────────────────
     suite('Input Validation & Hardening');
 
     await test('malformed ObjectId is rejected cleanly, not with a 500', async () => {

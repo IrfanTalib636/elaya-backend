@@ -1,19 +1,9 @@
-/**
- * Platform session-prediction parameters (Master Excel:
- * SessionForecast + SessionLogic_Master + IT_Clarifications §4–§5).
- *
- * Values in tattoo_deltas are session deltas on base_sessions (not absolute counts).
- * Lifestyle is a 7-factor composite (sleep_quality + sleep_hours → one sleep_score),
- * mapped to a 1–5 score and a session multiplier. Aftercare is not in the composite.
- * Customers must never see these internals.
- */
-
 const DEFAULT_SESSION_PREDICTION = {
     base_sessions: 8,
     min_sessions: 3,
     max_sessions: 20,
-    range_minus: 2,
-    range_plus: 2,
+    range_minus: 1,
+    range_plus: 1,
     tattoo_deltas: {
         fitzpatrick: {
             I: 0,
@@ -38,7 +28,6 @@ const DEFAULT_SESSION_PREDICTION = {
             foot: 1,
             other: 0,
         },
-        /** Extra chromatic inks beyond black/grey (SessionForecast colorful 3+). */
         color_count: {
             none: 0,
             one_two: 1,
@@ -47,12 +36,12 @@ const DEFAULT_SESSION_PREDICTION = {
         color: {
             black: 0,
             grey: 0,
-            red: 1,
-            orange: 1,
-            blue: 1,
-            green: 2,
-            purple: 2,
-            yellow: 3,
+            red: 0,
+            orange: 2,
+            blue: 0,
+            green: 3,
+            purple: 0,
+            yellow: 2,
             white: 3,
             skin_tone: 3,
         },

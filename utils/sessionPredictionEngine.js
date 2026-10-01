@@ -46,7 +46,6 @@ const resolveBodyLocation = (caseInput) => {
     return 'arm';
 };
 
-/** SessionLogic_Master age bands — not the price-multiplier buckets. */
 const resolveSessionAgeBand = (caseInput) => {
     if (caseInput.tc_age_bucket) return caseInput.tc_age_bucket;
     const years = Number(caseInput.tc_age_years);
@@ -81,10 +80,20 @@ const resolveColorCountBand = (colors = []) => {
     return 'three_plus';
 };
 
-const hardestColor = (colors = []) => {
-    if (!colors.length) return null;
-    const ranked = ['skin_tone', 'white', 'yellow', 'green', 'purple', 'red', 'orange', 'blue', 'grey', 'black'];
-    return ranked.find((color) => colors.includes(color)) || colors[0];
+const colorDeltaMap = (caseInput, platformColors = {}) => {
+    const fromLaser = caseInput.laser_color_deltas;
+    if (fromLaser && typeof fromLaser === 'object' && !Array.isArray(fromLaser)) {
+        return { ...platformColors, ...fromLaser };
+    }
+    return platformColors;
+};
+
+const hardestColorDelta = (colors = [], colorMap = {}) => {
+    let hardest = 0;
+    for (const color of colors) {
+        hardest = Math.max(hardest, lookup(colorMap, color, 0));
+    }
+    return hardest;
 };
 
 const resolveLifestyle = (caseInput, cfg) => {
@@ -122,10 +131,9 @@ const collectTattooFactors = (caseInput, deltas = {}) => {
     const ageBand = resolveSessionAgeBand(caseInput);
     const coverup = caseInput.tc_coverup || 'none';
     const prior = resolvePriorBand(caseInput);
-    const colorKey = hardestColor(colors);
     const countBand = resolveColorCountBand(colors);
     const colorDelta = Math.max(
-        lookup(deltas.color, colorKey, 0),
+        hardestColorDelta(colors, colorDeltaMap(caseInput, deltas.color)),
         lookup(deltas.color_count, countBand, 0)
     );
 
@@ -192,18 +200,23 @@ const estimateSessionsFromConfig = (caseInput = {}, sessionPrediction = {}) => {
     const factors = collectTattooFactors(caseInput, cfg.tattoo_deltas);
     const tattooDelta = factors.reduce((sum, item) => sum + item.delta, 0);
     const lifestyle = resolveLifestyle(caseInput, cfg);
-    const mid = (Number(cfg.base_sessions) + tattooDelta) * lifestyle.multiplier;
+    const basis = Number(cfg.base_sessions);
+    const minS = Number(cfg.min_sessions);
+    const maxS = Number(cfg.max_sessions);
     const extraMax = lookup(cfg.aftercare_extra_max, caseInput.life_aftercare_commitment, 0);
 
-    // Simple tattoos (Excel example 1 → 6–8): ±1. Complex (examples 2–3): ±2.
-    const spreadLow = tattooDelta <= 0 ? 1 : Number(cfg.range_minus || 2);
-    const spreadHigh = tattooDelta <= 0 ? 1 : Number(cfg.range_plus || 2);
 
-    const rawMin = Math.round(mid - spreadLow);
-    const rawMax = Math.round(mid + spreadHigh + extraMax);
-    const min = clamp(Math.min(rawMin, rawMax), cfg.min_sessions, cfg.max_sessions);
-    const max = clamp(Math.max(rawMin, rawMax), cfg.min_sessions, cfg.max_sessions);
-    const base = clamp(Math.round(mid), cfg.min_sessions, cfg.max_sessions);
+    const rawCenter = (basis + tattooDelta) * lifestyle.multiplier;
+    const mitte = clamp(Math.round(rawCenter), minS, maxS);
+    const spreadLow = Math.abs(Number(cfg.range_minus));
+    const spreadHigh = Math.abs(Number(cfg.range_plus));
+    const low = Number.isFinite(spreadLow) ? spreadLow : 1;
+    const high = Number.isFinite(spreadHigh) ? spreadHigh : 1;
+
+    let min = Math.max(minS, mitte - low);
+    let max = mitte + high + extraMax;
+    if (max < min) max = min;
+    const base = mitte;
 
     const factorRows = factors.map((item) => ({
         id: item.id,
@@ -246,12 +259,13 @@ const estimateSessionsFromConfig = (caseInput = {}, sessionPrediction = {}) => {
             tattoo_delta: tattooDelta,
             sum_before_lifestyle: Number(cfg.base_sessions) + tattooDelta,
             lifestyle_multiplier: lifestyle.multiplier,
-            mid: Math.round(mid * 100) / 100,
-            spread_low: spreadLow,
-            spread_high: spreadHigh,
+            mid: Math.round(rawCenter * 100) / 100,
+            center: mitte,
+            spread_low: low,
+            spread_high: high,
             aftercare_extra_max: extraMax,
-            raw_min: rawMin,
-            raw_max: rawMax,
+            raw_min: min,
+            raw_max: max,
             min_sessions: Number(cfg.min_sessions),
             max_sessions: Number(cfg.max_sessions),
         },
@@ -262,10 +276,6 @@ const estimateSessionsFromConfig = (caseInput = {}, sessionPrediction = {}) => {
     };
 };
 
-/**
- * Live calculator preview — same engine as case create, with optional baseline compare.
- * Does not persist anything. Used by admin/studio settings.
- */
 const previewSessionPrediction = (caseInput = {}, draftPrediction = {}, options = {}) => {
     const live = estimateSessionsFromConfig(caseInput, draftPrediction);
     const baselineConfig = options.baselinePrediction;
@@ -296,17 +306,10 @@ const previewSessionPrediction = (caseInput = {}, draftPrediction = {}, options 
 const estimatePmuSessionsFromConfig = (caseInput = {}, sessionPrediction = {}) => {
     const cfg = mergeSessionPrediction(sessionPrediction);
     const lifestyle = resolveLifestyle(caseInput, cfg);
-    let base = 2;
-    if (caseInput.pigment_type === 'inorganic') base += 1;
-    if (caseInput.stitch_depth === 'deep') base += 1;
-    if (caseInput.previously_lasered === true) base -= 1;
-    if (caseInput.life_aftercare_commitment === 'low') base += 1;
-    base = Math.round(base * (lifestyle.multiplier || 1));
-    base = clamp(base, 1, 4);
     return {
-        min: Math.max(1, base - 1),
-        max: Math.min(4, base + 1),
-        base,
+        min: 1,
+        max: 1,
+        base: 1,
         lifestyle_score: lifestyle.score,
         lifestyle_multiplier: lifestyle.multiplier,
         lifestyle_average: lifestyle.average,

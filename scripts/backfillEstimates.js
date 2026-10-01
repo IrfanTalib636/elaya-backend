@@ -1,12 +1,3 @@
-/**
- * Backfill AI estimates (pricePerSession + sessionsMin/Max) for existing cases
- * created before estimates were persisted at creation time.
- *
- * Only touches cases whose estimate is still unconfirmed (estimate_confirmation
- * offen / missing) — studio-confirmed values are never overwritten.
- *
- * Usage: node scripts/backfillEstimates.js
- */
 require('dotenv').config();
 const mongoose = require('mongoose');
 const Case = require('../models/caseModel');
@@ -58,6 +49,26 @@ const run = async () => {
         caseDoc.calculated_sessionsMin = min;
         caseDoc.calculated_sessionsMax = max;
         await caseDoc.save();
+
+        if (pricingInput.zonen?.length && Array.isArray(preview.zonen)) {
+            await Promise.all(
+                pricingInput.zonen.map((zone, index) => {
+                    const row = preview.zonen[index];
+                    if (!row || !zone._id) return null;
+                    return CaseZone.updateOne(
+                        { _id: zone._id },
+                        {
+                            $set: {
+                                preis: row.preis ?? 0,
+                                sitzungen_geschaetzt_min: row.sessions?.min ?? 0,
+                                sitzungen_geschaetzt_max: row.sessions?.max ?? 0,
+                            },
+                        }
+                    );
+                })
+            );
+        }
+
         updated += 1;
         console.log(
             `${caseDoc.caseId}: CHF ${price}/Sitzung · ${min}–${max} Sitzungen`
