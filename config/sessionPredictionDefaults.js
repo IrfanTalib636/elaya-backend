@@ -95,6 +95,13 @@ const DEFAULT_SESSION_PREDICTION = {
             over_15: -1,
             unknown: 0,
         },
+        /** Ink depth. All zeros until an admin publishes a delta, so existing cases stay unchanged. */
+        depth: {
+            shallow: 0,
+            normal: 0,
+            deep: 0,
+            very_deep: 0,
+        },
         prior_treatment: {
             none: 0,
             some: 1,
@@ -260,6 +267,7 @@ const mergeSessionPrediction = (stored = {}) => {
                       min_score: Number(rule.min_score),
                   }))
                 : DEFAULT_SESSION_PREDICTION.lifestyle_smoker_cigs.map((rule) => ({ ...rule })),
+        laser_color_overrides: deepMergeMaps({}, raw.laser_color_overrides || {}),
     };
 };
 

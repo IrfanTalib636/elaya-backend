@@ -80,12 +80,25 @@ const resolveColorCountBand = (colors = []) => {
     return 'three_plus';
 };
 
-const colorDeltaMap = (caseInput, platformColors = {}) => {
-    const fromLaser = caseInput.laser_color_deltas;
-    if (fromLaser && typeof fromLaser === 'object' && !Array.isArray(fromLaser)) {
-        return { ...platformColors, ...fromLaser };
+const plainNumberMap = (value) =>
+    value && typeof value === 'object' && !Array.isArray(value) ? value : null;
+
+/**
+ * Colour deltas for this case.
+ * Catalog (or the studio laser profile) is the base.
+ * Published per-laser overrides sit on top.
+ * An unsaved matrix edit (`laser_color_deltas_edit`) replaces that stack for the draft preview only.
+ */
+const colorDeltaMap = (caseInput, platformColors = {}, cfg = {}) => {
+    const catalog = plainNumberMap(caseInput.laser_color_deltas) || {};
+    const deviceId = caseInput.laser_device_id ? String(caseInput.laser_device_id) : '';
+    const published =
+        (deviceId && plainNumberMap(cfg?.laser_color_overrides?.[deviceId])) || {};
+    const edited = plainNumberMap(caseInput.laser_color_deltas_edit);
+    if (edited && Object.keys(edited).length) {
+        return { ...platformColors, ...catalog, ...edited };
     }
-    return platformColors;
+    return { ...platformColors, ...catalog, ...published };
 };
 
 const hardestColorDelta = (colors = [], colorMap = {}) => {
@@ -122,7 +135,7 @@ const resolveLighteningRate = (caseInput) => {
     return 'stagnant';
 };
 
-const collectTattooFactors = (caseInput, deltas = {}) => {
+const collectTattooFactors = (caseInput, deltas = {}, cfg = null) => {
     const colors = Array.isArray(caseInput.tc_colors_present)
         ? caseInput.tc_colors_present.filter(Boolean)
         : [];
@@ -133,7 +146,7 @@ const collectTattooFactors = (caseInput, deltas = {}) => {
     const prior = resolvePriorBand(caseInput);
     const countBand = resolveColorCountBand(colors);
     const colorDelta = Math.max(
-        hardestColorDelta(colors, colorDeltaMap(caseInput, deltas.color)),
+        hardestColorDelta(colors, colorDeltaMap(caseInput, deltas.color, cfg || {})),
         lookup(deltas.color_count, countBand, 0)
     );
 
@@ -160,6 +173,12 @@ const collectTattooFactors = (caseInput, deltas = {}) => {
             coverup === 'multiple' || coverup === 'unknown'
         ),
         factor('sit_age', 'Tattoo-Alter', lookup(deltas.age, ageBand, 0), ageBand === 'under_1'),
+        factor(
+            'sit_depth',
+            'Tiefe',
+            lookup(deltas.depth, caseInput.tc_depth || 'normal', 0),
+            false
+        ),
         factor('sit_prior_treatment', 'Vorbehandlung', lookup(deltas.prior_treatment, prior, 0), prior === 'many'),
         factor(
             'sit_scarring',
@@ -197,7 +216,7 @@ const computeTattooDelta = (caseInput, deltas = {}) =>
 
 const estimateSessionsFromConfig = (caseInput = {}, sessionPrediction = {}) => {
     const cfg = mergeSessionPrediction(sessionPrediction);
-    const factors = collectTattooFactors(caseInput, cfg.tattoo_deltas);
+    const factors = collectTattooFactors(caseInput, cfg.tattoo_deltas, cfg);
     const tattooDelta = factors.reduce((sum, item) => sum + item.delta, 0);
     const lifestyle = resolveLifestyle(caseInput, cfg);
     const basis = Number(cfg.base_sessions);
