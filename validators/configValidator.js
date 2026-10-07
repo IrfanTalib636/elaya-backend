@@ -243,6 +243,9 @@ const patchPlatformConfigSchema = z
                             .strict()
                     )
                     .optional(),
+                laser_color_overrides: z
+                    .record(z.string(), z.record(z.string(), z.number()))
+                    .optional(),
             })
             .strict()
             .optional(),
@@ -285,6 +288,9 @@ const sessionPredictionPreviewSchema = z
                             })
                             .strict()
                     )
+                    .optional(),
+                laser_color_overrides: z
+                    .record(z.string(), z.record(z.string(), z.number()))
                     .optional(),
             })
             .strict()

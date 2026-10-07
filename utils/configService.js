@@ -307,6 +307,18 @@ const validateSessionPredictionPatch = (patch) => {
         validateNumberMap(patch.aftercare_extra_max, 'session_prediction.aftercare_extra_max');
     }
 
+    if (patch.laser_color_overrides) {
+        if (
+            typeof patch.laser_color_overrides !== 'object' ||
+            Array.isArray(patch.laser_color_overrides)
+        ) {
+            throw new ApiError(400, 'session_prediction.laser_color_overrides must be an object');
+        }
+        for (const [laserId, map] of Object.entries(patch.laser_color_overrides)) {
+            validateNumberMap(map, `session_prediction.laser_color_overrides.${laserId}`);
+        }
+    }
+
     if (patch.lifestyle_bands !== undefined) {
         if (!Array.isArray(patch.lifestyle_bands) || patch.lifestyle_bands.length === 0) {
             throw new ApiError(400, 'session_prediction.lifestyle_bands must be a non-empty array');
@@ -454,6 +466,10 @@ const validatePlatformPatch = (patch, current = PLATFORM_CONFIG_DEFAULTS) => {
                 ...(current.session_prediction?.aftercare_extra_max || {}),
                 ...(patch.session_prediction.aftercare_extra_max || {}),
             },
+            laser_color_overrides: {
+                ...(current.session_prediction?.laser_color_overrides || {}),
+                ...(patch.session_prediction.laser_color_overrides || {}),
+            },
         });
         if (mergedSessions.min_sessions > mergedSessions.max_sessions) {
             throw new ApiError(400, 'min_sessions must not exceed max_sessions');
@@ -499,6 +515,10 @@ const updatePlatformConfig = async (patch) => {
             aftercare_extra_max: {
                 ...(current.session_prediction?.aftercare_extra_max || {}),
                 ...(patch.session_prediction.aftercare_extra_max || {}),
+            },
+            laser_color_overrides: {
+                ...(current.session_prediction?.laser_color_overrides || {}),
+                ...(patch.session_prediction.laser_color_overrides || {}),
             },
         });
     }
@@ -678,13 +698,16 @@ const validateElaycoinStudioCfg = (cfg = {}) => {
 
 const laserColorsFromRoom = async (room) => {
     if (!room) return null;
+    const deviceId = room.laser_device_id ? String(room.laser_device_id) : null;
     const fromName = colorDeltasForDevice(room.laser_brand, room.laser_model);
-    if (fromName) return fromName;
-    if (!room.laser_device_id) return null;
-    const device = await LaserDevice.findById(room.laser_device_id)
+    if (fromName) return { deltas: fromName, deviceId };
+    if (!deviceId) return null;
+    const device = await LaserDevice.findById(deviceId)
         .select('manufacturer model')
         .lean();
-    return colorDeltasForDevice(device?.manufacturer, device?.model);
+    const deltas = colorDeltasForDevice(device?.manufacturer, device?.model);
+    if (!deltas) return null;
+    return { deltas, deviceId };
 };
 
 const laserColorsForStudio = async (studio) => {
@@ -714,13 +737,14 @@ const getEffectivePricingOverrides = async (studioId) => {
     const studio = await Studio.findById(studioId)
         .select('studio_pricing behandlungsraeume')
         .lean();
-    const laserColorDeltas = await laserColorsForStudio(studio);
+    const laserPack = await laserColorsForStudio(studio);
     return {
         ...base,
         ...pickStudioPricing(studio?.studio_pricing || {}),
         ...groupOverrides,
         session_prediction: platform.session_prediction,
-        ...(laserColorDeltas ? { laser_color_deltas: laserColorDeltas } : {}),
+        ...(laserPack?.deltas ? { laser_color_deltas: laserPack.deltas } : {}),
+        ...(laserPack?.deviceId ? { laser_device_id: laserPack.deviceId } : {}),
     };
 };
 
@@ -950,6 +974,10 @@ const normalizeDomainPatch = (domain, data, currentLive) => {
         aftercare_extra_max: {
             ...(currentLive?.aftercare_extra_max || {}),
             ...(data?.aftercare_extra_max || {}),
+        },
+        laser_color_overrides: {
+            ...(currentLive?.laser_color_overrides || {}),
+            ...(data?.laser_color_overrides || {}),
         },
     });
 };
