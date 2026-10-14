@@ -74,12 +74,30 @@ const DEFAULT_SESSION_PREDICTION = {
             medium: 0,
             high: 1,
             very_high: 2,
+            unknown: 0,
         },
         saturation: {
             low: 0,
             medium: 0,
             high: 1,
             very_high: 2,
+            unknown: 0,
+        },
+        /** All zeros until an admin publishes a delta. unknown is its own key, not medium. */
+        shading: {
+            none: 0,
+            low: 0,
+            medium: 0,
+            high: 0,
+            unknown: 0,
+        },
+        /** All zeros until an admin publishes a delta. unknown is its own key, not medium. */
+        linework: {
+            fine: 0,
+            medium: 0,
+            bold: 0,
+            mixed: 0,
+            unknown: 0,
         },
         coverup: {
             none: 0,
@@ -101,6 +119,7 @@ const DEFAULT_SESSION_PREDICTION = {
             normal: 0,
             deep: 0,
             very_deep: 0,
+            unknown: 0,
         },
         prior_treatment: {
             none: 0,
@@ -113,6 +132,7 @@ const DEFAULT_SESSION_PREDICTION = {
             professional: 0,
             coverup: 1,
             mixed: 0,
+            unknown: 0,
         },
         goal: {
             full_removal: 0,

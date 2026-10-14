@@ -63,9 +63,10 @@ const INK_COLOR_IDS = [
     'skin_tone',
 ];
 
-const QUALITY_LEVEL = ['low', 'medium', 'high', 'very_high'];
-const SHADING_LEVEL = ['none', 'low', 'medium', 'high'];
-const LINEWORK_LEVEL = ['fine', 'medium', 'bold', 'mixed'];
+const QUALITY_LEVEL = ['low', 'medium', 'high', 'very_high', 'unknown'];
+const SHADING_LEVEL = ['none', 'low', 'medium', 'high', 'unknown'];
+const LINEWORK_LEVEL = ['fine', 'medium', 'bold', 'mixed', 'unknown'];
+const DEPTH_LEVEL = ['shallow', 'normal', 'deep', 'very_deep', 'unknown'];
 const RISK_LEVEL = ['low', 'medium', 'high', 'unsure'];
 const SUN_EXPOSURE = ['low', 'medium', 'high'];
 
@@ -141,6 +142,7 @@ module.exports = {
     QUALITY_LEVEL,
     SHADING_LEVEL,
     LINEWORK_LEVEL,
+    DEPTH_LEVEL,
     RISK_LEVEL,
     SUN_EXPOSURE,
     SKIN_FITZPATRICK_TYPE,

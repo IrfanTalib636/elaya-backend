@@ -10,6 +10,7 @@ const DEFAULT_PRICING_CONFIG = {
     depth_normal: 1.0,
     depth_deep: 1.1,
     depth_very_deep: 1.3,
+    depth_unknown: 1.0,
     age_under1: 1.2,
     age_1to3: 1.1,
     age_3to5: 1.05,

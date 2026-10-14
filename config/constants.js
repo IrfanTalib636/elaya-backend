@@ -72,6 +72,7 @@ const TC_TYPE = {
     PROFESSIONAL: 'professional',
     COVERUP: 'coverup',
     MIXED: 'mixed',
+    UNKNOWN: 'unknown',
 };
 
 const TC_COVERUP = {

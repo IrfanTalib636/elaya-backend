@@ -118,12 +118,15 @@ const resolveDepthMultiplier = (caseInput, config) => {
         very_deep: 'depth_very_deep',
         sehr_tief: 'depth_very_deep',
         coverup: 'depth_very_deep',
-        unknown: 'depth_normal',
-        weiss_nicht: 'depth_normal',
+        unknown: 'depth_unknown',
+        weiss_nicht: 'depth_unknown',
     };
     const alias = explicit ? depthMap[String(explicit).toLowerCase()] : null;
     if (alias && config[alias] != null) {
         return at(alias);
+    }
+    if (alias === 'depth_unknown') {
+        return { key: 'depth_unknown', value: config.depth_unknown ?? 1.0 };
     }
 
     if (

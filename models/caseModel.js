@@ -17,6 +17,7 @@ const {
     QUALITY_LEVEL,
     SHADING_LEVEL,
     LINEWORK_LEVEL,
+    DEPTH_LEVEL,
     RISK_LEVEL,
     SUN_EXPOSURE,
     SKIN_FITZPATRICK_TYPE,
@@ -223,6 +224,11 @@ const caseSchema = new mongoose.Schema(
         tc_linework: {
             type: String,
             enum: [...LINEWORK_LEVEL, null],
+            default: null,
+        },
+        tc_depth: {
+            type: String,
+            enum: [...DEPTH_LEVEL, null],
             default: null,
         },
         tc_size_length: { type: Number, default: null },

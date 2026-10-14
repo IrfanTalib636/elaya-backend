@@ -26,6 +26,7 @@ const CUSTOMER_INTAKE_FIELDS = [
     'tc_saturation',
     'tc_shading',
     'tc_linework',
+    'tc_depth',
     'tc_size_length',
     'tc_size_width',
     'zonen',
