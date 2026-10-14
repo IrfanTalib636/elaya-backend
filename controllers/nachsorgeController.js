@@ -21,6 +21,7 @@ const { getAiSystemPrompt } = require('../utils/aiConfigService');
 const { assertAiFeatureAllowed } = require('../utils/aiFeatureGate');
 const { vergebeElaycoins } = require('../utils/elaycoinEngine');
 const { parsePagination, buildPaginationMeta } = require('../utils/pagination');
+const { normalizePreferredLang } = require('../utils/preferredLanguage');
 
 const normalizeAmpel = (value) => {
     const raw = String(value || '')
@@ -466,7 +467,13 @@ Auffälligkeiten: ${(photoStage.foto_auffaelligkeiten || []).join(', ') || 'kein
         } // featureGate.allowed
     }
 
+    const healingLang =
+        normalizePreferredLang(req.query?.lang) ||
+        normalizePreferredLang(req.user?.preferred_language) ||
+        'de';
+
     const healing = computeHealingAssessment({
+        lang: healingLang,
         days_since_session: tage,
         symptome,
         photo_ampel: photoStage.foto_status || combined.ampel,
@@ -497,14 +504,14 @@ Auffälligkeiten: ${(photoStage.foto_auffaelligkeiten || []).join(', ') || 'kein
 
     combined.ampel = worseAmpel(combined.ampel, healing.ampel);
     combined.studio_kontakt = combined.studio_kontakt || healing.studio_kontakt;
-    if (healing.customer_summary && !combined.zusammenfassung) {
+    // Prefer localized rule-engine copy for the customer-facing summary so
+    // `?lang=en` never shows German template text from AI/default fallbacks.
+    if (healing.customer_summary) {
         combined.zusammenfassung = healing.customer_summary;
+        combined.hinweis = healing.customer_summary;
     }
     if (healing.recommended_action_text && !(combined.empfehlungen || []).includes(healing.recommended_action_text)) {
         combined.empfehlungen = [healing.recommended_action_text, ...(combined.empfehlungen || [])];
-    }
-    if (healing.customer_summary) {
-        combined.hinweis = healing.customer_summary;
     }
 
     const studioId = caseDoc.studio || caseDoc.aktuelle_firma_id;
@@ -708,7 +715,15 @@ const reviewCheck = asyncHandler(async (req, res) => {
     }
 
     if (req.body.healing_status) {
-        const correction = applyStudioHealingCorrection(check, req.body.healing_status);
+        const correctionLang =
+            normalizePreferredLang(req.query?.lang) ||
+            normalizePreferredLang(req.user?.preferred_language) ||
+            'de';
+        const correction = applyStudioHealingCorrection(
+            check,
+            req.body.healing_status,
+            correctionLang
+        );
         check.healing_status = correction.healing_status;
         check.ampel = correction.ampel;
         check.studio_kontakt = correction.studio_kontakt;

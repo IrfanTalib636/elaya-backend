@@ -204,37 +204,105 @@ const STATUS_TO_AMPEL = {
 };
 
 const CUSTOMER_COPY = {
-    early: {
-        normal: 'Frühe Heilungsphase — milde Reaktionen können jetzt noch normal sein.',
-        monitor: 'Frühe Heilungsphase — bitte die Stelle weiter beobachten.',
-        conspicuous: 'Auffällige Symptome. Bitte das Studio kontaktieren. Dies ist keine medizinische Diagnose.',
-        delayed: 'Die Heilung wirkt verzögert. Bitte das Studio kontaktieren. Dies ist keine medizinische Diagnose.',
+    de: {
+        early: {
+            normal: 'Frühe Heilungsphase — milde Reaktionen können jetzt noch normal sein.',
+            monitor: 'Frühe Heilungsphase — bitte die Stelle weiter beobachten.',
+            conspicuous:
+                'Auffällige Symptome. Bitte das Studio kontaktieren. Dies ist keine medizinische Diagnose.',
+            delayed:
+                'Die Heilung wirkt verzögert. Bitte das Studio kontaktieren. Dies ist keine medizinische Diagnose.',
+        },
+        healing: {
+            normal: 'Heilungsphase — die Beschwerden sollten jetzt eher abnehmen.',
+            monitor:
+                'Heilungsphase — unveränderte oder zunehmende Beschwerden bitte beobachten und dem Studio zeigen.',
+            conspicuous:
+                'Auffällige Symptome in der Heilungsphase. Bitte das Studio kontaktieren. Dies ist keine medizinische Diagnose.',
+            delayed:
+                'Die Heilung wirkt verzögert. Bitte das Studio kontaktieren. Dies ist keine medizinische Diagnose.',
+        },
+        consolidation: {
+            normal: 'Konsolidierungsphase — der Verlauf wirkt unauffällig.',
+            monitor:
+                'Konsolidierungsphase — bitte weiter beobachten und dem Studio Bescheid geben, falls es nicht besser wird.',
+            conspicuous:
+                'Auffällige Symptome nach mehr als 21 Tagen. Bitte das Studio kontaktieren. Dies ist keine medizinische Diagnose.',
+            delayed:
+                'Anhaltende Beschwerden nach mehr als 21 Tagen können auf eine verzögerte Heilung hinweisen. Bitte das Studio kontaktieren. Dies ist keine medizinische Diagnose.',
+        },
+        unknown: {
+            normal: 'Der Heilungsverlauf wirkt derzeit unauffällig.',
+            monitor: 'Bitte die behandelte Stelle weiter beobachten.',
+            conspicuous:
+                'Auffällige Symptome. Bitte das Studio kontaktieren. Dies ist keine medizinische Diagnose.',
+            delayed:
+                'Die Heilung wirkt verzögert. Bitte das Studio kontaktieren. Dies ist keine medizinische Diagnose.',
+        },
     },
-    healing: {
-        normal: 'Heilungsphase — die Beschwerden sollten jetzt eher abnehmen.',
-        monitor: 'Heilungsphase — unveränderte oder zunehmende Beschwerden bitte beobachten und dem Studio zeigen.',
-        conspicuous: 'Auffällige Symptome in der Heilungsphase. Bitte das Studio kontaktieren. Dies ist keine medizinische Diagnose.',
-        delayed: 'Die Heilung wirkt verzögert. Bitte das Studio kontaktieren. Dies ist keine medizinische Diagnose.',
-    },
-    consolidation: {
-        normal: 'Konsolidierungsphase — der Verlauf wirkt unauffällig.',
-        monitor: 'Konsolidierungsphase — bitte weiter beobachten und dem Studio Bescheid geben, falls es nicht besser wird.',
-        conspicuous: 'Auffällige Symptome nach mehr als 21 Tagen. Bitte das Studio kontaktieren. Dies ist keine medizinische Diagnose.',
-        delayed: 'Anhaltende Beschwerden nach mehr als 21 Tagen können auf eine verzögerte Heilung hinweisen. Bitte das Studio kontaktieren. Dies ist keine medizinische Diagnose.',
-    },
-    unknown: {
-        normal: 'Der Heilungsverlauf wirkt derzeit unauffällig.',
-        monitor: 'Bitte die behandelte Stelle weiter beobachten.',
-        conspicuous: 'Auffällige Symptome. Bitte das Studio kontaktieren. Dies ist keine medizinische Diagnose.',
-        delayed: 'Die Heilung wirkt verzögert. Bitte das Studio kontaktieren. Dies ist keine medizinische Diagnose.',
+    en: {
+        early: {
+            normal: 'Early healing phase — mild reactions can still be normal now.',
+            monitor: 'Early healing phase — please keep monitoring the site.',
+            conspicuous:
+                'Concerning symptoms. Please contact your studio. This is not a medical diagnosis.',
+            delayed:
+                'Healing appears delayed. Please contact your studio. This is not a medical diagnosis.',
+        },
+        healing: {
+            normal: 'Healing phase — symptoms should now be easing.',
+            monitor:
+                'Healing phase — unchanged or worsening symptoms should be monitored and shown to your studio.',
+            conspicuous:
+                'Concerning symptoms in the healing phase. Please contact your studio. This is not a medical diagnosis.',
+            delayed:
+                'Healing appears delayed. Please contact your studio. This is not a medical diagnosis.',
+        },
+        consolidation: {
+            normal: 'Consolidation phase — healing currently looks uneventful.',
+            monitor:
+                'Consolidation phase — keep monitoring and tell your studio if it does not improve.',
+            conspicuous:
+                'Concerning symptoms more than 21 days after treatment. Please contact your studio. This is not a medical diagnosis.',
+            delayed:
+                'Ongoing symptoms more than 21 days after treatment may indicate delayed healing. Please contact your studio. This is not a medical diagnosis.',
+        },
+        unknown: {
+            normal: 'Healing currently looks uneventful.',
+            monitor: 'Please keep monitoring the treated site.',
+            conspicuous:
+                'Concerning symptoms. Please contact your studio. This is not a medical diagnosis.',
+            delayed:
+                'Healing appears delayed. Please contact your studio. This is not a medical diagnosis.',
+        },
     },
 };
 
 const ACTION_COPY = {
-    continue_aftercare: 'Nachsorge wie empfohlen fortsetzen.',
-    continue_monitoring: 'Stelle weiter beobachten und bei Verschlechterung das Studio informieren.',
-    photo_again: 'In ein paar Tagen ein neues Fortschrittsfoto machen.',
-    check_studio: 'Bitte das Studio kontaktieren. Dies ersetzt keine ärztliche Diagnose.',
+    de: {
+        continue_aftercare: 'Nachsorge wie empfohlen fortsetzen.',
+        continue_monitoring:
+            'Stelle weiter beobachten und bei Verschlechterung das Studio informieren.',
+        photo_again: 'In ein paar Tagen ein neues Fortschrittsfoto machen.',
+        check_studio:
+            'Bitte das Studio kontaktieren. Dies ersetzt keine ärztliche Diagnose.',
+    },
+    en: {
+        continue_aftercare: 'Continue aftercare as recommended.',
+        continue_monitoring:
+            'Keep monitoring the site and inform your studio if it gets worse.',
+        photo_again: 'Take a new progress photo in a few days.',
+        check_studio:
+            'Please contact your studio. This does not replace a medical diagnosis.',
+    },
+};
+
+const resolveCopyLang = (lang) => {
+    const base = String(lang || '')
+        .trim()
+        .toLowerCase()
+        .split(/[-_]/)[0];
+    return base === 'en' ? 'en' : 'de';
 };
 
 const computeHealingAssessment = (input = {}) => {
@@ -341,7 +409,10 @@ const computeHealingAssessment = (input = {}) => {
         recommended_action = 'continue_monitoring';
     }
 
-    const copySet = CUSTOMER_COPY[phase] || CUSTOMER_COPY.unknown;
+    const lang = resolveCopyLang(input.lang);
+    const localized = CUSTOMER_COPY[lang] || CUSTOMER_COPY.de;
+    const copySet = localized[phase] || localized.unknown;
+    const actions = ACTION_COPY[lang] || ACTION_COPY.de;
 
     return {
         healing_status: status,
@@ -360,17 +431,19 @@ const computeHealingAssessment = (input = {}) => {
         behavior,
         customer_summary: copySet[status] || copySet.monitor,
         recommended_action,
-        recommended_action_text: ACTION_COPY[recommended_action],
+        recommended_action_text: actions[recommended_action],
         review_triggers: emptyWindowReview
             ? [...redFlags, 'unknown_healing_window']
             : redFlags,
     };
 };
 
-const applyStudioHealingCorrection = (current = {}, healingStatus) => {
+const applyStudioHealingCorrection = (current = {}, healingStatus, lang = 'de') => {
     const status = healingStatus || current.healing_status || 'monitor';
     const phase = current.healing_phase || 'unknown';
-    const copySet = CUSTOMER_COPY[phase] || CUSTOMER_COPY.unknown;
+    const localized = CUSTOMER_COPY[resolveCopyLang(lang)] || CUSTOMER_COPY.de;
+    const copySet = localized[phase] || localized.unknown;
+    const actions = ACTION_COPY[resolveCopyLang(lang)] || ACTION_COPY.de;
     let recommended_action = 'continue_aftercare';
     if (status === 'conspicuous' || status === 'delayed') recommended_action = 'check_studio';
     else if (status === 'monitor') recommended_action = 'continue_monitoring';
@@ -382,7 +455,7 @@ const applyStudioHealingCorrection = (current = {}, healingStatus) => {
         healing_needs_review: false,
         customer_summary: copySet[status] || copySet.monitor,
         recommended_action,
-        recommended_action_text: ACTION_COPY[recommended_action],
+        recommended_action_text: actions[recommended_action],
     };
 };
 
