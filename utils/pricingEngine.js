@@ -230,18 +230,16 @@ const computeConfidence = (caseInput) => {
 };
 
 const splitOverrides = (overrides = {}) => {
-    const { session_prediction, laser_color_deltas, laser_device_id, ...pricingOverrides } = overrides;
+    const { session_prediction, laser_color_deltas: _ignored, laser_device_id, ...pricingOverrides } = overrides;
     return {
         pricingOverrides,
         sessionPrediction: mergeSessionPrediction(session_prediction),
-        laserColorDeltas: laser_color_deltas,
         laserDeviceId: laser_device_id || null,
     };
 };
 
-const withLaserColors = (caseInput, laserColorDeltas, laserDeviceId) => {
+const withLaserDevice = (caseInput, laserDeviceId) => {
     const next = { ...caseInput };
-    if (!next.laser_color_deltas && laserColorDeltas) next.laser_color_deltas = laserColorDeltas;
     if (!next.laser_device_id && laserDeviceId) next.laser_device_id = String(laserDeviceId);
     return next;
 };
@@ -326,8 +324,8 @@ const calcPmuSessions = (caseInput = {}, sessionPrediction = {}) => {
 };
 
 const calculateCasePreview = (caseInput, pricingOverrides = {}) => {
-    const { sessionPrediction, laserColorDeltas, laserDeviceId } = splitOverrides(pricingOverrides);
-    caseInput = withLaserColors(caseInput, laserColorDeltas, laserDeviceId);
+    const { sessionPrediction, laserDeviceId } = splitOverrides(pricingOverrides);
+    caseInput = withLaserDevice(caseInput, laserDeviceId);
 
     if (caseInput.type === CASE_TYPE.PMU) {
         const price = calculatePriceForInput(caseInput, pricingOverrides);

@@ -1,3 +1,8 @@
+/**
+ * Reference colour profiles (prototype ENGINE_DEFAULTS.laserProfile). Seed values only:
+ * laserCatalogService copies them once into session_prediction.laser_color_overrides,
+ * which is the single source of truth afterwards. Never read at prediction time.
+ */
 const SKIN_TONE = { skin_tone: 3 };
 
 const LASER_COLOR_PROFILES = [

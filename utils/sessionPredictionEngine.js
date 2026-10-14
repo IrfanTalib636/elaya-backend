@@ -84,21 +84,14 @@ const plainNumberMap = (value) =>
     value && typeof value === 'object' && !Array.isArray(value) ? value : null;
 
 /**
- * Colour deltas for this case.
- * Catalog (or the studio laser profile) is the base.
- * Published per-laser overrides sit on top.
- * An unsaved matrix edit (`laser_color_deltas_edit`) replaces that stack for the draft preview only.
+ * Colour deltas for this case: the laser's map from the given config (LIVE or DRAFT),
+ * falling back to the platform colour deltas for colours/lasers without an entry.
  */
 const colorDeltaMap = (caseInput, platformColors = {}, cfg = {}) => {
-    const catalog = plainNumberMap(caseInput.laser_color_deltas) || {};
     const deviceId = caseInput.laser_device_id ? String(caseInput.laser_device_id) : '';
-    const published =
+    const laserMap =
         (deviceId && plainNumberMap(cfg?.laser_color_overrides?.[deviceId])) || {};
-    const edited = plainNumberMap(caseInput.laser_color_deltas_edit);
-    if (edited && Object.keys(edited).length) {
-        return { ...platformColors, ...catalog, ...edited };
-    }
-    return { ...platformColors, ...catalog, ...published };
+    return { ...platformColors, ...laserMap };
 };
 
 const hardestColorDelta = (colors = [], colorMap = {}) => {

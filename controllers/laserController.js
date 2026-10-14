@@ -6,9 +6,43 @@ const {
     createLaserDevice,
     updateLaserDevice,
     getLaserDeviceById,
+    getDefaultLaserColors,
+    saveLaserColorDraft,
 } = require('../utils/laserCatalogService');
 const { ADMIN_PERMISSIONS } = require('../config/adminPermissions');
+const { USER_ROLES } = require('../config/constants');
 const { hasPermission } = require('../middleware/authMiddleware');
+
+/** Colour deltas drive the session prediction, so they share the Engine's super-admin draft rule. */
+const assertCanDraftColors = (user, colorDeltas) => {
+    if (colorDeltas === undefined) return;
+    if (user?.role !== USER_ROLES.SUPER_ADMIN) {
+        throw new ApiError(403, 'Only super admin can change laser colour deltas (draft → publish)');
+    }
+};
+
+const draftLaserColors = async (req, device, colorDeltas) => {
+    if (colorDeltas === undefined) return false;
+    const changed = await saveLaserColorDraft(device.id, colorDeltas, {
+        userId: req.user._id || req.user.id,
+        label: device.label,
+    });
+    if (changed) {
+        const { logPlatformAudit, PLATFORM_AUDIT_ACTION } = require('../services/platformAuditService');
+        void logPlatformAudit({
+            actor: req.user,
+            action: PLATFORM_AUDIT_ACTION.CONFIG_DRAFT_SAVE,
+            targetType: 'platform',
+            targetId: 'config_draft:session_prediction',
+            reason: `Laser colour deltas: ${device.label}`,
+            before: device.color_deltas_draft || device.color_deltas,
+            after: colorDeltas,
+            meta: { domain: 'session_prediction', laser_device_id: device.id },
+            ip: req.ip,
+        });
+    }
+    return changed;
+};
 
 const listLasers = asyncHandler(async (req, res) => {
     const activeOnly = String(req.query.active_only || '') === 'true';
@@ -18,7 +52,8 @@ const listLasers = asyncHandler(async (req, res) => {
     const devices = await listLaserDevices({
         activeOnly: isStudio ? true : activeOnly,
     });
-    res.status(200).json({ success: true, data: { devices } });
+    const default_color_deltas = isStudio ? undefined : await getDefaultLaserColors();
+    res.status(200).json({ success: true, data: { devices, default_color_deltas } });
 });
 
 const getLaser = asyncHandler(async (req, res) => {
@@ -30,7 +65,11 @@ const createLaser = asyncHandler(async (req, res) => {
     if (!hasPermission(req.user, ADMIN_PERMISSIONS.MANAGE_LASER_CATALOG)) {
         throw new ApiError(403, 'Missing manage_laser_catalog permission');
     }
-    const device = await createLaserDevice(req.body, req.user._id || req.user.id);
+    const { color_deltas: colorDeltas, ...master } = req.body;
+    assertCanDraftColors(req.user, colorDeltas);
+    let device = await createLaserDevice(master, req.user._id || req.user.id);
+    const colorsDrafted = await draftLaserColors(req, device, colorDeltas);
+    if (colorsDrafted) device = await getLaserDeviceById(device.id);
     const { logPlatformAudit, PLATFORM_AUDIT_ACTION } = require('../services/platformAuditService');
     void logPlatformAudit({
         actor: req.user,
@@ -40,19 +79,25 @@ const createLaser = asyncHandler(async (req, res) => {
         after: device,
         ip: req.ip,
     });
-    res.status(201).json({ success: true, message: 'Laser device created', data: { device } });
+    res.status(201).json({
+        success: true,
+        message: colorsDrafted
+            ? 'Laser device created · colour deltas saved as draft'
+            : 'Laser device created',
+        data: { device, colors_drafted: colorsDrafted },
+    });
 });
 
 const patchLaser = asyncHandler(async (req, res) => {
     if (!hasPermission(req.user, ADMIN_PERMISSIONS.MANAGE_LASER_CATALOG)) {
         throw new ApiError(403, 'Missing manage_laser_catalog permission');
     }
+    const { color_deltas: colorDeltas, ...master } = req.body;
+    assertCanDraftColors(req.user, colorDeltas);
     const before = await getLaserDeviceById(req.params.id);
-    const device = await updateLaserDevice(
-        req.params.id,
-        req.body,
-        req.user._id || req.user.id
-    );
+    let device = await updateLaserDevice(req.params.id, master, req.user._id || req.user.id);
+    const colorsDrafted = await draftLaserColors(req, device, colorDeltas);
+    if (colorsDrafted) device = await getLaserDeviceById(device.id);
     const { logPlatformAudit, PLATFORM_AUDIT_ACTION } = require('../services/platformAuditService');
     void logPlatformAudit({
         actor: req.user,
@@ -63,7 +108,13 @@ const patchLaser = asyncHandler(async (req, res) => {
         after: device,
         ip: req.ip,
     });
-    res.status(200).json({ success: true, message: 'Laser device updated', data: { device } });
+    res.status(200).json({
+        success: true,
+        message: colorsDrafted
+            ? 'Laser device updated · colour deltas saved as draft'
+            : 'Laser device updated',
+        data: { device, colors_drafted: colorsDrafted },
+    });
 });
 
 const requestLaser = asyncHandler(async (req, res) => {

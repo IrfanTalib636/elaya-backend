@@ -26,7 +26,7 @@ const { runExcelPlausibilityCheck } = require('../utils/plausibilityCheck');
 const { DOMAIN_SOURCE_OF_TRUTH } = require('../config/domainSourceOfTruth');
 const { previewSessionPrediction } = require('../utils/sessionPredictionEngine');
 const { previewPricing } = require('../utils/pricingEngine');
-const { mergeSessionPrediction } = require('../config/sessionPredictionDefaults');
+const { mergeSessionPrediction, mergeLaserColorMaps } = require('../config/sessionPredictionDefaults');
 const { emitSessionPredictionUpdated } = require('../sockets/configEmit');
 const { EXCEL_PLAUSIBILITY_EXAMPLES } = require('../config/excelPlausibilityExamples');
 
@@ -469,6 +469,10 @@ const previewSessionPredictionHandler = asyncHandler(async (req, res) => {
             ...(baselinePrediction?.aftercare_extra_max || {}),
             ...(req.body.session_prediction?.aftercare_extra_max || {}),
         },
+        laser_color_overrides: mergeLaserColorMaps(
+            baselinePrediction?.laser_color_overrides,
+            req.body.session_prediction?.laser_color_overrides
+        ),
     });
 
     const presets = Object.fromEntries(

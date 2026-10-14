@@ -228,6 +228,28 @@ const deepMergeMaps = (base = {}, override = {}) => {
     return out;
 };
 
+/** Colour keys of a per-laser delta map (session_prediction.laser_color_overrides[laserId]). */
+const LASER_COLOR_KEYS = Object.keys(DEFAULT_SESSION_PREDICTION.tattoo_deltas.color);
+
+/**
+ * Per-laser merge: `override[laserId]` patches `base[laserId]` colour by colour,
+ * so a draft that only changes Green keeps the other colours of that laser.
+ */
+const mergeLaserColorMaps = (base = {}, override = {}) => {
+    const out = {};
+    const ids = new Set([...Object.keys(base || {}), ...Object.keys(override || {})]);
+    for (const id of ids) {
+        const merged = { ...(base?.[id] || {}), ...(override?.[id] || {}) };
+        const clean = {};
+        for (const [color, value] of Object.entries(merged)) {
+            const n = Number(value);
+            if (Number.isFinite(n)) clean[color] = n;
+        }
+        out[id] = clean;
+    }
+    return out;
+};
+
 const mergeSessionPrediction = (stored = {}) => {
     const raw = stored && typeof stored === 'object' ? stored : {};
     return {
@@ -267,11 +289,18 @@ const mergeSessionPrediction = (stored = {}) => {
                       min_score: Number(rule.min_score),
                   }))
                 : DEFAULT_SESSION_PREDICTION.lifestyle_smoker_cigs.map((rule) => ({ ...rule })),
-        laser_color_overrides: deepMergeMaps({}, raw.laser_color_overrides || {}),
+        /**
+         * Single source of truth for laser colour deltas, keyed by LaserDevice id.
+         * The Laser catalog and Prediction Engine → Colours & Laser both read/write this map
+         * (draft → publish), never a copy of it.
+         */
+        laser_color_overrides: mergeLaserColorMaps({}, raw.laser_color_overrides || {}),
     };
 };
 
 module.exports = {
     DEFAULT_SESSION_PREDICTION,
+    LASER_COLOR_KEYS,
+    mergeLaserColorMaps,
     mergeSessionPrediction,
 };
