@@ -18,8 +18,10 @@ const buildCorsOriginChecker = () => {
     const defaults = [
         'http://localhost:5173',
         'http://localhost:3000',
+        'http://localhost:3002',
         'http://localhost:8081',
         'http://127.0.0.1:8081',
+        'https://app.elaya.io',
     ];
     const allowList = [...new Set([...defaults, ...configured])];
 

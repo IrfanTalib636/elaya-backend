@@ -27,10 +27,11 @@ const check = (ok, label) => {
         check(Boolean(laser?.color_deltas), `laser profile exposes LIVE colours (${laser?.label})`);
 
         const live = await getPlatformConfig();
-        const liveMap = live.session_prediction.laser_color_overrides[laser.id];
+        const liveMap = live.session_prediction.laser_color_overrides[laser.id] || {};
+        const platformGreen = live.session_prediction.tattoo_deltas.color.green;
         check(
-            liveMap && liveMap.green === laser.color_deltas.green,
-            `laser profile LIVE green (${laser.color_deltas.green}) = engine LIVE green (${liveMap?.green})`
+            laser.color_deltas.green === (liveMap.green ?? platformGreen),
+            `laser profile LIVE green (${laser.color_deltas.green}) = override or platform default (${liveMap.green ?? platformGreen})`
         );
 
         const startGreen = (laser.color_deltas_draft || laser.color_deltas).green;
@@ -45,7 +46,8 @@ const check = (ok, label) => {
         const engineDraft = lifecycle.draft?.data?.laser_color_overrides?.[laser.id];
         check(engineDraft?.green === target, 'Prediction Engine draft holds the same green value');
         check(
-            lifecycle.published.laser_color_overrides[laser.id].green === laser.color_deltas.green,
+            (lifecycle.published.laser_color_overrides[laser.id]?.green ?? platformGreen) ===
+                laser.color_deltas.green,
             'Prediction Engine LIVE still holds the published green value'
         );
 

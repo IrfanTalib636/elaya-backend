@@ -64,7 +64,12 @@ const upgradeStalePackageFeatures = (normalizedList) => {
     });
 };
 const { DEFAULT_PRICING_CONFIG } = require('../config/pricingDefaults');
-const { mergeSessionPrediction, mergeLaserColorMaps } = require('../config/sessionPredictionDefaults');
+const {
+    mergeSessionPrediction,
+    mergeLaserColorMaps,
+    sparseLaserColorOverrides,
+    sameLaserColorOverrides,
+} = require('../config/sessionPredictionDefaults');
 const { mergeEngineExplainer } = require('../config/engineExplainerDefaults');
 const { ELAYCOIN_SITUATIONS } = require('../config/elaycoinConfig');
 const { cloneAutomations } = require('../config/automationsDefaults');
@@ -1018,11 +1023,39 @@ const normalizeDomainPatch = (domain, data, currentLive) => {
     });
 };
 
+/**
+ * Drop stored per-laser colours that equal the LIVE platform default so they inherit
+ * again. Effective prediction does not change; later default edits then apply.
+ */
+const persistSparseLaserColorOverrides = async (doc) => {
+    if (!doc) return doc;
+    const plain = typeof doc.toObject === 'function' ? doc.toObject() : doc;
+    const live = mergeSessionPrediction(plain.session_prediction || {});
+    const platformColors = live.tattoo_deltas?.color || {};
+    const $set = {};
+    const stored = plain.session_prediction?.laser_color_overrides || {};
+    const nextLive = sparseLaserColorOverrides(stored, platformColors);
+    if (!sameLaserColorOverrides(stored, nextLive)) {
+        $set['session_prediction.laser_color_overrides'] = nextLive;
+    }
+    const draftMaps = plain.drafts?.session_prediction?.data?.laser_color_overrides;
+    if (draftMaps && typeof draftMaps === 'object' && !Array.isArray(draftMaps)) {
+        const nextDraft = sparseLaserColorOverrides(draftMaps, platformColors);
+        if (!sameLaserColorOverrides(draftMaps, nextDraft)) {
+            $set['drafts.session_prediction.data.laser_color_overrides'] = nextDraft;
+        }
+    }
+    if (!Object.keys($set).length) return doc;
+    await PlatformConfig.updateOne({ key: 'platform' }, { $set });
+    return PlatformConfig.findOne({ key: 'platform' });
+};
+
 const getPlatformConfigDoc = async () => {
     let doc = await PlatformConfig.findOne({ key: 'platform' });
     if (!doc) {
         doc = await PlatformConfig.create({ key: 'platform' });
     }
+    doc = await persistSparseLaserColorOverrides(doc);
     return doc;
 };
 
@@ -1033,13 +1066,13 @@ const getConfigLifecycle = async (domain) => {
     const draftEntry = doc.drafts?.[domain] || null;
     const draftData =
         draftEntry?.data && domain === 'session_prediction'
-            ? {
+            ? mergeSessionPrediction({
                   ...draftEntry.data,
                   laser_color_overrides: mergeLaserColorMaps(
                       live.session_prediction?.laser_color_overrides,
                       draftEntry.data.laser_color_overrides
                   ),
-              }
+              })
             : draftEntry?.data;
     return {
         domain,
