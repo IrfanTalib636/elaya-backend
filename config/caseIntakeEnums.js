@@ -111,7 +111,10 @@ const LIFE_SLEEP_QUALITY = ['poor', 'fair', 'good', 'excellent'];
 const LIFE_STRESS = ['low', 'medium', 'high', 'very_high'];
 /** Tattoo + PMU hydration (prototype PMU uses medium/high). */
 const LIFE_HYDRATION = ['low', 'normal', 'medium', 'good', 'high'];
-const LIFE_NUTRITION = ['poor', 'fair', 'good', 'very_good', 'very_poor'];
+/** Customer App, Studio case creation, both Case Simulators, Prediction Engine. Labels: Poor / Medium / Good. */
+const LIFE_NUTRITION = ['poor', 'fair', 'good'];
+/** Older simulator-only values. Persist so existing cases still load; UI and new writes do not offer them. */
+const LIFE_NUTRITION_LEGACY = ['very_good', 'very_poor'];
 const LIFE_AFTERCARE = ['low', 'medium', 'high'];
 
 /** Prototype PMU_01–PMU_05 enums (exact values from customer/studio prototype). */
@@ -156,6 +159,7 @@ module.exports = {
     LIFE_STRESS,
     LIFE_HYDRATION,
     LIFE_NUTRITION,
+    LIFE_NUTRITION_LEGACY,
     LIFE_AFTERCARE,
     PMU_TYPE,
     PMU_TYPE_LABELS,

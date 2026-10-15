@@ -261,7 +261,7 @@ const swaggerDefinition = {
                     life_height_cm: { type: 'number', example: 172 },
                     life_weight_kg: { type: 'number', example: 70 },
                     life_hydration: { type: 'string', enum: ['poor', 'fair', 'good', 'excellent'] },
-                    life_nutrition: { type: 'string', enum: ['poor', 'fair', 'good', 'very_good', 'very_poor'] },
+                    life_nutrition: { type: 'string', enum: ['poor', 'fair', 'good'] },
                     goal_target: {
                         type: 'string',
                         enum: ['full', 'full_removal', 'partial_fade', 'lightening_for_coverup'],

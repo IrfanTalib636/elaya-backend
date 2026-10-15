@@ -30,6 +30,7 @@ const {
     LIFE_STRESS,
     LIFE_HYDRATION,
     LIFE_NUTRITION,
+    LIFE_NUTRITION_LEGACY,
     LIFE_AFTERCARE,
     PMU_TYPE,
     PMU_SIDE,
@@ -308,7 +309,7 @@ const caseSchema = new mongoose.Schema(
         },
         life_nutrition: {
             type: String,
-            enum: [...LIFE_NUTRITION, null],
+            enum: [...LIFE_NUTRITION, ...LIFE_NUTRITION_LEGACY, null],
             default: null,
         },
         // TC_05 — goal

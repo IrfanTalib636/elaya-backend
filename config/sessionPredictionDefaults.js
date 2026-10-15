@@ -202,13 +202,14 @@ const DEFAULT_SESSION_PREDICTION = {
             low: 4,
         },
         nutrition: {
-            very_good: 1,
-            balanced: 1,
             good: 2,
             fair: 3,
             poor: 4,
-            very_poor: 5,
-            very_bad: 5,
+            // Legacy keys from the five-option simulator. Same scores as their canonical aliases.
+            very_good: 2,
+            balanced: 2,
+            very_poor: 4,
+            very_bad: 4,
         },
     },
     /** Average 1.0–1.6 → 1 ×0.85; 1.7–2.4 → 2 ×0.95; 2.5–3.2 → 3 ×1.00; 3.3–4.0 → 4 ×1.20; 4.1–5.0 → 5 ×1.50 */
