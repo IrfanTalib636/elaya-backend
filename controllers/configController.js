@@ -26,7 +26,13 @@ const { runExcelPlausibilityCheck } = require('../utils/plausibilityCheck');
 const { DOMAIN_SOURCE_OF_TRUTH } = require('../config/domainSourceOfTruth');
 const { previewSessionPrediction } = require('../utils/sessionPredictionEngine');
 const { previewPricing } = require('../utils/pricingEngine');
-const { mergeSessionPrediction } = require('../config/sessionPredictionDefaults');
+const { mergeEngineExplainer } = require('../config/engineExplainerDefaults');
+const {
+    buildEngineFacts,
+    buildHowItWorksView,
+} = require('../utils/engineExplainer');
+const { mergeSessionPrediction, mergeLaserColorMaps } = require('../config/sessionPredictionDefaults');
+const { normalizePreferredLang } = require('../utils/preferredLanguage');
 const { emitSessionPredictionUpdated } = require('../sockets/configEmit');
 const { EXCEL_PLAUSIBILITY_EXAMPLES } = require('../config/excelPlausibilityExamples');
 
@@ -105,7 +111,7 @@ const patchPlatform = asyncHandler(async (req, res) => {
     if (versionedTouched.length > 1) {
         throw new ApiError(
             400,
-            'Publish one versioned domain at a time (sperrfristen, default_pricing, or session_prediction)'
+            'Publish one versioned domain at a time (sperrfristen, default_pricing, session_prediction, or engine_explainer)'
         );
     }
     if (versionedTouched.length === 1) {
@@ -469,6 +475,10 @@ const previewSessionPredictionHandler = asyncHandler(async (req, res) => {
             ...(baselinePrediction?.aftercare_extra_max || {}),
             ...(req.body.session_prediction?.aftercare_extra_max || {}),
         },
+        laser_color_overrides: mergeLaserColorMaps(
+            baselinePrediction?.laser_color_overrides,
+            req.body.session_prediction?.laser_color_overrides
+        ),
     });
 
     const presets = Object.fromEntries(
@@ -722,6 +732,79 @@ const rollbackConfigDomainHandler = asyncHandler(async (req, res) => {
     });
 });
 
+const workingData = (life) => life?.draft?.data || life?.published || {};
+
+const getEngineHowItWorks = asyncHandler(async (req, res) => {
+    const lang = normalizePreferredLang(req.query?.lang) === 'en' ? 'en' : 'de';
+    const [sessions, pricing, explainer] = await Promise.all([
+        getConfigLifecycle('session_prediction'),
+        getConfigLifecycle('default_pricing'),
+        getConfigLifecycle('engine_explainer'),
+    ]);
+
+    const publishedSession = sessions.published;
+    const publishedPricing = mergeDefaultPricing({ default_pricing: pricing.published });
+    const workingSession = mergeSessionPrediction(workingData(sessions));
+    const workingPricing = mergeDefaultPricing({
+        default_pricing: workingData(pricing),
+    });
+    const publishedExplainer = mergeEngineExplainer(explainer.published);
+    const workingExplainer = mergeEngineExplainer(workingData(explainer));
+
+    const publishedFacts = buildEngineFacts(publishedSession, publishedPricing, lang);
+    const workingFacts = buildEngineFacts(workingSession, workingPricing, lang);
+
+    res.status(200).json({
+        success: true,
+        data: {
+            lang,
+            versions: {
+                session_prediction: sessions.current_version || 0,
+                default_pricing: pricing.current_version || 0,
+                engine_explainer: explainer.current_version || 0,
+            },
+            has_draft: {
+                session_prediction: Boolean(sessions.has_draft),
+                default_pricing: Boolean(pricing.has_draft),
+                engine_explainer: Boolean(explainer.has_draft),
+            },
+            explainer: workingExplainer,
+            published_explainer: publishedExplainer,
+            facts: {
+                base_sessions: workingFacts.base_sessions,
+                min_sessions: workingFacts.min_sessions,
+                max_sessions: workingFacts.max_sessions,
+                range_minus: workingFacts.range_minus,
+                range_plus: workingFacts.range_plus,
+                price_per_cm2: workingFacts.price_per_cm2,
+                min_price: workingFacts.min_price,
+                price_round_to: workingFacts.price_round_to,
+                color_aggregation: workingFacts.color_aggregation,
+                color_aggregation_rule: workingFacts.color_aggregation_rule,
+                aftercare_note: workingFacts.aftercare_note,
+                treatment_key: workingFacts.treatment_key,
+            },
+            published_facts: {
+                base_sessions: publishedFacts.base_sessions,
+                min_sessions: publishedFacts.min_sessions,
+                max_sessions: publishedFacts.max_sessions,
+                range_minus: publishedFacts.range_minus,
+                range_plus: publishedFacts.range_plus,
+                price_per_cm2: publishedFacts.price_per_cm2,
+                min_price: publishedFacts.min_price,
+                price_round_to: publishedFacts.price_round_to,
+                color_aggregation: publishedFacts.color_aggregation,
+                color_aggregation_rule: publishedFacts.color_aggregation_rule,
+                aftercare_note: publishedFacts.aftercare_note,
+                treatment_key: publishedFacts.treatment_key,
+            },
+            view: buildHowItWorksView(workingFacts, workingExplainer, lang),
+            published_view: buildHowItWorksView(publishedFacts, publishedExplainer, lang),
+            deltas: workingSession.tattoo_deltas || {},
+        },
+    });
+});
+
 module.exports = {
     getPlatform,
     patchPlatform,
@@ -733,6 +816,7 @@ module.exports = {
     listStudioFeaturesAdmin,
     previewSessionPredictionHandler,
     previewPricingHandler,
+    getEngineHowItWorks,
     getConfigDomainLifecycle,
     putConfigDomainDraft,
     deleteConfigDomainDraft,

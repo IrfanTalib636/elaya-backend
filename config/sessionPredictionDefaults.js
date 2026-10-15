@@ -1,4 +1,8 @@
 const DEFAULT_SESSION_PREDICTION = {
+    /** Future treatments add their own session_prediction profile; tattoo is the current one. */
+    treatment_key: 'tattoo',
+    /** Colour impact: max = MAX(hardest colour, colour-count); sum = add both. */
+    color_aggregation: 'max',
     base_sessions: 8,
     min_sessions: 3,
     max_sessions: 20,
@@ -74,12 +78,30 @@ const DEFAULT_SESSION_PREDICTION = {
             medium: 0,
             high: 1,
             very_high: 2,
+            unknown: 0,
         },
         saturation: {
             low: 0,
             medium: 0,
             high: 1,
             very_high: 2,
+            unknown: 0,
+        },
+        /** All zeros until an admin publishes a delta. unknown is its own key, not medium. */
+        shading: {
+            none: 0,
+            low: 0,
+            medium: 0,
+            high: 0,
+            unknown: 0,
+        },
+        /** All zeros until an admin publishes a delta. unknown is its own key, not medium. */
+        linework: {
+            fine: 0,
+            medium: 0,
+            bold: 0,
+            mixed: 0,
+            unknown: 0,
         },
         coverup: {
             none: 0,
@@ -101,6 +123,7 @@ const DEFAULT_SESSION_PREDICTION = {
             normal: 0,
             deep: 0,
             very_deep: 0,
+            unknown: 0,
         },
         prior_treatment: {
             none: 0,
@@ -113,6 +136,7 @@ const DEFAULT_SESSION_PREDICTION = {
             professional: 0,
             coverup: 1,
             mixed: 0,
+            unknown: 0,
         },
         goal: {
             full_removal: 0,
@@ -182,13 +206,14 @@ const DEFAULT_SESSION_PREDICTION = {
             low: 4,
         },
         nutrition: {
-            very_good: 1,
-            balanced: 1,
             good: 2,
             fair: 3,
             poor: 4,
-            very_poor: 5,
-            very_bad: 5,
+            // Legacy keys from the five-option simulator. Same scores as their canonical aliases.
+            very_good: 2,
+            balanced: 2,
+            very_poor: 4,
+            very_bad: 4,
         },
     },
     /** Average 1.0–1.6 → 1 ×0.85; 1.7–2.4 → 2 ×0.95; 2.5–3.2 → 3 ×1.00; 3.3–4.0 → 4 ×1.20; 4.1–5.0 → 5 ×1.50 */
@@ -224,6 +249,28 @@ const deepMergeMaps = (base = {}, override = {}) => {
         } else if (value !== undefined) {
             out[key] = value;
         }
+    }
+    return out;
+};
+
+/** Colour keys of a per-laser delta map (session_prediction.laser_color_overrides[laserId]). */
+const LASER_COLOR_KEYS = Object.keys(DEFAULT_SESSION_PREDICTION.tattoo_deltas.color);
+
+/**
+ * Per-laser merge: `override[laserId]` patches `base[laserId]` colour by colour,
+ * so a draft that only changes Green keeps the other colours of that laser.
+ */
+const mergeLaserColorMaps = (base = {}, override = {}) => {
+    const out = {};
+    const ids = new Set([...Object.keys(base || {}), ...Object.keys(override || {})]);
+    for (const id of ids) {
+        const merged = { ...(base?.[id] || {}), ...(override?.[id] || {}) };
+        const clean = {};
+        for (const [color, value] of Object.entries(merged)) {
+            const n = Number(value);
+            if (Number.isFinite(n)) clean[color] = n;
+        }
+        out[id] = clean;
     }
     return out;
 };
@@ -267,11 +314,18 @@ const mergeSessionPrediction = (stored = {}) => {
                       min_score: Number(rule.min_score),
                   }))
                 : DEFAULT_SESSION_PREDICTION.lifestyle_smoker_cigs.map((rule) => ({ ...rule })),
-        laser_color_overrides: deepMergeMaps({}, raw.laser_color_overrides || {}),
+        /**
+         * Single source of truth for laser colour deltas, keyed by LaserDevice id.
+         * The Laser catalog and Prediction Engine → Colours & Laser both read/write this map
+         * (draft → publish), never a copy of it.
+         */
+        laser_color_overrides: mergeLaserColorMaps({}, raw.laser_color_overrides || {}),
     };
 };
 
 module.exports = {
     DEFAULT_SESSION_PREDICTION,
+    LASER_COLOR_KEYS,
+    mergeLaserColorMaps,
     mergeSessionPrediction,
 };

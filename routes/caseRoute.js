@@ -61,6 +61,7 @@ const caseAccessRoles = [
  *             tc_saturation: medium
  *             tc_shading: low
  *             tc_linework: medium
+ *             tc_depth: normal
  *             tc_size_length: 8
  *             tc_size_width: 5
  *             skin_fitzpatrick_type: III
@@ -170,6 +171,7 @@ router.get(
  *             tc_saturation: medium
  *             tc_shading: low
  *             tc_linework: medium
+ *             tc_depth: normal
  *             tc_size_length: 8
  *             tc_size_width: 5
  *             skin_fitzpatrick_type: III

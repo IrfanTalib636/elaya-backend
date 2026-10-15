@@ -2,8 +2,16 @@ const { GOAL_TARGET, CASE_TYPE } = require('../config/constants');
 const {
     BODY_LOCATION_LABELS,
     FITZ_TYPE_TO_INT,
+    LIFE_NUTRITION,
     PMU_TYPE_LABELS,
 } = require('../config/caseIntakeEnums');
+
+const NUTRITION_ALIASES = {
+    very_good: 'good',
+    balanced: 'good',
+    very_poor: 'poor',
+    very_bad: 'poor',
+};
 
 /** Fields customers may set during the intake wizard (tattoo + PMU + sign-off). */
 const CUSTOMER_INTAKE_FIELDS = [
@@ -26,6 +34,7 @@ const CUSTOMER_INTAKE_FIELDS = [
     'tc_saturation',
     'tc_shading',
     'tc_linework',
+    'tc_depth',
     'tc_size_length',
     'tc_size_width',
     'zonen',
@@ -124,6 +133,10 @@ const syncDerivedIntakeFields = (fields) => {
 
     if (next.goal_target != null) {
         next.goal_target = normalizeGoalTarget(next.goal_target);
+    }
+
+    if (next.life_nutrition != null && !LIFE_NUTRITION.includes(next.life_nutrition)) {
+        next.life_nutrition = NUTRITION_ALIASES[next.life_nutrition] || next.life_nutrition;
     }
 
     if (next.skin_fitzpatrick_type && FITZ_TYPE_TO_INT[next.skin_fitzpatrick_type]) {

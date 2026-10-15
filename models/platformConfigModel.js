@@ -1,6 +1,7 @@
 const mongoose = require('mongoose');
 const { PLATFORM_CONFIG_DEFAULTS } = require('../config/platformDefaults');
 const { DEFAULT_SESSION_PREDICTION } = require('../config/sessionPredictionDefaults');
+const { DEFAULT_ENGINE_EXPLAINER } = require('../config/engineExplainerDefaults');
 
 const gruppenGroessenSchema = new mongoose.Schema(
     {
@@ -147,6 +148,14 @@ const platformConfigSchema = new mongoose.Schema(
         default_pricing: {
             type: mongoose.Schema.Types.Mixed,
             default: {},
+        },
+        /**
+         * Editable “How ELAYA works” copy (EN/DE). Numbers are interpolated
+         * from published session_prediction + default_pricing, never stored here.
+         */
+        engine_explainer: {
+            type: mongoose.Schema.Types.Mixed,
+            default: () => JSON.parse(JSON.stringify(DEFAULT_ENGINE_EXPLAINER)),
         },
         /**
          * Unpublished drafts per versioned domain (sperrfristen / pricing / prediction).

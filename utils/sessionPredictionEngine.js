@@ -14,6 +14,7 @@ const INT_TO_FITZ = {
 
 const REVIEW_COLORS = new Set(DIFFICULT_COLORS);
 const REVIEW_LOCATIONS = new Set(['hand', 'foot', 'face']);
+const isUnknownAnswer = (value) => value === 'unknown';
 
 const lookup = (map, key, fallback = 0) => {
     if (key == null || map == null) return fallback;
@@ -84,21 +85,14 @@ const plainNumberMap = (value) =>
     value && typeof value === 'object' && !Array.isArray(value) ? value : null;
 
 /**
- * Colour deltas for this case.
- * Catalog (or the studio laser profile) is the base.
- * Published per-laser overrides sit on top.
- * An unsaved matrix edit (`laser_color_deltas_edit`) replaces that stack for the draft preview only.
+ * Colour deltas for this case: the laser's map from the given config (LIVE or DRAFT),
+ * falling back to the platform colour deltas for colours/lasers without an entry.
  */
 const colorDeltaMap = (caseInput, platformColors = {}, cfg = {}) => {
-    const catalog = plainNumberMap(caseInput.laser_color_deltas) || {};
     const deviceId = caseInput.laser_device_id ? String(caseInput.laser_device_id) : '';
-    const published =
+    const laserMap =
         (deviceId && plainNumberMap(cfg?.laser_color_overrides?.[deviceId])) || {};
-    const edited = plainNumberMap(caseInput.laser_color_deltas_edit);
-    if (edited && Object.keys(edited).length) {
-        return { ...platformColors, ...catalog, ...edited };
-    }
-    return { ...platformColors, ...catalog, ...published };
+    return { ...platformColors, ...laserMap };
 };
 
 const hardestColorDelta = (colors = [], colorMap = {}) => {
@@ -145,10 +139,10 @@ const collectTattooFactors = (caseInput, deltas = {}, cfg = null) => {
     const coverup = caseInput.tc_coverup || 'none';
     const prior = resolvePriorBand(caseInput);
     const countBand = resolveColorCountBand(colors);
-    const colorDelta = Math.max(
-        hardestColorDelta(colors, colorDeltaMap(caseInput, deltas.color, cfg || {})),
-        lookup(deltas.color_count, countBand, 0)
-    );
+    const hardest = hardestColorDelta(colors, colorDeltaMap(caseInput, deltas.color, cfg || {}));
+    const countDelta = lookup(deltas.color_count, countBand, 0);
+    const colorDelta =
+        (cfg || {}).color_aggregation === 'sum' ? hardest + countDelta : Math.max(hardest, countDelta);
 
     const factors = [
         factor('sit_skin_type', 'Fitzpatrick', lookup(deltas.fitzpatrick, fitz, 0), ['V', 'VI', 'unsicher'].includes(fitz)),
@@ -159,12 +153,30 @@ const collectTattooFactors = (caseInput, deltas = {}, cfg = null) => {
             colorDelta,
             colors.some((c) => REVIEW_COLORS.has(c))
         ),
-        factor('sit_density', 'Dichte', lookup(deltas.density, caseInput.tc_density, 0), caseInput.tc_density === 'very_high'),
+        factor(
+            'sit_density',
+            'Dichte',
+            lookup(deltas.density, caseInput.tc_density, 0),
+            caseInput.tc_density === 'very_high' || isUnknownAnswer(caseInput.tc_density)
+        ),
         factor(
             'sit_saturation',
             'Sättigung',
             lookup(deltas.saturation, caseInput.tc_saturation, 0),
-            ['high', 'very_high'].includes(caseInput.tc_saturation)
+            ['high', 'very_high'].includes(caseInput.tc_saturation) ||
+                isUnknownAnswer(caseInput.tc_saturation)
+        ),
+        factor(
+            'sit_shading',
+            'Schattierung',
+            lookup(deltas.shading, caseInput.tc_shading, 0),
+            caseInput.tc_shading === 'high' || isUnknownAnswer(caseInput.tc_shading)
+        ),
+        factor(
+            'sit_linework',
+            'Linienführung',
+            lookup(deltas.linework, caseInput.tc_linework, 0),
+            isUnknownAnswer(caseInput.tc_linework)
         ),
         factor(
             'sit_coverup',
@@ -176,8 +188,8 @@ const collectTattooFactors = (caseInput, deltas = {}, cfg = null) => {
         factor(
             'sit_depth',
             'Tiefe',
-            lookup(deltas.depth, caseInput.tc_depth || 'normal', 0),
-            false
+            lookup(deltas.depth, caseInput.tc_depth, 0),
+            isUnknownAnswer(caseInput.tc_depth)
         ),
         factor('sit_prior_treatment', 'Vorbehandlung', lookup(deltas.prior_treatment, prior, 0), prior === 'many'),
         factor(
@@ -186,7 +198,12 @@ const collectTattooFactors = (caseInput, deltas = {}, cfg = null) => {
             lookup(deltas.scarring, caseInput.skin_keloid_risk, 0),
             caseInput.skin_keloid_risk === 'high'
         ),
-        factor('sit_type', 'Tattoo-Art', lookup(deltas.type, caseInput.tc_type, 0), false),
+        factor(
+            'sit_type',
+            'Tattoo-Art',
+            lookup(deltas.type, caseInput.tc_type, 0),
+            isUnknownAnswer(caseInput.tc_type)
+        ),
         factor('sit_goal', 'Ziel', lookup(deltas.goal, resolveGoalKey(caseInput.goal_target), 0), false),
         factor(
             'sit_laser_profile',

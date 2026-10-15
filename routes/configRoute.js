@@ -121,6 +121,13 @@ router.post(
     configController.previewSessionPredictionHandler
 );
 
+router.get(
+    '/engine/how-it-works',
+    protect,
+    authorize(...adminRoles),
+    configController.getEngineHowItWorks
+);
+
 /**
  * @swagger
  * /config/pricing/preview:

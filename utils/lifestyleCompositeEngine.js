@@ -2,11 +2,13 @@ const VALUE_ALIASES = {
     '<5': 'under_5',
     under5: 'under_5',
     '7-9': '7-8',
-    balanced: 'very_good',
+    balanced: 'good',
+    very_good: 'good',
     rather_good: 'good',
     mixed: 'fair',
     rather_bad: 'poor',
-    very_bad: 'very_poor',
+    very_bad: 'poor',
+    very_poor: 'poor',
 };
 
 const lookupScore = (map, key) => {

@@ -1,7 +1,6 @@
 const PlatformConfig = require('../models/platformConfigModel');
 const Studio = require('../models/studioModel');
 const LaserDevice = require('../models/laserDeviceModel');
-const { colorDeltasForDevice } = require('../config/laserColorProfiles');
 const ApiError = require('./ApiError');
 const {
     PLATFORM_CONFIG_DEFAULTS,
@@ -65,7 +64,8 @@ const upgradeStalePackageFeatures = (normalizedList) => {
     });
 };
 const { DEFAULT_PRICING_CONFIG } = require('../config/pricingDefaults');
-const { mergeSessionPrediction } = require('../config/sessionPredictionDefaults');
+const { mergeSessionPrediction, mergeLaserColorMaps } = require('../config/sessionPredictionDefaults');
+const { mergeEngineExplainer } = require('../config/engineExplainerDefaults');
 const { ELAYCOIN_SITUATIONS } = require('../config/elaycoinConfig');
 const { cloneAutomations } = require('../config/automationsDefaults');
 
@@ -242,6 +242,7 @@ const mergePlatformConfig = (doc) => {
         feature_global: migrateFeatureMap(merged.feature_global || {}),
         session_prediction: mergeSessionPrediction(merged.session_prediction),
         default_pricing: pickStudioPricing(merged.default_pricing || {}),
+        engine_explainer: mergeEngineExplainer(merged.engine_explainer),
     };
 };
 
@@ -283,6 +284,14 @@ const validateSessionPredictionPatch = (patch) => {
     const numeric = ['base_sessions', 'min_sessions', 'max_sessions', 'range_minus', 'range_plus'];
     for (const field of numeric) {
         if (patch[field] !== undefined) assertFiniteNumber(patch[field], `session_prediction.${field}`);
+    }
+    if (patch.color_aggregation !== undefined) {
+        if (!['max', 'sum'].includes(patch.color_aggregation)) {
+            throw new ApiError(400, 'session_prediction.color_aggregation must be max or sum');
+        }
+    }
+    if (patch.treatment_key !== undefined && typeof patch.treatment_key !== 'string') {
+        throw new ApiError(400, 'session_prediction.treatment_key must be a string');
     }
 
     if (patch.tattoo_deltas) {
@@ -466,10 +475,10 @@ const validatePlatformPatch = (patch, current = PLATFORM_CONFIG_DEFAULTS) => {
                 ...(current.session_prediction?.aftercare_extra_max || {}),
                 ...(patch.session_prediction.aftercare_extra_max || {}),
             },
-            laser_color_overrides: {
-                ...(current.session_prediction?.laser_color_overrides || {}),
-                ...(patch.session_prediction.laser_color_overrides || {}),
-            },
+            laser_color_overrides: mergeLaserColorMaps(
+                current.session_prediction?.laser_color_overrides,
+                patch.session_prediction.laser_color_overrides
+            ),
         });
         if (mergedSessions.min_sessions > mergedSessions.max_sessions) {
             throw new ApiError(400, 'min_sessions must not exceed max_sessions');
@@ -485,6 +494,16 @@ const validatePlatformPatch = (patch, current = PLATFORM_CONFIG_DEFAULTS) => {
             throw new ApiError(400, 'default_pricing must be an object');
         }
         validateNumberMap(pickStudioPricing(patch.default_pricing), 'default_pricing');
+    }
+
+    if (patch.engine_explainer !== undefined) {
+        if (
+            typeof patch.engine_explainer !== 'object' ||
+            Array.isArray(patch.engine_explainer) ||
+            patch.engine_explainer == null
+        ) {
+            throw new ApiError(400, 'engine_explainer must be an object');
+        }
     }
 };
 
@@ -516,10 +535,10 @@ const updatePlatformConfig = async (patch) => {
                 ...(current.session_prediction?.aftercare_extra_max || {}),
                 ...(patch.session_prediction.aftercare_extra_max || {}),
             },
-            laser_color_overrides: {
-                ...(current.session_prediction?.laser_color_overrides || {}),
-                ...(patch.session_prediction.laser_color_overrides || {}),
-            },
+            laser_color_overrides: mergeLaserColorMaps(
+                current.session_prediction?.laser_color_overrides,
+                patch.session_prediction.laser_color_overrides
+            ),
         });
     }
     if (patch.default_pricing !== undefined) {
@@ -696,21 +715,28 @@ const validateElaycoinStudioCfg = (cfg = {}) => {
     }
 };
 
-const laserColorsFromRoom = async (room) => {
+const escapeRegex = (value) => String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+/**
+ * Catalog device for a treatment room. Colour deltas themselves are resolved by the engine
+ * from session_prediction.laser_color_overrides[deviceId] — rooms only point at the device.
+ */
+const laserDeviceIdFromRoom = async (room) => {
     if (!room) return null;
-    const deviceId = room.laser_device_id ? String(room.laser_device_id) : null;
-    const fromName = colorDeltasForDevice(room.laser_brand, room.laser_model);
-    if (fromName) return { deltas: fromName, deviceId };
-    if (!deviceId) return null;
-    const device = await LaserDevice.findById(deviceId)
-        .select('manufacturer model')
+    if (room.laser_device_id) return String(room.laser_device_id);
+    const brand = String(room.laser_brand || '').trim();
+    const model = String(room.laser_model || '').trim();
+    if (!brand || !model) return null;
+    const device = await LaserDevice.findOne({
+        manufacturer: new RegExp(`^${escapeRegex(brand)}$`, 'i'),
+        model: new RegExp(`^${escapeRegex(model)}$`, 'i'),
+    })
+        .select('_id')
         .lean();
-    const deltas = colorDeltasForDevice(device?.manufacturer, device?.model);
-    if (!deltas) return null;
-    return { deltas, deviceId };
+    return device ? String(device._id) : null;
 };
 
-const laserColorsForStudio = async (studio) => {
+const laserDeviceIdForStudio = async (studio) => {
     const rooms = Array.isArray(studio?.behandlungsraeume) ? studio.behandlungsraeume : [];
     const room = rooms.find(
         (entry) =>
@@ -718,7 +744,7 @@ const laserColorsForStudio = async (studio) => {
             entry.aktiv !== false &&
             (entry.laser_brand || entry.laser_model || entry.laser_device_id)
     );
-    return laserColorsFromRoom(room);
+    return laserDeviceIdFromRoom(room);
 };
 
 const getEffectivePricingOverrides = async (studioId) => {
@@ -737,14 +763,13 @@ const getEffectivePricingOverrides = async (studioId) => {
     const studio = await Studio.findById(studioId)
         .select('studio_pricing behandlungsraeume')
         .lean();
-    const laserPack = await laserColorsForStudio(studio);
+    const laserDeviceId = await laserDeviceIdForStudio(studio);
     return {
         ...base,
         ...pickStudioPricing(studio?.studio_pricing || {}),
         ...groupOverrides,
         session_prediction: platform.session_prediction,
-        ...(laserPack?.deltas ? { laser_color_deltas: laserPack.deltas } : {}),
-        ...(laserPack?.deviceId ? { laser_device_id: laserPack.deviceId } : {}),
+        ...(laserDeviceId ? { laser_device_id: laserDeviceId } : {}),
     };
 };
 
@@ -937,6 +962,9 @@ const cloneDomainSnapshot = (domain, value) => {
     if (domain === 'default_pricing') {
         return pickStudioPricing(value || {});
     }
+    if (domain === 'engine_explainer') {
+        return mergeEngineExplainer(value || {});
+    }
     return mergeSessionPrediction(value || {});
 };
 
@@ -960,6 +988,14 @@ const normalizeDomainPatch = (domain, data, currentLive) => {
             ...pickStudioPricing(data),
         };
     }
+    if (domain === 'engine_explainer') {
+        return mergeEngineExplainer({
+            ...(currentLive || {}),
+            ...(data || {}),
+            en: { ...(currentLive?.en || {}), ...(data?.en || {}) },
+            de: { ...(currentLive?.de || {}), ...(data?.de || {}) },
+        });
+    }
     return mergeSessionPrediction({
         ...(currentLive || {}),
         ...data,
@@ -975,10 +1011,10 @@ const normalizeDomainPatch = (domain, data, currentLive) => {
             ...(currentLive?.aftercare_extra_max || {}),
             ...(data?.aftercare_extra_max || {}),
         },
-        laser_color_overrides: {
-            ...(currentLive?.laser_color_overrides || {}),
-            ...(data?.laser_color_overrides || {}),
-        },
+        laser_color_overrides: mergeLaserColorMaps(
+            currentLive?.laser_color_overrides,
+            data?.laser_color_overrides
+        ),
     });
 };
 
@@ -995,12 +1031,22 @@ const getConfigLifecycle = async (domain) => {
     const doc = await getPlatformConfigDoc();
     const live = mergePlatformConfig(doc);
     const draftEntry = doc.drafts?.[domain] || null;
+    const draftData =
+        draftEntry?.data && domain === 'session_prediction'
+            ? {
+                  ...draftEntry.data,
+                  laser_color_overrides: mergeLaserColorMaps(
+                      live.session_prediction?.laser_color_overrides,
+                      draftEntry.data.laser_color_overrides
+                  ),
+              }
+            : draftEntry?.data;
     return {
         domain,
         published: cloneDomainSnapshot(domain, live[domain]),
         draft: draftEntry
             ? {
-                  data: draftEntry.data,
+                  data: draftData,
                   updated_at: draftEntry.updated_at || null,
                   updated_by: draftEntry.updated_by || null,
                   note: draftEntry.note || '',
@@ -1033,6 +1079,24 @@ const saveConfigDraft = async (domain, data, { userId = null, note = '' } = {}) 
     );
 
     return getConfigLifecycle(domain);
+};
+
+/**
+ * Apply a partial change on top of the shared draft (or LIVE when there is no draft yet).
+ * Used by master-data screens (e.g. Laser catalog) so they edit the same draft the
+ * Prediction Engine shows, without dropping unrelated pending draft edits.
+ */
+const patchConfigDraft = async (domain, partial, { userId = null, note = '' } = {}) => {
+    assertVersionedDomain(domain);
+    if (!partial || typeof partial !== 'object' || Array.isArray(partial)) {
+        throw new ApiError(400, 'Draft patch must be an object');
+    }
+    const doc = await getPlatformConfigDoc();
+    const live = mergePlatformConfig(doc);
+    const draftData = doc.drafts?.[domain]?.data;
+    const base = draftData ? normalizeDomainPatch(domain, draftData, live[domain]) : live[domain];
+    const next = normalizeDomainPatch(domain, partial, base);
+    return saveConfigDraft(domain, next, { userId, note });
 };
 
 const discardConfigDraft = async (domain) => {
@@ -1185,8 +1249,10 @@ module.exports = {
     VERSIONED_CONFIG_DOMAINS,
     getConfigLifecycle,
     saveConfigDraft,
+    patchConfigDraft,
     discardConfigDraft,
     listConfigVersions,
     publishConfigDomain,
     rollbackConfigVersion,
+    getPlatformConfigDoc,
 };

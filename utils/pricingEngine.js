@@ -16,7 +16,10 @@ const { attachEstimateReview } = require('./engineReview');
 
 const roundToNearest5 = (value) => Math.round(value / 5) * 5;
 
-const roundSessionPrice = (value) => Math.ceil(value / 5) * 5;
+const roundSessionPrice = (value, roundTo = 5) => {
+    const step = Number(roundTo) > 0 ? Number(roundTo) : 5;
+    return Math.ceil(value / step) * step;
+};
 
 const round2 = (value) => Math.round(value * 100) / 100;
 
@@ -118,12 +121,15 @@ const resolveDepthMultiplier = (caseInput, config) => {
         very_deep: 'depth_very_deep',
         sehr_tief: 'depth_very_deep',
         coverup: 'depth_very_deep',
-        unknown: 'depth_normal',
-        weiss_nicht: 'depth_normal',
+        unknown: 'depth_unknown',
+        weiss_nicht: 'depth_unknown',
     };
     const alias = explicit ? depthMap[String(explicit).toLowerCase()] : null;
     if (alias && config[alias] != null) {
         return at(alias);
+    }
+    if (alias === 'depth_unknown') {
+        return { key: 'depth_unknown', value: config.depth_unknown ?? 1.0 };
     }
 
     if (
@@ -230,18 +236,16 @@ const computeConfidence = (caseInput) => {
 };
 
 const splitOverrides = (overrides = {}) => {
-    const { session_prediction, laser_color_deltas, laser_device_id, ...pricingOverrides } = overrides;
+    const { session_prediction, laser_color_deltas: _ignored, laser_device_id, ...pricingOverrides } = overrides;
     return {
         pricingOverrides,
         sessionPrediction: mergeSessionPrediction(session_prediction),
-        laserColorDeltas: laser_color_deltas,
         laserDeviceId: laser_device_id || null,
     };
 };
 
-const withLaserColors = (caseInput, laserColorDeltas, laserDeviceId) => {
+const withLaserDevice = (caseInput, laserDeviceId) => {
     const next = { ...caseInput };
-    if (!next.laser_color_deltas && laserColorDeltas) next.laser_color_deltas = laserColorDeltas;
     if (!next.laser_device_id && laserDeviceId) next.laser_device_id = String(laserDeviceId);
     return next;
 };
@@ -285,7 +289,7 @@ const calculatePriceForInput = (caseInput, pricingOverrides = {}) => {
   
     const raw = area * basePricePerCm2;
     const minPrice = config.minPrice ?? 90;
-    const pricePerSession = roundSessionPrice(Math.max(minPrice, raw));
+    const pricePerSession = roundSessionPrice(Math.max(minPrice, raw), config.price_round_to);
     const minPriceApplied = raw < minPrice;
 
     return {
@@ -326,8 +330,8 @@ const calcPmuSessions = (caseInput = {}, sessionPrediction = {}) => {
 };
 
 const calculateCasePreview = (caseInput, pricingOverrides = {}) => {
-    const { sessionPrediction, laserColorDeltas, laserDeviceId } = splitOverrides(pricingOverrides);
-    caseInput = withLaserColors(caseInput, laserColorDeltas, laserDeviceId);
+    const { sessionPrediction, laserDeviceId } = splitOverrides(pricingOverrides);
+    caseInput = withLaserDevice(caseInput, laserDeviceId);
 
     if (caseInput.type === CASE_TYPE.PMU) {
         const price = calculatePriceForInput(caseInput, pricingOverrides);

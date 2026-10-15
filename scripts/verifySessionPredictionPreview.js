@@ -38,6 +38,40 @@ assert(
     'difficult colors should not lower sessions vs simple black'
 );
 
+const unknownDensityCfg = {
+    ...DEFAULT_SESSION_PREDICTION,
+    tattoo_deltas: {
+        ...DEFAULT_SESSION_PREDICTION.tattoo_deltas,
+        density: { low: 0, medium: 4, high: 1, very_high: 2, unknown: 0 },
+        shading: { none: 0, low: 0, medium: 0, high: 3, unknown: 0 },
+        linework: { fine: 0, medium: 0, bold: 0, mixed: 0, unknown: 0 },
+    },
+};
+const mediumDensity = previewSessionPrediction(
+    { ...example1, tc_density: 'medium' },
+    unknownDensityCfg,
+    { baselinePrediction: unknownDensityCfg }
+);
+const unknownDensity = previewSessionPrediction(
+    { ...example1, tc_density: 'unknown' },
+    unknownDensityCfg,
+    { baselinePrediction: unknownDensityCfg }
+);
+assert(
+    unknownDensity.live.tattoo_delta !== mediumDensity.live.tattoo_delta,
+    'unknown density must not reuse the medium delta'
+);
+
+const shadingOn = previewSessionPrediction(
+    { ...example1, tc_shading: 'high' },
+    unknownDensityCfg,
+    { baselinePrediction: DEFAULT_SESSION_PREDICTION }
+);
+assert(
+    shadingOn.live.tattoo_delta > baseline.live.tattoo_delta,
+    'published shading delta must change the session forecast'
+);
+
 if (failed.length) {
     failed.forEach((line) => console.error(`FAIL  ${line}`));
     process.exit(1);

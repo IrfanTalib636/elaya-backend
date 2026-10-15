@@ -4,12 +4,18 @@ const { protect, authorize } = require('../middleware/authMiddleware');
 const validate = require('../middleware/validateMiddleware');
 const { z } = require('zod');
 const { USER_ROLES } = require('../config/constants');
+const { LASER_COLOR_KEYS } = require('../config/sessionPredictionDefaults');
 
 const router = express.Router();
 
 const adminRoles = [USER_ROLES.ADMIN, USER_ROLES.SUPER_ADMIN, USER_ROLES.DEVELOPER];
 const studioRoles = [USER_ROLES.STUDIO_ADMIN, USER_ROLES.STUDIO_STAFF];
 const studioAndAdmin = [...studioRoles, ...adminRoles];
+
+const colorDelta = z.number().int().min(-10).max(20);
+const colorDeltasSchema = z
+    .object(Object.fromEntries(LASER_COLOR_KEYS.map((key) => [key, colorDelta.optional()])))
+    .strict();
 
 const laserBodySchema = z
     .object({
@@ -18,6 +24,7 @@ const laserBodySchema = z
         wavelengths_nm: z.array(z.number().positive().max(20000)).max(20).optional(),
         notes: z.string().max(2000).optional(),
         active: z.boolean().optional(),
+        color_deltas: colorDeltasSchema.optional(),
     })
     .strict();
 

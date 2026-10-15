@@ -17,6 +17,7 @@ const {
     QUALITY_LEVEL,
     SHADING_LEVEL,
     LINEWORK_LEVEL,
+    DEPTH_LEVEL,
     RISK_LEVEL,
     SUN_EXPOSURE,
     SKIN_FITZPATRICK_TYPE,
@@ -29,6 +30,7 @@ const {
     LIFE_STRESS,
     LIFE_HYDRATION,
     LIFE_NUTRITION,
+    LIFE_NUTRITION_LEGACY,
     LIFE_AFTERCARE,
     PMU_TYPE,
     PMU_SIDE,
@@ -225,6 +227,11 @@ const caseSchema = new mongoose.Schema(
             enum: [...LINEWORK_LEVEL, null],
             default: null,
         },
+        tc_depth: {
+            type: String,
+            enum: [...DEPTH_LEVEL, null],
+            default: null,
+        },
         tc_size_length: { type: Number, default: null },
         tc_size_width: { type: Number, default: null },
         tc_type: {
@@ -302,7 +309,7 @@ const caseSchema = new mongoose.Schema(
         },
         life_nutrition: {
             type: String,
-            enum: [...LIFE_NUTRITION, null],
+            enum: [...LIFE_NUTRITION, ...LIFE_NUTRITION_LEGACY, null],
             default: null,
         },
         // TC_05 — goal
