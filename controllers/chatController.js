@@ -29,6 +29,7 @@ const {
 } = require('../services/chatContextService');
 const { vergebeElaycoins } = require('../utils/elaycoinEngine');
 const { normalizePreferredLang } = require('../utils/preferredLanguage');
+const { loadPublishedEngineSnapshotForAi } = require('../utils/engineExplainer');
 
 const ESKALATION_RE = /\[ESKALATION\|([A-ZÄÖÜ]+)\|([^\]]+)\]/;
 
@@ -153,7 +154,11 @@ const sendChat = asyncHandler(async (req, res) => {
                 ? getCustomerChatPrompt('en')
                 : (await getAiSystemPrompt('customer_chat')) || ELAYA_ASSISTANT_SYSTEM;
         systemPrompt = `${languageLock}\n\n${basePrompt}`;
-        contextText = `${await buildCustomerChatContext(req.user.customer_id, caseId)}\n\n${glossary}`;
+        const engineSnapshot = await loadPublishedEngineSnapshotForAi({
+            lang,
+            includeDeltas: false,
+        });
+        contextText = `${await buildCustomerChatContext(req.user.customer_id, caseId)}\n\n${glossary}\n\n${engineSnapshot}`;
     } else {
         const basePrompt =
             lang === 'en'
@@ -190,7 +195,11 @@ const sendChat = asyncHandler(async (req, res) => {
                   studioCasesOnly,
               })
             : copy.adminContext(new Date().toLocaleDateString(lang === 'en' ? 'en-GB' : 'de-CH'));
-        contextText = `${studioContext}\n\n${glossary}`;
+        const engineSnapshot = await loadPublishedEngineSnapshotForAi({
+            lang,
+            includeDeltas: true,
+        });
+        contextText = `${studioContext}\n\n${glossary}\n\n${engineSnapshot}`;
     }
 
     const featureGate = await assertAiFeatureAllowed(

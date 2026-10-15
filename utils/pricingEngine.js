@@ -16,7 +16,10 @@ const { attachEstimateReview } = require('./engineReview');
 
 const roundToNearest5 = (value) => Math.round(value / 5) * 5;
 
-const roundSessionPrice = (value) => Math.ceil(value / 5) * 5;
+const roundSessionPrice = (value, roundTo = 5) => {
+    const step = Number(roundTo) > 0 ? Number(roundTo) : 5;
+    return Math.ceil(value / step) * step;
+};
 
 const round2 = (value) => Math.round(value * 100) / 100;
 
@@ -286,7 +289,7 @@ const calculatePriceForInput = (caseInput, pricingOverrides = {}) => {
   
     const raw = area * basePricePerCm2;
     const minPrice = config.minPrice ?? 90;
-    const pricePerSession = roundSessionPrice(Math.max(minPrice, raw));
+    const pricePerSession = roundSessionPrice(Math.max(minPrice, raw), config.price_round_to);
     const minPriceApplied = raw < minPrice;
 
     return {

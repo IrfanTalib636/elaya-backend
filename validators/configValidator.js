@@ -219,6 +219,8 @@ const patchPlatformConfigSchema = z
                 max_sessions: z.number().min(1).max(40).optional(),
                 range_minus: z.number().min(0).max(15).optional(),
                 range_plus: z.number().min(0).max(15).optional(),
+                treatment_key: z.string().trim().min(1).max(40).optional(),
+                color_aggregation: z.enum(['max', 'sum']).optional(),
                 tattoo_deltas: z.record(z.string(), z.record(z.string(), z.number())).optional(),
                 lifestyle_scores: z.record(z.string(), z.record(z.string(), z.number())).optional(),
                 lifestyle_bands: z
@@ -243,6 +245,16 @@ const patchPlatformConfigSchema = z
                             .strict()
                     )
                     .optional(),
+                lifestyle_smoker_cigs: z
+                    .array(
+                        z
+                            .object({
+                                min_cigs: z.number().min(0).max(200),
+                                min_score: z.number().min(0).max(30),
+                            })
+                            .strict()
+                    )
+                    .optional(),
                 laser_color_overrides: z
                     .record(z.string(), z.record(z.string(), z.number()))
                     .optional(),
@@ -251,6 +263,7 @@ const patchPlatformConfigSchema = z
             .optional(),
         /** Platform price calculation defaults (base CHF + multipliers). */
         default_pricing: z.record(z.string(), z.number().min(0).max(100000)).optional(),
+        engine_explainer: z.record(z.string(), z.any()).optional(),
     })
     .strict();
 
@@ -265,6 +278,8 @@ const sessionPredictionPreviewSchema = z
                 max_sessions: z.number().min(1).max(40).optional(),
                 range_minus: z.number().min(0).max(15).optional(),
                 range_plus: z.number().min(0).max(15).optional(),
+                treatment_key: z.string().trim().min(1).max(40).optional(),
+                color_aggregation: z.enum(['max', 'sum']).optional(),
                 tattoo_deltas: z.record(z.string(), z.record(z.string(), z.number())).optional(),
                 lifestyle_scores: z.record(z.string(), z.record(z.string(), z.number())).optional(),
                 lifestyle_bands: z
@@ -284,6 +299,16 @@ const sessionPredictionPreviewSchema = z
                         z
                             .object({
                                 min_bmi: z.number().min(0).max(100),
+                                min_score: z.number().min(0).max(30),
+                            })
+                            .strict()
+                    )
+                    .optional(),
+                lifestyle_smoker_cigs: z
+                    .array(
+                        z
+                            .object({
+                                min_cigs: z.number().min(0).max(200),
                                 min_score: z.number().min(0).max(30),
                             })
                             .strict()
@@ -351,6 +376,7 @@ const versionedDomainParam = z.enum([
     'sperrfristen',
     'default_pricing',
     'session_prediction',
+    'engine_explainer',
 ]);
 
 const configDraftBodySchema = z

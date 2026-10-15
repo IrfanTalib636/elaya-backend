@@ -139,10 +139,10 @@ const collectTattooFactors = (caseInput, deltas = {}, cfg = null) => {
     const coverup = caseInput.tc_coverup || 'none';
     const prior = resolvePriorBand(caseInput);
     const countBand = resolveColorCountBand(colors);
-    const colorDelta = Math.max(
-        hardestColorDelta(colors, colorDeltaMap(caseInput, deltas.color, cfg || {})),
-        lookup(deltas.color_count, countBand, 0)
-    );
+    const hardest = hardestColorDelta(colors, colorDeltaMap(caseInput, deltas.color, cfg || {}));
+    const countDelta = lookup(deltas.color_count, countBand, 0);
+    const colorDelta =
+        (cfg || {}).color_aggregation === 'sum' ? hardest + countDelta : Math.max(hardest, countDelta);
 
     const factors = [
         factor('sit_skin_type', 'Fitzpatrick', lookup(deltas.fitzpatrick, fitz, 0), ['V', 'VI', 'unsicher'].includes(fitz)),

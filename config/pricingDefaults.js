@@ -2,6 +2,8 @@ const DEFAULT_PRICING_CONFIG = {
     basePricePerCm2: 3.0,
     minPrice: 90,
     pmuPrice: 149,
+    /** Session price is rounded up to this CHF step. Super Admin configurable. */
+    price_round_to: 5,
     color_black: 1.0,
     color_mixed: 1.2,
     color_multi: 1.4,

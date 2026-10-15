@@ -4,6 +4,7 @@ const VERSIONED_CONFIG_DOMAINS = [
     'sperrfristen',
     'default_pricing',
     'session_prediction',
+    'engine_explainer',
 ];
 
 /**

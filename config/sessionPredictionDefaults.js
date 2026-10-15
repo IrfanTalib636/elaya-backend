@@ -1,4 +1,8 @@
 const DEFAULT_SESSION_PREDICTION = {
+    /** Future treatments add their own session_prediction profile; tattoo is the current one. */
+    treatment_key: 'tattoo',
+    /** Colour impact: max = MAX(hardest colour, colour-count); sum = add both. */
+    color_aggregation: 'max',
     base_sessions: 8,
     min_sessions: 3,
     max_sessions: 20,

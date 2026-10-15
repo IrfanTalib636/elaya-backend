@@ -65,6 +65,7 @@ const upgradeStalePackageFeatures = (normalizedList) => {
 };
 const { DEFAULT_PRICING_CONFIG } = require('../config/pricingDefaults');
 const { mergeSessionPrediction, mergeLaserColorMaps } = require('../config/sessionPredictionDefaults');
+const { mergeEngineExplainer } = require('../config/engineExplainerDefaults');
 const { ELAYCOIN_SITUATIONS } = require('../config/elaycoinConfig');
 const { cloneAutomations } = require('../config/automationsDefaults');
 
@@ -241,6 +242,7 @@ const mergePlatformConfig = (doc) => {
         feature_global: migrateFeatureMap(merged.feature_global || {}),
         session_prediction: mergeSessionPrediction(merged.session_prediction),
         default_pricing: pickStudioPricing(merged.default_pricing || {}),
+        engine_explainer: mergeEngineExplainer(merged.engine_explainer),
     };
 };
 
@@ -282,6 +284,14 @@ const validateSessionPredictionPatch = (patch) => {
     const numeric = ['base_sessions', 'min_sessions', 'max_sessions', 'range_minus', 'range_plus'];
     for (const field of numeric) {
         if (patch[field] !== undefined) assertFiniteNumber(patch[field], `session_prediction.${field}`);
+    }
+    if (patch.color_aggregation !== undefined) {
+        if (!['max', 'sum'].includes(patch.color_aggregation)) {
+            throw new ApiError(400, 'session_prediction.color_aggregation must be max or sum');
+        }
+    }
+    if (patch.treatment_key !== undefined && typeof patch.treatment_key !== 'string') {
+        throw new ApiError(400, 'session_prediction.treatment_key must be a string');
     }
 
     if (patch.tattoo_deltas) {
@@ -484,6 +494,16 @@ const validatePlatformPatch = (patch, current = PLATFORM_CONFIG_DEFAULTS) => {
             throw new ApiError(400, 'default_pricing must be an object');
         }
         validateNumberMap(pickStudioPricing(patch.default_pricing), 'default_pricing');
+    }
+
+    if (patch.engine_explainer !== undefined) {
+        if (
+            typeof patch.engine_explainer !== 'object' ||
+            Array.isArray(patch.engine_explainer) ||
+            patch.engine_explainer == null
+        ) {
+            throw new ApiError(400, 'engine_explainer must be an object');
+        }
     }
 };
 
@@ -942,6 +962,9 @@ const cloneDomainSnapshot = (domain, value) => {
     if (domain === 'default_pricing') {
         return pickStudioPricing(value || {});
     }
+    if (domain === 'engine_explainer') {
+        return mergeEngineExplainer(value || {});
+    }
     return mergeSessionPrediction(value || {});
 };
 
@@ -964,6 +987,14 @@ const normalizeDomainPatch = (domain, data, currentLive) => {
             ...pickStudioPricing(currentLive || {}),
             ...pickStudioPricing(data),
         };
+    }
+    if (domain === 'engine_explainer') {
+        return mergeEngineExplainer({
+            ...(currentLive || {}),
+            ...(data || {}),
+            en: { ...(currentLive?.en || {}), ...(data?.en || {}) },
+            de: { ...(currentLive?.de || {}), ...(data?.de || {}) },
+        });
     }
     return mergeSessionPrediction({
         ...(currentLive || {}),
