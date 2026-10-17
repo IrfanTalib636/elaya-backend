@@ -105,6 +105,7 @@ app.use(
                 'http://localhost:8081',
                 'http://127.0.0.1:8081',
                 'https://app.elaya.io',
+                'https://inkderm.vercel.app',
             ];
             const allowList = [...new Set([...defaults, ...configured])];
 
