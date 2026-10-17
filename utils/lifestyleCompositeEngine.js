@@ -79,16 +79,28 @@ const resolveLifestyleBand = (avg, bands) => {
     };
 };
 
-const applyBmiFloor = (score, bmi, floors = []) => {
-    if (bmi == null || !floors.length) return { score, bmi_floor: null };
+/** Highest BMI threshold the value meets. Floors the discrete score, never the average. */
+const matchingBmiFloor = (bmi, floors = []) => {
+    if (bmi == null || !floors.length) return null;
     const sorted = [...floors].sort((a, b) => Number(b.min_bmi) - Number(a.min_bmi));
     for (const rule of sorted) {
         if (bmi >= Number(rule.min_bmi)) {
-            const floor = Number(rule.min_score);
-            return { score: Math.max(score, floor), bmi_floor: floor };
+            return {
+                min_bmi: Number(rule.min_bmi),
+                min_score: Number(rule.min_score),
+            };
         }
     }
-    return { score, bmi_floor: null };
+    return null;
+};
+
+/** Multiplier of the band whose score matches. Used after a BMI floor raises the score. */
+const multiplierForScore = (score, bands, fallback) => {
+    const matches = (bands || []).filter((band) => Number(band.score) === Number(score));
+    if (!matches.length) return fallback;
+    matches.sort((a, b) => Number(a.max_avg) - Number(b.max_avg));
+    const multiplier = Number(matches[matches.length - 1].multiplier);
+    return Number.isFinite(multiplier) ? multiplier : fallback;
 };
 
 const computeLifestyleComposite = (caseInput = {}, cfg = {}) => {
@@ -109,20 +121,25 @@ const computeLifestyleComposite = (caseInput = {}, cfg = {}) => {
     const bmi = computeBmi(caseInput.life_height_cm, caseInput.life_weight_kg);
 
     const averageValue = present.length ? present.reduce((sum, n) => sum + n, 0) / present.length : null;
-    const bmiFloor = averageValue == null ? null : applyBmiFloor(averageValue, bmi, cfg.lifestyle_bmi_floors);
-    const lookupAverage =
-        bmiFloor?.bmi_floor != null ? Math.max(averageValue, bmiFloor.score) : averageValue;
-    const { score, multiplier } =
-        lookupAverage == null
-            ? { score: 3, multiplier: 1 }
-            : resolveLifestyleBand(lookupAverage, bands);
+    const band =
+        averageValue == null ? { score: 3, multiplier: 1 } : resolveLifestyleBand(averageValue, bands);
+    const bmiFloor = matchingBmiFloor(bmi, cfg.lifestyle_bmi_floors);
+    const scoreBeforeBmi = band.score;
+    const score =
+        bmiFloor && Number.isFinite(bmiFloor.min_score)
+            ? Math.max(scoreBeforeBmi, bmiFloor.min_score)
+            : scoreBeforeBmi;
+    const multiplier =
+        score === scoreBeforeBmi ? band.multiplier : multiplierForScore(score, bands, band.multiplier);
+    const roundedAverage = averageValue == null ? null : round2(averageValue);
 
     return {
         score,
+        score_before_bmi: scoreBeforeBmi,
         multiplier,
-        average: averageValue == null ? null : round2(averageValue),
-        /** Average actually compared with the lifestyle bands (BMI floor can raise it). */
-        effective_average: lookupAverage == null ? null : round2(lookupAverage),
+        average: roundedAverage,
+        /** BMI never changes the average. The floor raises the discrete score only. */
+        effective_average: roundedAverage,
         factors: Object.fromEntries(
             Object.entries(factors).map(([key, value]) => [
                 key,
@@ -133,7 +150,7 @@ const computeLifestyleComposite = (caseInput = {}, cfg = {}) => {
         sleep_hours: lookupScore(scores.sleep_hours, caseInput.life_sleep_hours),
         sleep_quality: lookupScore(scores.sleep_quality, caseInput.life_sleep_quality),
         bmi,
-        bmi_floor: bmiFloor?.bmi_floor ?? null,
+        bmi_floor: bmiFloor,
     };
 };
 
