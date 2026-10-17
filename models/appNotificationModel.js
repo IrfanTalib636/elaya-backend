@@ -25,6 +25,7 @@ const appNotificationSchema = new mongoose.Schema(
                 'automation',
                 'medical_clearance',
                 'antibiotic_check',
+                'open_action',
             ],
             required: true,
             index: true,

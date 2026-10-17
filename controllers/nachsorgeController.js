@@ -758,6 +758,8 @@ const reviewCheck = asyncHandler(async (req, res) => {
         .populate('case', 'caseId')
         .lean();
 
+    require('../utils/openActionService').publishOpenActionsChanged(check.studio);
+
     res.status(200).json({
         success: true,
         message: 'Studio-Review gespeichert',

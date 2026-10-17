@@ -413,6 +413,7 @@ const createAppointment = asyncHandler(async (req, res) => {
         studioId: primaryCase.studio,
         reason: 'appointment_created',
     });
+    require('../utils/openActionService').publishOpenActionsChanged(primaryCase.studio);
 
     res.status(201).json({
         success: true,
@@ -647,6 +648,7 @@ const updateAppointment = asyncHandler(async (req, res) => {
             studioId: appointment.studio,
             reason: isNowCancelled ? 'appointment_cancelled' : 'appointment_updated',
         });
+        require('../utils/openActionService').publishOpenActionsChanged(appointment.studio);
     }
 
     res.status(200).json({

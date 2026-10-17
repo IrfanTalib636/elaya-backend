@@ -41,6 +41,10 @@ const {
 } = require('../validators/shopValidator');
 const { USER_ROLES } = require('../config/constants');
 const { listStudioActivity } = require('../controllers/activityController');
+const {
+    listStudioOpenActions,
+    studioOpenActionSummary,
+} = require('../controllers/openActionController');
 const { listActivityQuerySchema } = require('../validators/activityValidator');
 const { requireFeature } = require('../utils/featureGate');
 
@@ -823,6 +827,20 @@ router.get(
     authorize(...studioRoles, ...adminRoles),
     validateMiddleware(listActivityQuerySchema, 'query'),
     listStudioActivity
+);
+
+router.get(
+    '/actions/summary',
+    protect,
+    authorize(...studioRoles, ...adminRoles),
+    studioOpenActionSummary
+);
+
+router.get(
+    '/actions',
+    protect,
+    authorize(...studioRoles, ...adminRoles),
+    listStudioOpenActions
 );
 
 module.exports = router;

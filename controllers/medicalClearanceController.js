@@ -150,6 +150,8 @@ const reviewCustomerClearance = asyncHandler(async (req, res) => {
         note: req.body.note || '',
     });
 
+    require('../utils/openActionService').publishOpenActionsChanged(effectiveStudio);
+
     res.json({ success: true, data: { medical_clearance: clearance } });
 });
 

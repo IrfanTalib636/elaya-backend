@@ -167,6 +167,17 @@ const buildCustomerChatContext = async (customerId, focusCaseId = null, options 
  * Build studio assistant context (compact — active customers/cases for this studio).
  * Optional customerId/caseId loads the full customer case context as focus.
  */
+const appendOpenActions = async (ctx, studioId) => {
+    try {
+        const { formatOpenActionsForChat } = require('../utils/openActionService');
+        const block = await formatOpenActionsForChat(studioId);
+        return block ? `${ctx}\n${block}\n` : ctx;
+    } catch (err) {
+        console.error('Open action chat context failed:', err.message);
+        return ctx;
+    }
+};
+
 const buildStudioChatContext = async (studioId, { customerId = null, caseId = null, studioCasesOnly = false } = {}) => {
     const studio = await Studio.findById(studioId)
         .select('firma studio_code ort standorte')
@@ -188,7 +199,7 @@ const buildStudioChatContext = async (studioId, { customerId = null, caseId = nu
         ctx += await buildCustomerChatContext(focusCustomerId, caseId, {
             studioId: studioCasesOnly ? studioId : null,
         });
-        return ctx;
+        return appendOpenActions(ctx, studioId);
     }
 
     const start = new Date();
@@ -265,7 +276,7 @@ const buildStudioChatContext = async (studioId, { customerId = null, caseId = nu
         ctx += '\n';
     }
 
-    return ctx;
+    return appendOpenActions(ctx, studioId);
 };
 
 module.exports = {

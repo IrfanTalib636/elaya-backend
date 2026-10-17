@@ -1176,6 +1176,7 @@ const updateEstimateConfirmation = asyncHandler(async (req, res) => {
         });
         await caseDoc.save();
         await refreshCaseEstimate(caseDoc);
+        require('../utils/openActionService').publishOpenActionsChanged(caseDoc.studio);
 
         return res.status(200).json({
             success: true,
@@ -1230,6 +1231,8 @@ const updateEstimateConfirmation = asyncHandler(async (req, res) => {
     caseDoc.sessionsMin = confirmedMin;
     caseDoc.sessionsMax = confirmedMax;
     caseDoc.sessions = confirmedMax;
+    caseDoc.estimate_needs_review = false;
+    caseDoc.estimate_review_triggers = [];
 
     const verb =
         status === ESTIMATE_CONFIRMATION_STATUS.ANGEPASST ? 'angepasst' : 'bestätigt';
@@ -1273,6 +1276,8 @@ const updateEstimateConfirmation = asyncHandler(async (req, res) => {
     } catch (error) {
         console.error('Estimate confirmation chat notification failed:', error.message);
     }
+
+    require('../utils/openActionService').publishOpenActionsChanged(caseDoc.studio);
 
     res.status(200).json({
         success: true,

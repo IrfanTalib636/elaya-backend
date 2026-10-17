@@ -684,6 +684,8 @@ const updateStudioFreigabe = asyncHandler(async (req, res) => {
         await anamnesis.save();
     }
 
+    require('../utils/openActionService').publishOpenActionsChanged(caseDoc.studio);
+
     res.status(200).json({
         success: true,
         message: 'Studio freigabe updated',
