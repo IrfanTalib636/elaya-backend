@@ -121,6 +121,8 @@ const computeLifestyleComposite = (caseInput = {}, cfg = {}) => {
         score,
         multiplier,
         average: averageValue == null ? null : round2(averageValue),
+        /** Average actually compared with the lifestyle bands (BMI floor can raise it). */
+        effective_average: lookupAverage == null ? null : round2(lookupAverage),
         factors: Object.fromEntries(
             Object.entries(factors).map(([key, value]) => [
                 key,
