@@ -6,8 +6,12 @@ const MAX_FILE_BYTES = Number(process.env.UPLOAD_MAX_BYTES) || 5 * 1024 * 1024;
 
 const ALLOWED_MIME_TYPES = new Set([
     'image/jpeg',
+    'image/jpg',
     'image/png',
     'image/webp',
+    'image/heic',
+    'image/heif',
+    'application/octet-stream',
     'application/pdf',
 ]);
 
@@ -21,8 +25,12 @@ const CLEARANCE_MIME_TYPES = new Set([
 
 const MIME_EXTENSIONS = {
     'image/jpeg': '.jpg',
+    'image/jpg': '.jpg',
     'image/png': '.png',
     'image/webp': '.webp',
+    'image/heic': '.jpg',
+    'image/heif': '.jpg',
+    'application/octet-stream': '.jpg',
     'application/pdf': '.pdf',
 };
 

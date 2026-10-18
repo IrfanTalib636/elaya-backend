@@ -12,7 +12,7 @@ const fileFilter = (_req, file, cb) => {
         cb(null, true);
         return;
     }
-    cb(new ApiError(400, 'Only JPEG, PNG, WebP, or PDF files are allowed'));
+    cb(new ApiError(400, 'Only JPEG, PNG, WebP, HEIC, or PDF files are allowed'));
 };
 
 /** Image-only filter (no PDF) — used for shop product photos. */
@@ -46,7 +46,7 @@ const handleUpload = (req, res, next) => {
         if (err instanceof ApiError) return next(err);
 
         if (err.code === 'LIMIT_FILE_SIZE') {
-            return next(new ApiError(400, `Image must be smaller than ${Math.round(MAX_FILE_BYTES / (1024 * 1024))} MB`));
+            return next(new ApiError(400, `Maximum image size should be ${Math.round(MAX_FILE_BYTES / (1024 * 1024))} MB.`));
         }
 
         return next(err);
@@ -61,7 +61,7 @@ const handleShopImagesUpload = (req, res, next) => {
         if (err instanceof ApiError) return next(err);
 
         if (err.code === 'LIMIT_FILE_SIZE') {
-            return next(new ApiError(400, `Each image must be smaller than ${Math.round(MAX_FILE_BYTES / (1024 * 1024))} MB`));
+            return next(new ApiError(400, `Maximum image size should be ${Math.round(MAX_FILE_BYTES / (1024 * 1024))} MB.`));
         }
         if (err.code === 'LIMIT_FILE_COUNT' || err.code === 'LIMIT_UNEXPECTED_FILE') {
             return next(new ApiError(400, `You can upload up to ${MAX_SHOP_IMAGES} images at once`));

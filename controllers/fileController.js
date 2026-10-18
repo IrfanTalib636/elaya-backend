@@ -28,6 +28,9 @@ const {
 } = require('../services/fileAccessService');
 const { USER_ROLES } = require('../config/constants');
 const { evaluateAndApplySessionLightening } = require('../utils/lighteningSessionService');
+const { normalizeUploadedImage } = require('../services/imageNormalize');
+
+const preparedFile = async (file) => normalizeUploadedImage(file.buffer, file.mimetype);
 
 const uploadRoles = [
     USER_ROLES.CUSTOMER,
@@ -90,6 +93,7 @@ const uploadStaging = asyncHandler(async (req, res) => {
     const studioId = customer.aktuelle_firma_id;
     const purpose =
         slot === 'nachsorge' ? FILE_PURPOSE.NACHSORGE : FILE_PURPOSE.CASE_INTAKE;
+    const image = await preparedFile(req.file);
 
     const fileAsset = await FileAsset.create({
         studio: studioId,
@@ -97,16 +101,16 @@ const uploadStaging = asyncHandler(async (req, res) => {
         purpose,
         slot,
         original_name: req.file.originalname || '',
-        mime_type: req.file.mimetype,
-        size_bytes: req.file.size,
+        mime_type: image.mimeType,
+        size_bytes: image.buffer.length,
         storage_path: 'pending',
         status: FILE_STATUS.STAGING,
         uploaded_by: req.user._id,
         expires_at: stagingExpiry(),
     });
 
-    const absPath = stagingPath(studioId, fileAsset._id, req.file.mimetype);
-    await writeBuffer(absPath, req.file.buffer);
+    const absPath = stagingPath(studioId, fileAsset._id, image.mimeType);
+    await writeBuffer(absPath, image.buffer);
 
     fileAsset.storage_path = relativePath(absPath);
     await fileAsset.save();
@@ -136,11 +140,12 @@ const uploadCaseIntake = asyncHandler(async (req, res) => {
     await assertCaseAccess(req.user, caseDoc);
     await ensureUploadRoot();
 
-    const absPath = caseIntakePath(caseDoc.studio, caseDoc._id, slot, req.file.mimetype);
+    const image = await preparedFile(req.file);
+    const absPath = caseIntakePath(caseDoc.studio, caseDoc._id, slot, image.mimeType);
 
     const fileAsset = await saveUploadedFile({
-        buffer: req.file.buffer,
-        mimeType: req.file.mimetype,
+        buffer: image.buffer,
+        mimeType: image.mimeType,
         originalName: req.file.originalname || '',
         studioId: caseDoc.studio,
         customerId: caseDoc.customer,
@@ -175,11 +180,12 @@ const uploadSessionProgress = asyncHandler(async (req, res) => {
     await assertSessionAccess(req.user, sessionDoc);
     await ensureUploadRoot();
 
-    const absPath = sessionProgressPath(sessionDoc.studio, sessionDoc._id, req.file.mimetype);
+    const image = await preparedFile(req.file);
+    const absPath = sessionProgressPath(sessionDoc.studio, sessionDoc._id, image.mimeType);
 
     const fileAsset = await saveUploadedFile({
-        buffer: req.file.buffer,
-        mimeType: req.file.mimetype,
+        buffer: image.buffer,
+        mimeType: image.mimeType,
         originalName: req.file.originalname || '',
         studioId: sessionDoc.studio,
         customerId: sessionDoc.customer,
