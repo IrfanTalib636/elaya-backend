@@ -29,6 +29,34 @@ const average = (values) => {
     return nums.reduce((sum, n) => sum + n, 0) / nums.length;
 };
 
+/** Composite factors, in the order shown in Calculation Details. */
+const LIFESTYLE_FACTOR_KEYS = [
+    'smoker',
+    'alcohol',
+    'sleep_score',
+    'activity',
+    'stress',
+    'hydration',
+    'nutrition',
+];
+
+const DEFAULT_FACTOR_WEIGHTS = {
+    smoker: 3,
+    alcohol: 2,
+    sleep_score: 1,
+    activity: 1,
+    stress: 1,
+    hydration: 2,
+    nutrition: 1,
+};
+
+const weightFor = (key, cfg) => {
+    const raw = cfg?.lifestyle_factor_weights?.[key];
+    const n = Number(raw);
+    if (Number.isFinite(n) && n >= 0) return n;
+    return DEFAULT_FACTOR_WEIGHTS[key];
+};
+
 const round2 = (n) => Math.round(n * 100) / 100;
 
 const computeBmi = (heightCm, weightKg) => {
@@ -117,10 +145,28 @@ const computeLifestyleComposite = (caseInput = {}, cfg = {}) => {
         nutrition: lookupScore(scores.nutrition, caseInput.life_nutrition),
     };
 
-    const present = Object.values(factors).filter((n) => n != null && Number.isFinite(n));
     const bmi = computeBmi(caseInput.life_height_cm, caseInput.life_weight_kg);
 
-    const averageValue = present.length ? present.reduce((sum, n) => sum + n, 0) / present.length : null;
+    const weightLines = [];
+    let weightedSum = 0;
+    let weightSum = 0;
+    for (const key of LIFESTYLE_FACTOR_KEYS) {
+        const score = factors[key];
+        if (score == null || !Number.isFinite(score)) continue;
+        const weight = weightFor(key, cfg);
+        if (!(weight > 0)) continue;
+        weightedSum += score * weight;
+        weightSum += weight;
+        weightLines.push({
+            key,
+            score: round2(score),
+            weight: round2(weight),
+            contribution: round2(score * weight),
+        });
+    }
+
+    const present = weightLines.map((line) => line.score);
+    const averageValue = weightSum > 0 ? weightedSum / weightSum : null;
     const band =
         averageValue == null ? { score: 3, multiplier: 1 } : resolveLifestyleBand(averageValue, bands);
     const bmiFloor = matchingBmiFloor(bmi, cfg.lifestyle_bmi_floors);
@@ -147,6 +193,9 @@ const computeLifestyleComposite = (caseInput = {}, cfg = {}) => {
             ])
         ),
         factor_count: present.length,
+        weighted_total: weightLines.length ? round2(weightedSum) : null,
+        weight_total: weightLines.length ? round2(weightSum) : null,
+        weight_lines: weightLines,
         sleep_hours: lookupScore(scores.sleep_hours, caseInput.life_sleep_hours),
         sleep_quality: lookupScore(scores.sleep_quality, caseInput.life_sleep_quality),
         bmi,

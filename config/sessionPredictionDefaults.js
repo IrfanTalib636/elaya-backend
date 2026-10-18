@@ -216,6 +216,19 @@ const DEFAULT_SESSION_PREDICTION = {
             very_bad: 4,
         },
     },
+    /**
+     * How strongly each of the seven composite factors pulls the lifestyle average.
+     * A weight is not extra sessions. Missing keys inherit these starting values.
+     */
+    lifestyle_factor_weights: {
+        smoker: 3,
+        alcohol: 2,
+        sleep_score: 1,
+        activity: 1,
+        stress: 1,
+        hydration: 2,
+        nutrition: 1,
+    },
     /** Average 1.0–1.6 → 1 ×0.85; 1.7–2.4 → 2 ×0.95; 2.5–3.2 → 3 ×1.00; 3.3–4.0 → 4 ×1.20; 4.1–5.0 → 5 ×1.50 */
     lifestyle_bands: [
         { max_avg: 1.6, score: 1, multiplier: 0.85 },
@@ -349,6 +362,10 @@ const mergeSessionPrediction = (stored = {}) => {
             DEFAULT_SESSION_PREDICTION.lifestyle_scores,
             raw.lifestyle_scores
         ),
+        lifestyle_factor_weights: {
+            ...DEFAULT_SESSION_PREDICTION.lifestyle_factor_weights,
+            ...(raw.lifestyle_factor_weights || {}),
+        },
         lifestyle_bands:
             Array.isArray(raw.lifestyle_bands) && raw.lifestyle_bands.length
                 ? raw.lifestyle_bands.map((band) => ({

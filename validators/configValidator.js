@@ -223,6 +223,7 @@ const patchPlatformConfigSchema = z
                 color_aggregation: z.enum(['max', 'sum']).optional(),
                 tattoo_deltas: z.record(z.string(), z.record(z.string(), z.number())).optional(),
                 lifestyle_scores: z.record(z.string(), z.record(z.string(), z.number())).optional(),
+                lifestyle_factor_weights: z.record(z.string(), z.number().min(0).max(20)).optional(),
                 lifestyle_bands: z
                     .array(
                         z
@@ -282,6 +283,7 @@ const sessionPredictionPreviewSchema = z
                 color_aggregation: z.enum(['max', 'sum']).optional(),
                 tattoo_deltas: z.record(z.string(), z.record(z.string(), z.number())).optional(),
                 lifestyle_scores: z.record(z.string(), z.record(z.string(), z.number())).optional(),
+                lifestyle_factor_weights: z.record(z.string(), z.number().min(0).max(20)).optional(),
                 lifestyle_bands: z
                     .array(
                         z

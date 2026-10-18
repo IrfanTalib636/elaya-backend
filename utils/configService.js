@@ -317,6 +317,18 @@ const validateSessionPredictionPatch = (patch) => {
         }
     }
 
+    if (patch.lifestyle_factor_weights) {
+        validateNumberMap(patch.lifestyle_factor_weights, 'session_prediction.lifestyle_factor_weights');
+        for (const [key, value] of Object.entries(patch.lifestyle_factor_weights)) {
+            if (!['smoker', 'alcohol', 'sleep_score', 'activity', 'stress', 'hydration', 'nutrition'].includes(key)) {
+                throw new ApiError(400, `Unknown lifestyle factor weight: ${key}`);
+            }
+            if (Number(value) < 0) {
+                throw new ApiError(400, `session_prediction.lifestyle_factor_weights.${key} must be at least 0`);
+            }
+        }
+    }
+
     if (patch.aftercare_extra_max) {
         validateNumberMap(patch.aftercare_extra_max, 'session_prediction.aftercare_extra_max');
     }
