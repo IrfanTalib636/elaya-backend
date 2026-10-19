@@ -1,11 +1,11 @@
 const mongoose = require('mongoose');
+const {
+    STUDIO_FUNNEL_STAGE,
+    STUDIO_FUNNEL_STAGE_ORDER,
+    STUDIO_MISSING_STEPS,
+} = require('../config/platformCrmConfig');
 
-/**
- * Studio partner lead statuses — prototype parity (inkderm CRM).
- * Flow: lead → contract_sent → contract_signed → onboarding → active
- * Also: deactivated | rejected
- * Legacy `contract` is accepted and treated as contract_sent.
- */
+
 const STUDIO_LEAD_STATUS = {
     LEAD: 'lead',
     CONTRACT: 'contract', // legacy
@@ -58,9 +58,7 @@ const aboSchema = new mongoose.Schema(
     { _id: false }
 );
 
-/**
- * Platform CRM — studio partner leads before they become bookable studios.
- */
+
 const studioLeadSchema = new mongoose.Schema(
     {
         firma: { type: String, required: true, trim: true, maxlength: 200 },
@@ -96,6 +94,39 @@ const studioLeadSchema = new mongoose.Schema(
             default: () => ({}),
         },
         notiz: { type: String, default: '', trim: true, maxlength: 2000 },
+        
+        platform_crm: {
+            funnel_stage: {
+                type: String,
+                enum: STUDIO_FUNNEL_STAGE_ORDER,
+                default: STUDIO_FUNNEL_STAGE.LEAD,
+                index: true,
+            },
+            stage_entered_at: {
+                type: Date,
+                default: Date.now,
+            },
+            last_activity_at: {
+                type: Date,
+                default: Date.now,
+                index: true,
+            },
+            linked_studio_id: {
+                type: mongoose.Schema.Types.ObjectId,
+                ref: 'Studio',
+                default: null,
+                index: true,
+            },
+            missing_steps: {
+                type: [
+                    {
+                        type: String,
+                        enum: STUDIO_MISSING_STEPS,
+                    },
+                ],
+                default: [],
+            },
+        },
         created_by: {
             type: mongoose.Schema.Types.ObjectId,
             ref: 'User',
@@ -107,6 +138,14 @@ const studioLeadSchema = new mongoose.Schema(
 
 studioLeadSchema.index({ createdAt: -1 });
 studioLeadSchema.index({ firma: 1 });
+studioLeadSchema.index({
+    status: 1,
+    'platform_crm.last_activity_at': -1,
+});
+studioLeadSchema.index({
+    'platform_crm.funnel_stage': 1,
+    'platform_crm.last_activity_at': -1,
+});
 
 module.exports = {
     StudioLead: mongoose.model('StudioLead', studioLeadSchema),

@@ -1,5 +1,9 @@
 const mongoose = require('mongoose');
 const { AKQUISE_QUELLE, PIPELINE_STUFE } = require('../config/constants');
+const {
+    CUSTOMER_FUNNEL_STAGE,
+    CUSTOMER_FUNNEL_STAGE_ORDER,
+} = require('../config/platformCrmConfig');
 
 const elaycoinTransactionSchema = new mongoose.Schema(
     {
@@ -126,6 +130,44 @@ const customerSchema = new mongoose.Schema(
             type: String,
             default: '',
         },
+        platform_crm: {
+            funnel_stage: {
+                type: String,
+                enum: CUSTOMER_FUNNEL_STAGE_ORDER,
+                default: CUSTOMER_FUNNEL_STAGE.REGISTERED,
+                index: true,
+            },
+            stage_entered_at: {
+                type: Date,
+                default: Date.now,
+            },
+            last_activity_at: {
+                type: Date,
+                default: Date.now,
+                index: true,
+            },
+            cases_count: {
+                type: Number,
+                default: 0,
+                min: 0,
+            },
+            has_draft_case: {
+                type: Boolean,
+                default: false,
+            },
+            has_open_appointment: {
+                type: Boolean,
+                default: false,
+            },
+            first_session_at: {
+                type: Date,
+                default: null,
+            },
+            completed_at: {
+                type: Date,
+                default: null,
+            },
+        },
         /** Fired automation rule log (prototype automatisierungen_log + cooldown). */
         automatisierungen_log: {
             type: [
@@ -138,11 +180,7 @@ const customerSchema = new mongoose.Schema(
             ],
             default: [],
         },
-        /**
-         * Customer-level medical clearance (doctor's certificate).
-         * Applies to all tattoo cases until the medical situation changes.
-         * Upload → pending_review; only studio verify unlocks treatment booking.
-         */
+        
         medical_clearance: {
             status: {
                 type: String,
@@ -219,6 +257,11 @@ const customerSchema = new mongoose.Schema(
 
 customerSchema.index({ nachname: 1, vorname: 1 });
 customerSchema.index({ aktuelle_firma_id: 1, pipeline_stufe: 1 });
+customerSchema.index({
+    'platform_crm.funnel_stage': 1,
+    'platform_crm.last_activity_at': -1,
+});
+customerSchema.index({ 'platform_crm.stage_entered_at': 1 });
 
 const Customer = mongoose.model('Customer', customerSchema);
 
