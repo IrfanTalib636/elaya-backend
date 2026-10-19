@@ -20,6 +20,12 @@ const laserRequestSchema = new mongoose.Schema(
         model: { type: String, required: true, trim: true, maxlength: 120 },
         wavelengths_nm: { type: [Number], default: [] },
         notes: { type: String, default: '', maxlength: 2000 },
+        /** Optional device/nameplate photo uploaded by the studio. */
+        photo_file_id: {
+            type: mongoose.Schema.Types.ObjectId,
+            ref: 'FileAsset',
+            default: null,
+        },
         status: {
             type: String,
             enum: ['pending', 'approved', 'rejected'],

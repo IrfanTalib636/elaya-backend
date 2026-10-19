@@ -84,6 +84,7 @@ const formatLaserDevice = (doc, colorCtx = null) => {
         manufacturer: d.manufacturer,
         model: d.model,
         wavelengths_nm: Array.isArray(d.wavelengths_nm) ? d.wavelengths_nm : [],
+        laser_type: d.laser_type || '',
         notes: d.notes || '',
         ...(colorCtx ? colorStateFor(colorCtx, id) : {}),
         active: Boolean(d.active),
@@ -172,6 +173,7 @@ const createLaserDevice = async (payload, userId = null) => {
             manufacturer: String(payload.manufacturer || '').trim(),
             model: String(payload.model || '').trim(),
             wavelengths_nm: payload.wavelengths_nm || [],
+            laser_type: payload.laser_type ? String(payload.laser_type).trim() : '',
             notes: payload.notes || '',
             active: payload.active !== false,
             created_by: userId,
@@ -194,6 +196,7 @@ const updateLaserDevice = async (id, payload, userId = null) => {
     if (payload.manufacturer !== undefined) doc.manufacturer = String(payload.manufacturer).trim();
     if (payload.model !== undefined) doc.model = String(payload.model).trim();
     if (payload.wavelengths_nm !== undefined) doc.wavelengths_nm = payload.wavelengths_nm;
+    if (payload.laser_type !== undefined) doc.laser_type = String(payload.laser_type || '').trim();
     if (payload.notes !== undefined) doc.notes = payload.notes;
     if (payload.active !== undefined) doc.active = Boolean(payload.active);
     doc.updated_by = userId;

@@ -237,6 +237,34 @@ const studioSchema = new mongoose.Schema(
             ],
             default: [],
         },
+        /**
+         * Platform lasers assigned to this studio. Rooms and sessions may only
+         * pick devices from this inventory — not the full catalog.
+         */
+        laser_inventory: {
+            type: [
+                {
+                    laser_device_id: {
+                        type: mongoose.Schema.Types.ObjectId,
+                        ref: 'LaserDevice',
+                        required: true,
+                    },
+                    assigned_at: { type: Date, default: Date.now },
+                    assigned_by: {
+                        type: mongoose.Schema.Types.ObjectId,
+                        ref: 'User',
+                        default: null,
+                    },
+                    source_request_id: {
+                        type: mongoose.Schema.Types.ObjectId,
+                        ref: 'LaserRequest',
+                        default: null,
+                    },
+                    _id: false,
+                },
+            ],
+            default: [],
+        },
         /** Treatment rooms for calendar + sessions */
         behandlungsraeume: {
             type: [behandlungsraumSchema],

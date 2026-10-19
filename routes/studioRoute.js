@@ -4,6 +4,7 @@ const validateMiddleware = require('../middleware/validateMiddleware');
 const {
     getStudioSettings,
     patchStudioSettings,
+    listStudioLasers,
     listStudiosAdmin,
     patchStudioStatus,
     openStudioWorkspace,
@@ -184,6 +185,8 @@ router.get(
     authorize(...studioRoles),
     getStudioSettings
 );
+
+router.get('/lasers', protect, authorize(...studioRoles), listStudioLasers);
 
 /**
  * @swagger

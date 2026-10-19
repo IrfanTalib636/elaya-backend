@@ -67,10 +67,34 @@ const sessionSchema = new mongoose.Schema(
         raum_name: { type: String, default: '' },
         dauer_minuten: { type: Number, default: null, min: 0 },
         laser_id: { type: String, default: '' },
+        /** Platform catalog device used for this session (preferred over free-text). */
+        laser_device_id: {
+            type: mongoose.Schema.Types.ObjectId,
+            ref: 'LaserDevice',
+            default: null,
+            index: true,
+        },
         studio_laser_brand: { type: String, default: '' },
         studio_laser_model: { type: String, default: '' },
         laser_typ: { type: String, default: '' },
         wavelength_nm: { type: [Number], default: [] },
+        /**
+         * Per-wavelength treatment parameters. Preferred over the single
+         * fluence/spot/freq/passes fields below (kept for legacy reads).
+         */
+        wavelength_entries: {
+            type: [
+                {
+                    wavelength_nm: { type: Number, required: true, min: 0 },
+                    fluence_j_cm2: { type: Number, default: null, min: 0 },
+                    spot_size_mm: { type: Number, default: null, min: 0 },
+                    frequency_hz: { type: Number, default: null, min: 0 },
+                    pass_count: { type: Number, default: null, min: 0 },
+                    _id: false,
+                },
+            ],
+            default: [],
+        },
         fluence_j_cm2: { type: Number, default: null },
         spot_size_mm: { type: Number, default: null },
         frequency_hz: { type: Number, default: null },

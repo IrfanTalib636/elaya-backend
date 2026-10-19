@@ -117,10 +117,32 @@ const patchLaser = asyncHandler(async (req, res) => {
     });
 });
 
+const formatRequestRow = (r) => ({
+    id: String(r._id),
+    manufacturer: r.manufacturer,
+    model: r.model,
+    wavelengths_nm: r.wavelengths_nm || [],
+    notes: r.notes || '',
+    photo_file_id: r.photo_file_id ? String(r.photo_file_id) : null,
+    status: r.status,
+    admin_note: r.admin_note || '',
+    laser_device_id: r.laser_device ? String(r.laser_device) : null,
+    studio: r.studio
+        ? {
+              id: String(r.studio._id || r.studio),
+              firma: r.studio.firma,
+              studio_code: r.studio.studio_code,
+          }
+        : null,
+    requested_by: r.requested_by?.email || r.requested_by || null,
+    created_at: r.createdAt,
+});
+
 const requestLaser = asyncHandler(async (req, res) => {
     if (!req.user.studio_id) {
         throw new ApiError(403, 'Studio account required');
     }
+    const photoFileId = req.body.photo_file_id || null;
     const row = await LaserRequest.create({
         studio: req.user.studio_id,
         requested_by: req.user._id,
@@ -128,6 +150,7 @@ const requestLaser = asyncHandler(async (req, res) => {
         model: String(req.body.model || '').trim(),
         wavelengths_nm: req.body.wavelengths_nm || [],
         notes: req.body.notes || '',
+        photo_file_id: photoFileId,
         status: 'pending',
     });
     res.status(201).json({
@@ -139,8 +162,24 @@ const requestLaser = asyncHandler(async (req, res) => {
                 manufacturer: row.manufacturer,
                 model: row.model,
                 status: row.status,
+                photo_file_id: photoFileId ? String(photoFileId) : null,
             },
         },
+    });
+});
+
+/** Studio: list own laser requests (pending + recent). */
+const listMyLaserRequests = asyncHandler(async (req, res) => {
+    if (!req.user.studio_id) {
+        throw new ApiError(403, 'Studio account required');
+    }
+    const rows = await LaserRequest.find({ studio: req.user.studio_id })
+        .sort({ createdAt: -1 })
+        .limit(50)
+        .lean();
+    res.status(200).json({
+        success: true,
+        data: { requests: rows.map(formatRequestRow) },
     });
 });
 
@@ -158,26 +197,7 @@ const listLaserRequests = asyncHandler(async (req, res) => {
         .lean();
     res.status(200).json({
         success: true,
-        data: {
-            requests: rows.map((r) => ({
-                id: String(r._id),
-                manufacturer: r.manufacturer,
-                model: r.model,
-                wavelengths_nm: r.wavelengths_nm || [],
-                notes: r.notes || '',
-                status: r.status,
-                admin_note: r.admin_note || '',
-                studio: r.studio
-                    ? {
-                          id: String(r.studio._id),
-                          firma: r.studio.firma,
-                          studio_code: r.studio.studio_code,
-                      }
-                    : null,
-                requested_by: r.requested_by?.email || null,
-                created_at: r.createdAt,
-            })),
-        },
+        data: { requests: rows.map(formatRequestRow) },
     });
 });
 
@@ -195,6 +215,12 @@ const resolveLaserRequest = asyncHandler(async (req, res) => {
         throw new ApiError(400, 'Request already resolved');
     }
 
+    const {
+        findLaserByManufacturerModel,
+        assignLaserToStudio,
+    } = require('../utils/studioLaserInventory');
+    const { getLaserDeviceById } = require('../utils/laserCatalogService');
+
     row.status = decision;
     row.admin_note = req.body.admin_note || '';
     row.resolved_by = req.user._id;
@@ -202,17 +228,31 @@ const resolveLaserRequest = asyncHandler(async (req, res) => {
 
     let device = null;
     if (decision === 'approved') {
-        device = await createLaserDevice(
-            {
-                manufacturer: row.manufacturer,
-                model: row.model,
-                wavelengths_nm: row.wavelengths_nm,
-                notes: row.notes,
-                active: true,
-            },
-            req.user._id
-        );
+        // Admin may force an existing catalog id (near-duplicate wording).
+        if (req.body.laser_device_id) {
+            device = await getLaserDeviceById(req.body.laser_device_id, { requireActive: true });
+        } else {
+            device = await findLaserByManufacturerModel(row.manufacturer, row.model);
+            if (!device) {
+                device = await createLaserDevice(
+                    {
+                        manufacturer: row.manufacturer,
+                        model: row.model,
+                        wavelengths_nm: row.wavelengths_nm,
+                        notes: row.notes,
+                        active: true,
+                    },
+                    req.user._id
+                );
+            }
+        }
         row.laser_device = device.id;
+        await assignLaserToStudio({
+            studioId: row.studio,
+            laserDeviceId: device.id,
+            userId: req.user._id,
+            sourceRequestId: row._id,
+        });
     }
     await row.save();
 
@@ -235,12 +275,39 @@ const resolveLaserRequest = asyncHandler(async (req, res) => {
     });
 });
 
+/** Admin: assign an existing catalog laser to a studio without a request. */
+const assignLaserToStudioHandler = asyncHandler(async (req, res) => {
+    if (!hasPermission(req.user, ADMIN_PERMISSIONS.MANAGE_LASER_CATALOG)) {
+        throw new ApiError(403, 'Missing manage_laser_catalog permission');
+    }
+    const studioId = req.body.studio_id;
+    const laserDeviceId = req.body.laser_device_id;
+    if (!studioId || !laserDeviceId) {
+        throw new ApiError(400, 'studio_id and laser_device_id are required');
+    }
+    const { assignLaserToStudio } = require('../utils/studioLaserInventory');
+    const result = await assignLaserToStudio({
+        studioId,
+        laserDeviceId,
+        userId: req.user._id,
+    });
+    res.status(200).json({
+        success: true,
+        message: result.already
+            ? 'Laser already assigned to studio'
+            : 'Laser assigned to studio',
+        data: { device: result.device, already: result.already },
+    });
+});
+
 module.exports = {
     listLasers,
     getLaser,
     createLaser,
     patchLaser,
     requestLaser,
+    listMyLaserRequests,
     listLaserRequests,
     resolveLaserRequest,
+    assignLaserToStudioHandler,
 };

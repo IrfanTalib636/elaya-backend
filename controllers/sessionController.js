@@ -30,6 +30,78 @@ const { emitAvailabilityChanged } = require('../sockets/availabilityEmit');
 const CUSTOMER_SESSION_SELECT =
     'case customer studio session_number treatment_date treatment_time removal_pct verblassung_prozent comparison_eligible uncertainty_level progress_direction lightening_confidence verblassung_ki fortschritt_foto_file_id is_draft is_no_show zonen_id createdAt updatedAt';
 
+/**
+ * Resolve catalog laser + per-wavelength entries. Fills legacy wavelength_nm /
+ * fluence fields for older readers. Enforces studio inventory + approved λ.
+ */
+const resolveSessionLaserFields = async (fields, studioId) => {
+    const out = { ...fields };
+    const entries = Array.isArray(out.wavelength_entries) ? out.wavelength_entries : [];
+    let deviceId = out.laser_device_id || out.laser_id || null;
+    if (deviceId === '') deviceId = null;
+
+    if (deviceId) {
+        const Studio = require('../models/studioModel');
+        const { studioHasLaser, syncInventoryFromRooms } = require('../utils/studioLaserInventory');
+        const { getLaserDeviceById } = require('../utils/laserCatalogService');
+        const studio = await Studio.findById(studioId);
+        if (!studio) throw new ApiError(404, 'Studio not found');
+        await syncInventoryFromRooms(studio);
+        if (!studioHasLaser(studio, deviceId)) {
+            throw new ApiError(400, 'Laser is not assigned to this studio');
+        }
+        const device = await getLaserDeviceById(deviceId, { requireActive: true });
+        const approved = new Set((device.wavelengths_nm || []).map(Number));
+        const seenNm = new Set();
+        for (const entry of entries) {
+            const nm = Number(entry.wavelength_nm);
+            if (!approved.has(nm)) {
+                throw new ApiError(
+                    400,
+                    `Wavelength ${entry.wavelength_nm} nm is not approved for ${device.label}`
+                );
+            }
+            if (seenNm.has(nm)) {
+                throw new ApiError(400, `Duplicate wavelength ${nm} nm in session`);
+            }
+            seenNm.add(nm);
+        }
+        if (out.raum_id) {
+            const room = (studio.behandlungsraeume || []).find(
+                (r) => String(r._id) === String(out.raum_id)
+            );
+            if (room?.laser_device_id && String(room.laser_device_id) !== String(device.id)) {
+                throw new ApiError(400, 'Selected laser does not match the room laser');
+            }
+        }
+        out.laser_device_id = device.id;
+        out.laser_id = device.id;
+        out.studio_laser_brand = device.manufacturer;
+        out.studio_laser_model = device.model;
+        out.laser_typ = device.laser_type || out.laser_typ || '';
+    } else {
+        out.laser_device_id = null;
+    }
+
+    if (entries.length) {
+        out.wavelength_entries = entries.map((e) => ({
+            wavelength_nm: Number(e.wavelength_nm),
+            fluence_j_cm2: e.fluence_j_cm2 != null ? Number(e.fluence_j_cm2) : null,
+            spot_size_mm: e.spot_size_mm != null ? Number(e.spot_size_mm) : null,
+            frequency_hz: e.frequency_hz != null ? Number(e.frequency_hz) : null,
+            pass_count: e.pass_count != null ? Number(e.pass_count) : null,
+        }));
+        out.wavelength_nm = out.wavelength_entries.map((e) => e.wavelength_nm);
+        const first = out.wavelength_entries[0];
+        out.fluence_j_cm2 = first.fluence_j_cm2;
+        out.spot_size_mm = first.spot_size_mm;
+        out.frequency_hz = first.frequency_hz;
+        out.pass_count = first.pass_count;
+    }
+
+    return out;
+};
+
 const customerLighteningNote = (sessionDoc = {}) => {
     if (sessionDoc.comparison_eligible !== false) return null;
     return (sessionDoc.comparison_reasons || []).includes('too_early')
@@ -140,10 +212,12 @@ const formatSession = (doc, role, options = {}) => {
         raum_name: s.raum_name,
         dauer_minuten: s.dauer_minuten,
         laser_id: s.laser_id,
+        laser_device_id: s.laser_device_id ? String(s.laser_device_id) : null,
         studio_laser_brand: s.studio_laser_brand,
         studio_laser_model: s.studio_laser_model,
         laser_typ: s.laser_typ,
         wavelength_nm: s.wavelength_nm,
+        wavelength_entries: Array.isArray(s.wavelength_entries) ? s.wavelength_entries : [],
         fluence_j_cm2: s.fluence_j_cm2,
         spot_size_mm: s.spot_size_mm,
         frequency_hz: s.frequency_hz,
@@ -326,8 +400,10 @@ const createSession = asyncHandler(async (req, res) => {
         req.user.email?.split('@')[0] ||
         '';
 
+    const laserFields = await resolveSessionLaserFields(fields, caseDoc.studio);
+
     const session = await Session.create({
-        ...fields,
+        ...laserFields,
         mitarbeiter_id,
         mitarbeiter_name,
         documented_by_user: req.user._id,
@@ -544,7 +620,8 @@ const updateSession = asyncHandler(async (req, res) => {
         }
     }
 
-    Object.assign(session, fields);
+    const laserFields = await resolveSessionLaserFields(fields, session.studio);
+    Object.assign(session, laserFields);
 
     if (zahlung) {
         session.zahlung = { ...(session.zahlung || {}), ...zahlung };

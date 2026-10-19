@@ -22,6 +22,7 @@ const laserBodySchema = z
         manufacturer: z.string().trim().min(1).max(120),
         model: z.string().trim().min(1).max(120),
         wavelengths_nm: z.array(z.number().positive().max(20000)).max(20).optional(),
+        laser_type: z.string().trim().max(120).optional(),
         notes: z.string().max(2000).optional(),
         active: z.boolean().optional(),
         color_deltas: colorDeltasSchema.optional(),
@@ -36,6 +37,7 @@ const laserRequestSchema = z
         model: z.string().trim().min(1).max(120),
         wavelengths_nm: z.array(z.number().positive().max(20000)).max(20).optional(),
         notes: z.string().max(2000).optional(),
+        photo_file_id: z.string().trim().min(1).optional().nullable(),
     })
     .strict();
 
@@ -43,11 +45,26 @@ const resolveSchema = z
     .object({
         decision: z.enum(['approved', 'rejected']),
         admin_note: z.string().max(2000).optional(),
+        /** Optional: force-link an existing catalog device on approve. */
+        laser_device_id: z.string().trim().min(1).optional(),
+    })
+    .strict();
+
+const assignSchema = z
+    .object({
+        studio_id: z.string().trim().min(1),
+        laser_device_id: z.string().trim().min(1),
     })
     .strict();
 
 router.get('/', protect, authorize(...studioAndAdmin), laserController.listLasers);
 router.get('/requests', protect, authorize(...adminRoles), laserController.listLaserRequests);
+router.get(
+    '/requests/mine',
+    protect,
+    authorize(...studioRoles),
+    laserController.listMyLaserRequests
+);
 router.post(
     '/requests',
     protect,
@@ -61,6 +78,13 @@ router.post(
     authorize(...adminRoles),
     validate(resolveSchema),
     laserController.resolveLaserRequest
+);
+router.post(
+    '/assign-to-studio',
+    protect,
+    authorize(...adminRoles),
+    validate(assignSchema),
+    laserController.assignLaserToStudioHandler
 );
 router.get('/:id', protect, authorize(...studioAndAdmin), laserController.getLaser);
 router.post(

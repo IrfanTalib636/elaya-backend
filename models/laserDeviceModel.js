@@ -30,6 +30,13 @@ const laserDeviceSchema = new mongoose.Schema(
                 message: 'wavelengths_nm must be positive numbers',
             },
         },
+        /** Optional technical type shown read-only in session docs (e.g. Nd:YAG). */
+        laser_type: {
+            type: String,
+            default: '',
+            maxlength: 120,
+            trim: true,
+        },
         notes: {
             type: String,
             default: '',

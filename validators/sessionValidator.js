@@ -29,10 +29,23 @@ const sessionFieldsSchema = {
     raum_name: optionalTrimmedString.default(''),
     dauer_minuten: z.number().min(0).nullable().optional(),
     laser_id: optionalTrimmedString.default(''),
+    laser_device_id: optionalTrimmedString.nullable().optional(),
     studio_laser_brand: optionalTrimmedString.default(''),
     studio_laser_model: optionalTrimmedString.default(''),
     laser_typ: optionalTrimmedString.default(''),
     wavelength_nm: z.array(z.number().min(0)).optional().default([]),
+    wavelength_entries: z
+        .array(
+            z.object({
+                wavelength_nm: z.number().min(0),
+                fluence_j_cm2: z.number().min(0).nullable().optional(),
+                spot_size_mm: z.number().min(0).nullable().optional(),
+                frequency_hz: z.number().min(0).nullable().optional(),
+                pass_count: z.number().min(0).nullable().optional(),
+            })
+        )
+        .optional()
+        .default([]),
     fluence_j_cm2: z.number().min(0).nullable().optional(),
     spot_size_mm: z.number().min(0).nullable().optional(),
     frequency_hz: z.number().min(0).nullable().optional(),
@@ -76,10 +89,22 @@ const updateSessionSchema = z
         raum_name: optionalTrimmedString,
         dauer_minuten: z.number().min(0).nullable().optional(),
         laser_id: optionalTrimmedString,
+        laser_device_id: optionalTrimmedString.nullable().optional(),
         studio_laser_brand: optionalTrimmedString,
         studio_laser_model: optionalTrimmedString,
         laser_typ: optionalTrimmedString,
         wavelength_nm: z.array(z.number().min(0)).optional(),
+        wavelength_entries: z
+            .array(
+                z.object({
+                    wavelength_nm: z.number().min(0),
+                    fluence_j_cm2: z.number().min(0).nullable().optional(),
+                    spot_size_mm: z.number().min(0).nullable().optional(),
+                    frequency_hz: z.number().min(0).nullable().optional(),
+                    pass_count: z.number().min(0).nullable().optional(),
+                })
+            )
+            .optional(),
         fluence_j_cm2: z.number().min(0).nullable().optional(),
         spot_size_mm: z.number().min(0).nullable().optional(),
         frequency_hz: z.number().min(0).nullable().optional(),

@@ -151,15 +151,25 @@ const mapStandorteInput = (standorte = []) =>
         slot_interval_minuten: s.slot_interval_minuten ?? null,
     }));
 
-const mapRoomsInput = async (rooms = []) => {
+const mapRoomsInput = async (rooms = [], studio = null) => {
     const { assertActiveLaserDeviceId } = require('../utils/laserCatalogService');
+    const { studioHasLaser, syncInventoryFromRooms } = require('../utils/studioLaserInventory');
+    if (studio) {
+        await syncInventoryFromRooms(studio);
+    }
     const mapped = [];
     for (const r of rooms) {
-        let laserBrand = r.laser_brand ?? '';
-        let laserModel = r.laser_model ?? '';
+        let laserBrand = '';
+        let laserModel = '';
         let laserDeviceId = r.laser_device_id || null;
         if (laserDeviceId) {
             const device = await assertActiveLaserDeviceId(laserDeviceId);
+            if (studio && !studioHasLaser(studio, device.id)) {
+                throw new ApiError(
+                    400,
+                    `Laser ${device.label} is not assigned to this studio. Request or assign it first.`
+                );
+            }
             laserBrand = device.manufacturer;
             laserModel = device.model;
             laserDeviceId = device.id;
@@ -222,6 +232,14 @@ const validateStandortRefs = (standorte, rooms = [], staff = []) => {
     }
 };
 
+/** Lasers assigned to this studio (catalog SoT fields only). */
+const listStudioLasers = asyncHandler(async (req, res) => {
+    const studio = await resolveStudioForUser(req.user, req.params.studioId);
+    const { listStudioInventoryDevices } = require('../utils/studioLaserInventory');
+    const devices = await listStudioInventoryDevices(studio);
+    res.status(200).json({ success: true, data: { devices } });
+});
+
 const getStudioSettings = asyncHandler(async (req, res) => {
     const studio = await resolveStudioForUser(req.user, req.params.studioId);
 
@@ -268,7 +286,7 @@ const patchStudioSettings = asyncHandler(async (req, res) => {
     }
 
     if (behandlungsraeume !== undefined) {
-        studio.behandlungsraeume = await mapRoomsInput(behandlungsraeume);
+        studio.behandlungsraeume = await mapRoomsInput(behandlungsraeume, studio);
     }
 
     if (mitarbeiter !== undefined) {
@@ -758,6 +776,7 @@ module.exports = {
     formatPublicStudio,
     getStudioSettings,
     patchStudioSettings,
+    listStudioLasers,
     listStudiosAdmin,
     listPublicStudios,
     patchStudioStatus,
