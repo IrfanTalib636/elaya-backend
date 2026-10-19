@@ -10,6 +10,9 @@ const {
     STUDIO_STATUS,
     AKQUISE_QUELLE,
 } = require('../config/constants');
+const {
+    syncCustomerPlatformCrmSafe,
+} = require('../utils/platformFunnelEngine');
 const pushService = require('../services/pushService');
 const { emitStudioTransferEvent } = require('../sockets/emitHelpers');
 
@@ -116,6 +119,8 @@ const applyTransferApproval = async (request, user) => {
     customer.akquise_quelle = AKQUISE_QUELLE.STUDIO_WECHSEL;
     customer.markModified('firma_history');
     await customer.save();
+
+    await syncCustomerPlatformCrmSafe(customer._id);
 
     request.status = STUDIO_TRANSFER_STATUS.GENEHMIGT;
     request.bearbeitet_am = now;

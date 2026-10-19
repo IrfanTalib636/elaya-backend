@@ -28,6 +28,9 @@ const messagingService = require('../services/messagingService');
 const { emitMessageCreated } = require('../sockets/emitHelpers');
 const { parsePagination, buildPaginationMeta } = require('../utils/pagination');
 const {
+    syncCustomerPlatformCrmSafe,
+} = require('../utils/platformFunnelEngine');
+const {
     CUSTOMER_INTAKE_FIELDS,
     CARRY_OVER_INTAKE_FIELDS,
     syncDerivedIntakeFields,
@@ -633,6 +636,8 @@ const createCase = asyncHandler(async (req, res) => {
         throw error;
     }
 
+    await syncCustomerPlatformCrmSafe(customer._id);
+
     res.status(201).json({
         success: true,
         message: 'Case created successfully',
@@ -901,6 +906,8 @@ const updateCase = asyncHandler(async (req, res) => {
 
     await caseDoc.populate('customer', 'vorname nachname email telefon');
 
+    await syncCustomerPlatformCrmSafe(caseDoc.customer?._id || caseDoc.customer);
+
     const zones =
         zoneDocs.length > 0 || req.body.zonen !== undefined
             ? zoneDocs
@@ -950,11 +957,15 @@ const deleteIncompleteCase = asyncHandler(async (req, res) => {
         }
     }
 
+    const customerId = caseDoc.customer;
+
     await CaseZone.deleteMany({ case: caseDoc._id });
     await Session.deleteMany({ case: caseDoc._id });
     await Appointment.deleteMany({ case: caseDoc._id });
     await Anamnesis.deleteMany({ case: caseDoc._id });
     await Case.deleteOne({ _id: caseDoc._id });
+
+    await syncCustomerPlatformCrmSafe(customerId);
 
     res.status(200).json({
         success: true,

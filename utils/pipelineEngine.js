@@ -7,6 +7,9 @@ const {
     APPOINTMENT_STATUS,
     APPOINTMENT_TYPE,
 } = require('../config/constants');
+const {
+    syncCustomerPlatformCrmSafe,
+} = require('./platformFunnelEngine');
 
 const CANCELLED_STATUSES = [
     APPOINTMENT_STATUS.STORNIERT,
@@ -87,6 +90,9 @@ const syncCustomerPipeline = async (customerId) => {
         customer.stufe_seit = new Date();
         await customer.save();
     }
+
+    // Super Admin platform funnel cache (isolated from pipeline_stufe).
+    await syncCustomerPlatformCrmSafe(customerId);
 
     return customer;
 };

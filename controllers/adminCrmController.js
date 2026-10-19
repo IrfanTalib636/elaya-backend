@@ -20,6 +20,9 @@ const {
     PIPELINE_STUFE,
 } = require('../config/constants');
 const { parsePagination, buildPaginationMeta } = require('../utils/pagination');
+const {
+    syncStudioLeadPlatformCrmSafe,
+} = require('../utils/platformFunnelEngine');
 
 const CANCELLED = [APPOINTMENT_STATUS.STORNIERT, APPOINTMENT_STATUS.CANCELLED];
 
@@ -243,6 +246,8 @@ const createStudioLead = asyncHandler(async (req, res) => {
         created_by: req.user?._id || null,
     });
 
+    await syncStudioLeadPlatformCrmSafe(lead._id);
+
     res.status(201).json({
         success: true,
         data: { lead: formatLead(lead) },
@@ -280,6 +285,8 @@ const updateStudioLead = asyncHandler(async (req, res) => {
     }
     if (lead.email) lead.email = lead.email.toLowerCase();
     await lead.save();
+
+    await syncStudioLeadPlatformCrmSafe(lead._id);
 
     res.status(200).json({
         success: true,
@@ -376,6 +383,8 @@ const advanceStudioLead = asyncHandler(async (req, res) => {
     }
 
     await lead.save();
+
+    await syncStudioLeadPlatformCrmSafe(lead._id);
 
     res.status(200).json({
         success: true,

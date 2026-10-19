@@ -23,6 +23,9 @@ const {
     formatCustomerProfileForMe,
 } = require('../utils/customerProfileHelpers');
 const {
+    syncCustomerPlatformCrmSafe,
+} = require('../utils/platformFunnelEngine');
+const {
     USER_ROLES,
     USER_STATUS,
     STUDIO_STATUS,
@@ -110,6 +113,8 @@ const registerCustomer = asyncHandler(async (req, res) => {
         }
         throw error;
     }
+
+    await syncCustomerPlatformCrmSafe(customer._id);
 
     const tokens = await issueAuthTokens({ user, res, req });
 
