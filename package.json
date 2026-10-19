@@ -12,6 +12,7 @@
     "seed:shop-products": "node scripts/seedShopProducts.js",
     "seed:demo": "node scripts/seedDemo.js",
     "backfill:estimates": "node scripts/backfillEstimates.js",
+    "backfill:platform-crm": "node scripts/backfillPlatformCrm.js",
     "verify:examples": "node scripts/verifyExcelExamples.js",
     "verify:lightening": "node scripts/verifyLighteningLogic.js",
     "verify:healing": "node scripts/verifyHealingLogic.js",
