@@ -222,6 +222,76 @@ const aiUnavailableFallback = (stage) => {
     };
 };
 
+const normalizeProgressionDirection = (value) => {
+    const raw = String(value || '')
+        .toLowerCase()
+        .normalize('NFKD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .trim();
+    if (
+        raw.includes('improv') ||
+        raw.includes('besser') ||
+        raw.includes('verbesser') ||
+        raw.includes('reduced') ||
+        raw.includes('reduziert')
+    ) {
+        return 'improved';
+    }
+    if (
+        raw.includes('wors') ||
+        raw.includes('schlechter') ||
+        raw.includes('verschlechter') ||
+        raw.includes('deterior') ||
+        raw.includes('pronounced') ||
+        raw.includes('ausgeprag')
+    ) {
+        return 'worsened';
+    }
+    if (
+        raw.includes('unchang') ||
+        raw.includes('unverand') ||
+        raw.includes('gleich') ||
+        raw.includes('no clear') ||
+        raw.includes('keine klare')
+    ) {
+        return 'unchanged';
+    }
+    if (raw.includes('unclear') || raw.includes('unklar')) return 'unclear';
+    return null;
+};
+
+const findPreviousAftercareCheck = async (caseId, zonenId) => {
+    const filter = {
+        case: caseId,
+        foto_file_id: { $ne: null },
+    };
+    if (zonenId) {
+        filter.zonen_id = zonenId;
+    } else {
+        filter.$or = [{ zonen_id: null }, { zonen_id: { $exists: false } }, { zonen_id: '' }];
+    }
+    return NachsorgeCheck.findOne(filter).sort({ createdAt: -1 }).lean();
+};
+
+const mapProgressionResult = (parsed, lang = 'de') => {
+    const block = parsed?.progression || parsed?.verlauf || parsed || {};
+    const direction =
+        normalizeProgressionDirection(block.direction || block.richtung || block.progress_direction) ||
+        'unclear';
+    const summary =
+        String(
+            block.summary ||
+                block.zusammenfassung ||
+                block.beurteilung ||
+                block.assessment ||
+                ''
+        ).trim() ||
+        (lang === 'en'
+            ? 'Visual change compared with the previous aftercare photo could not be determined clearly. This is not a medical diagnosis.'
+            : 'Im Vergleich zum vorherigen Nachsorge-Foto konnte die visuelle Veränderung nicht klar bestimmt werden. Dies ist keine medizinische Diagnose.');
+    return { direction, summary };
+};
+
 const formatCheck = (doc, role = 'studio') => {
     const d = doc.toObject ? doc.toObject() : doc;
     const customerRef =
@@ -255,6 +325,12 @@ const formatCheck = (doc, role = 'studio') => {
         healing_customer_summary: d.healing_customer_summary || '',
         healing_recommended_action: d.healing_recommended_action || null,
         progress_direction_self: d.progress_direction_self || null,
+        previous_check_id: d.previous_check_id ? String(d.previous_check_id) : null,
+        previous_foto_file_id: d.previous_foto_file_id
+            ? String(d.previous_foto_file_id)
+            : null,
+        progression_direction: d.progression_direction || null,
+        progression_summary: d.progression_summary || '',
         erstellt_von: d.erstellt_von,
         erstellt_am: d.createdAt,
     };
@@ -272,9 +348,9 @@ const formatCheck = (doc, role = 'studio') => {
             healing_progress_score: null,
             healing_symptoms: null,
             healing_behavior: null,
-            studio_review_notes: '',
+            studio_review_notes: d.studio_review_notes || '',
             healing_status_calculated: null,
-            healing_studio_reviewed_at: null,
+            healing_studio_reviewed_at: d.healing_studio_reviewed_at || null,
             healing_studio_reviewed_by: '',
         };
     }
@@ -300,11 +376,9 @@ const formatCheck = (doc, role = 'studio') => {
     };
 };
 
-// ── POST /nachsorge/photo-check ───────────────────────────────────────────
 const photoCheck = asyncHandler(async (req, res) => {
     const caseDoc = await loadOwnedCase(req.user, req.body.case_id);
-    // Validated here too, so the customer is told about a missing zone before
-    // spending an AI call rather than after it.
+   
     await resolveCheckZone(caseDoc, req.body.zonen_id);
     const tage = resolveTageNachSitzung(req.body.sitzungs_datum, caseDoc);
     const { buffer, mimeType } = await loadPhotoForAi(
@@ -376,7 +450,6 @@ Antworte nur als reines JSON ohne Markdown.`,
     });
 });
 
-// ── POST /nachsorge/check ─────────────────────────────────────────────────
 const createCheck = asyncHandler(async (req, res) => {
     const caseDoc = await loadOwnedCase(req.user, req.body.case_id);
     const zonenId = await resolveCheckZone(caseDoc, req.body.zonen_id);
@@ -393,9 +466,35 @@ const createCheck = asyncHandler(async (req, res) => {
         req
     );
 
+    const previousCheck = await findPreviousAftercareCheck(caseDoc._id, zonenId);
+    let previousPhoto = null;
+    if (previousCheck?.foto_file_id) {
+        try {
+            previousPhoto = await loadPhotoForAi(
+                req.user,
+                String(previousCheck.foto_file_id),
+                caseDoc,
+                req
+            );
+        } catch {
+            previousPhoto = null;
+        }
+    }
+
     let photoStage;
     let combined;
     let rawAi = null;
+    let progression = {
+        direction: null,
+        summary: '',
+        previous_check_id: previousCheck?._id || null,
+        previous_foto_file_id: previousCheck?.foto_file_id || null,
+    };
+
+    const healingLang =
+        normalizePreferredLang(req.query?.lang) ||
+        normalizePreferredLang(req.user?.preferred_language) ||
+        'de';
 
     if (!isAiEnabled()) {
         photoStage = aiUnavailableFallback('photo');
@@ -464,13 +563,57 @@ Auffälligkeiten: ${(photoStage.foto_auffaelligkeiten || []).join(', ') || 'kein
             combined: combinedCall.parsed,
             model: process.env.ANTHROPIC_MODEL || 'claude-sonnet-4-5',
         };
+
+        if (previousPhoto?.buffer) {
+            const prevDate = previousCheck.createdAt
+                ? new Date(previousCheck.createdAt).toISOString().slice(0, 10)
+                : 'unbekannt';
+            const progressionCall = await callClaude({
+                system: nachsorgeSystem,
+                maxTokens: 1024,
+                messages: [
+                    {
+                        role: 'user',
+                        content: [
+                            imageContentFromBuffer(
+                                previousPhoto.buffer,
+                                previousPhoto.mimeType
+                            ),
+                            {
+                                type: 'text',
+                                text: `VORHERIGES NACHSORGE-FOTO (Referenz vom ${prevDate}). Ampel damals: ${previousCheck.ampel || 'unbekannt'}.`,
+                            },
+                            imageContentFromBuffer(buffer, mimeType),
+                            {
+                                type: 'text',
+                                text: `AKTUELLES NACHSORGE-FOTO (${tageText}).
+
+Vergleiche die beiden Fotos derselben behandelten Stelle. Beschreibe den visuellen Verlauf (z.B. Rötung abgenommen/zugenommen, Bläschen stärker/schwächer, Heilung verbessert/verschlechtert/keine klare Änderung).
+
+WICHTIG:
+- Dies ist KEINE medizinische Diagnose.
+- Antworte nur als reines JSON ohne Markdown:
+{
+  "progression": {
+    "direction": "improved" | "worsened" | "unchanged" | "unclear",
+    "summary": "Kurze, verständliche Verlaufsbeschreibung auf ${healingLang === 'en' ? 'Englisch' : 'Deutsch'} (1–3 Sätze). Am Ende klar sagen, dass es keine medizinische Diagnose ist."
+  }
+}`,
+                            },
+                        ],
+                    },
+                ],
+            });
+            const mappedProgression = mapProgressionResult(
+                progressionCall.parsed,
+                healingLang
+            );
+            progression.direction = mappedProgression.direction;
+            progression.summary = mappedProgression.summary;
+            rawAi.progression = progressionCall.parsed;
+        }
         } // featureGate.allowed
     }
-
-    const healingLang =
-        normalizePreferredLang(req.query?.lang) ||
-        normalizePreferredLang(req.user?.preferred_language) ||
-        'de';
 
     const healing = computeHealingAssessment({
         lang: healingLang,
@@ -513,6 +656,9 @@ Auffälligkeiten: ${(photoStage.foto_auffaelligkeiten || []).join(', ') || 'kein
     if (healing.recommended_action_text && !(combined.empfehlungen || []).includes(healing.recommended_action_text)) {
         combined.empfehlungen = [healing.recommended_action_text, ...(combined.empfehlungen || [])];
     }
+    if (progression.summary) {
+        combined.empfehlungen = [progression.summary, ...(combined.empfehlungen || [])];
+    }
 
     const studioId = caseDoc.studio || caseDoc.aktuelle_firma_id;
     const check = await NachsorgeCheck.create({
@@ -546,12 +692,15 @@ Auffälligkeiten: ${(photoStage.foto_auffaelligkeiten || []).join(', ') || 'kein
         healing_symptoms: healing.symptoms,
         healing_behavior: healing.behavior,
         progress_direction_self: req.body.progress_direction_self || null,
+        previous_check_id: progression.previous_check_id,
+        previous_foto_file_id: progression.previous_foto_file_id,
+        progression_direction: progression.direction,
+        progression_summary: progression.summary || '',
         healing_status_calculated: healing.healing_status,
         raw_ai: rawAi,
         erstellt_von: isCustomer(req.user.role) ? 'customer' : 'studio',
     });
 
-    // Mark photo as linked to this case when still staging
     if (fileAsset.status === FILE_STATUS.STAGING) {
         fileAsset.case = caseDoc._id;
         fileAsset.status = FILE_STATUS.ACTIVE;
@@ -604,6 +753,8 @@ Auffälligkeiten: ${(photoStage.foto_auffaelligkeiten || []).join(', ') || 'kein
                 healing_phase: healing.healing_phase,
                 healing_customer_summary: healing.customer_summary,
                 healing_recommended_action: healing.recommended_action,
+                progression_direction: progression.direction,
+                progression_summary: progression.summary || '',
                 ...(isCustomer(req.user.role)
                     ? {}
                     : {
@@ -618,7 +769,6 @@ Auffälligkeiten: ${(photoStage.foto_auffaelligkeiten || []).join(', ') || 'kein
     });
 });
 
-// ── GET /nachsorge ────────────────────────────────────────────────────────
 const listChecks = asyncHandler(async (req, res) => {
     const { page, limit, skip } = parsePagination(req.query);
     const filter = {};
@@ -638,7 +788,6 @@ const listChecks = asyncHandler(async (req, res) => {
         }
     }
 
-    // Lets a client show one zone's healing history on its own.
     if (req.query.zonen_id) {
         filter.zonen_id = req.query.zonen_id;
     }
@@ -664,7 +813,6 @@ const listChecks = asyncHandler(async (req, res) => {
     });
 });
 
-// ── GET /nachsorge/:id ────────────────────────────────────────────────────
 const getCheck = asyncHandler(async (req, res) => {
     const check = await NachsorgeCheck.findById(req.params.id)
         .select('-raw_ai')
@@ -679,7 +827,6 @@ const getCheck = asyncHandler(async (req, res) => {
         }
     } else if (isStudio(req.user.role)) {
         if (refId(check.studio) !== refId(req.user.studio_id)) {
-            // allow if customer currently assigned here
             const caseDoc = await Case.findById(refId(check.case)).select('customer studio').lean();
             if (caseDoc) await assertCaseAccess(req.user, caseDoc);
             else throw new ApiError(403, 'You do not have access to this check');
@@ -767,10 +914,145 @@ const reviewCheck = asyncHandler(async (req, res) => {
     });
 });
 
+const contactStudio = asyncHandler(async (req, res) => {
+    const check = await NachsorgeCheck.findById(req.params.id)
+        .populate('case', 'caseId customer studio')
+        .lean();
+    if (!check) throw new ApiError(404, 'Nachsorge check not found');
+
+    const caseRef =
+        check.case && typeof check.case === 'object' && check.case._id
+            ? check.case
+            : null;
+    const caseId = caseRef ? caseRef._id : check.case;
+    const caseDoc = caseRef || (await Case.findById(caseId).select('caseId customer studio').lean());
+    if (!caseDoc) throw new ApiError(404, 'Case not found');
+
+    await assertCaseAccess(req.user, caseDoc);
+
+    if (isCustomer(req.user.role) && refId(caseDoc.customer) !== refId(req.user.customer_id)) {
+        throw new ApiError(403, 'You do not have access to this check');
+    }
+
+    const studioId = refId(caseDoc.studio) || refId(check.studio);
+    if (!studioId) {
+        throw new ApiError(400, 'Case has no studio assigned');
+    }
+
+    const Studio = require('../models/studioModel');
+    const { activeStandorte } = require('../utils/studioHours');
+    const studio = await Studio.findById(studioId)
+        .select('firma standorte strasse plz ort')
+        .lean();
+    if (!studio) throw new ApiError(404, 'Studio not found');
+
+    const locations = activeStandorte(studio);
+    const requestedStandortId =
+        typeof req.body.standort_id === 'string' ? req.body.standort_id.trim() : '';
+
+    let standort = null;
+    if (requestedStandortId) {
+        standort = locations.find((s) => String(s._id) === requestedStandortId) || null;
+        if (!standort) {
+            throw new ApiError(
+                400,
+                'standort_id does not belong to this case’s studio company'
+            );
+        }
+    } else if (locations.length === 1) {
+        standort = locations[0];
+    } else if (locations.length > 1) {
+        throw new ApiError(400, 'standort_id is required when multiple locations exist');
+    }
+
+    const messagingService = require('../services/messagingService');
+    const { emitMessageCreated } = require('../sockets/emitHelpers');
+
+    const conversation = await messagingService.getOrCreateConversationForPair(
+        refId(caseDoc.customer),
+        studioId
+    );
+
+    const caseDisplay = caseDoc.caseId || String(caseId).slice(-6);
+    const checkAt = check.createdAt
+        ? new Date(check.createdAt).toLocaleString('de-CH', {
+              day: '2-digit',
+              month: '2-digit',
+              year: 'numeric',
+              hour: '2-digit',
+              minute: '2-digit',
+          })
+        : '—';
+    const ampel = check.ampel || '—';
+    const healingStatus = check.healing_status || '—';
+    const standortName = standort?.name || studio.firma || 'Studio';
+    const deepLink = `/studio/aftercare?check=${check._id}`;
+
+    const text = [
+        `Aftercare Alert – Case ${String(caseDisplay).startsWith('#') ? caseDisplay : `#${caseDisplay}`}`,
+        '',
+        `Standort: ${standortName}`,
+        `Check: ${checkAt}`,
+        `Risiko / Ampel: ${ampel}`,
+        `Heilungsstatus: ${healingStatus}`,
+        '',
+        'Der Kunde meldet sich wegen eines auffälligen Nachsorge-Checks.',
+        `Nachsorge-Check öffnen: ${deepLink}`,
+        '',
+        'Dies ist keine medizinische Diagnose.',
+    ].join('\n');
+
+    const payload = await messagingService.postSystemMessage(conversation.id, {
+        text,
+        case_id: caseId,
+        meta: {
+            kind: 'aftercare_alert',
+            nachsorge_check_id: String(check._id),
+            case_id: String(caseId),
+            case_display_id: caseDisplay,
+            standort_id: standort ? String(standort._id) : null,
+            standort_name: standortName,
+            ampel,
+            healing_status: healingStatus,
+            foto_file_id: check.foto_file_id ? String(check.foto_file_id) : null,
+            erstellt_am: check.createdAt || null,
+            deep_link: deepLink,
+        },
+    });
+
+    emitMessageCreated(payload);
+
+    res.status(200).json({
+        success: true,
+        message: 'Studio chat opened with aftercare alert',
+        data: {
+            conversation: payload.conversation,
+            message: payload.message,
+            studio: {
+                id: studioId,
+                firma: studio.firma || '',
+            },
+            standort: standort
+                ? {
+                      id: String(standort._id),
+                      name: standort.name,
+                      strasse: standort.strasse || '',
+                      plz: standort.plz || '',
+                      ort: standort.ort || '',
+                  }
+                : null,
+            check_id: String(check._id),
+            case_id: String(caseId),
+            case_display_id: caseDisplay,
+        },
+    });
+});
+
 module.exports = {
     photoCheck,
     createCheck,
     listChecks,
     getCheck,
     reviewCheck,
+    contactStudio,
 };

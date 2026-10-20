@@ -42,10 +42,14 @@ const chatMessageSchema = new mongoose.Schema(
             trim: true,
             maxlength: 4000,
         },
-        /** Optional case context for the message (not a separate thread). */
         case_id: {
             type: mongoose.Schema.Types.ObjectId,
             ref: 'Case',
+            default: null,
+        },
+       
+        meta: {
+            type: mongoose.Schema.Types.Mixed,
             default: null,
         },
         read_by_customer_at: {

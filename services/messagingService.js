@@ -42,6 +42,7 @@ const formatMessage = (doc) => {
         typ: m.typ,
         text: m.text,
         case_id: refId(m.case_id),
+        meta: m.meta || null,
         read_by_customer_at: m.read_by_customer_at || null,
         read_by_studio_at: m.read_by_studio_at || null,
         createdAt: m.createdAt,
@@ -102,10 +103,7 @@ const loadCustomerOrThrow = async (customerId) => {
     return customer;
 };
 
-/**
- * Who may participate in this conversation.
- * Write requires active studio assignment for customers; studios must own the thread.
- */
+
 const assertConversationAccess = async (user, conversation, { write = false } = {}) => {
     if (isAdmin(user.role)) {
         return { read_only: false };
@@ -338,6 +336,79 @@ const sendMessage = async (user, conversationId, { text, case_id } = {}) => {
     };
 };
 
+const getOrCreateConversationForPair = async (customerId, studioId) => {
+    const customer = await loadCustomerOrThrow(customerId);
+    const studio = await Studio.findById(studioId).select('firma studio_code').lean();
+    if (!studio) {
+        throw new ApiError(404, 'Studio not found');
+    }
+
+    let conversation = await ChatConversation.findOne({
+        customer: customerId,
+        studio: studioId,
+    });
+
+    if (!conversation) {
+        conversation = await ChatConversation.create({
+            customer: customerId,
+            studio: studioId,
+            status: CHAT_CONVERSATION_STATUS.OPEN,
+        });
+    }
+
+    return formatConversation(conversation, { customer, studio });
+};
+
+const postSystemMessage = async (
+    conversationId,
+    { text, case_id = null, meta = null } = {}
+) => {
+    const cleaned = String(text || '').trim();
+    if (!cleaned) {
+        throw new ApiError(400, 'text is required');
+    }
+    if (cleaned.length > TEXT_MAX) {
+        throw new ApiError(400, `text must be at most ${TEXT_MAX} characters`);
+    }
+
+    const conversation = await ChatConversation.findById(conversationId);
+    if (!conversation) {
+        throw new ApiError(404, 'Conversation not found');
+    }
+    if (conversation.status === CHAT_CONVERSATION_STATUS.ARCHIVED) {
+        throw new ApiError(400, 'Conversation is archived');
+    }
+
+    const message = await ChatMessage.create({
+        conversation: conversation._id,
+        customer: conversation.customer,
+        studio: conversation.studio,
+        sender_user: null,
+        sender_role: CHAT_SENDER_ROLE.SYSTEM,
+        typ: CHAT_MESSAGE_TYP.SYSTEM,
+        text: cleaned,
+        case_id: case_id || null,
+        meta: meta || null,
+        read_by_customer_at: new Date(),
+        read_by_studio_at: null,
+    });
+
+    conversation.last_message_at = message.createdAt;
+    conversation.last_message_preview = truncatePreview(cleaned);
+    conversation.last_sender_role = CHAT_SENDER_ROLE.SYSTEM;
+    conversation.unread_studio = (conversation.unread_studio || 0) + 1;
+    await conversation.save();
+
+    const populated = await ChatConversation.findById(conversation._id)
+        .populate('customer', 'vorname nachname email')
+        .populate('studio', 'firma studio_code');
+
+    return {
+        message: formatMessage(message),
+        conversation: formatConversation(populated),
+    };
+};
+
 const markConversationRead = async (user, conversationId, { up_to_message_id } = {}) => {
     const conversation = await ChatConversation.findById(conversationId);
     if (!conversation) {
@@ -378,9 +449,11 @@ module.exports = {
     formatConversation,
     assertConversationAccess,
     getOrCreateConversation,
+    getOrCreateConversationForPair,
     listConversations,
     getConversationById,
     listMessages,
     sendMessage,
+    postSystemMessage,
     markConversationRead,
 };

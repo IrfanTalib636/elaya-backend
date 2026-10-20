@@ -20,11 +20,6 @@ const nachsorgeCheckSchema = new mongoose.Schema(
             required: true,
             index: true,
         },
-        /**
-         * Zone this check documents, matching `CaseZone.zonen_id` ("Z001").
-         * Required for zone cases so healing is tracked per zone; `null` for
-         * single-tattoo cases.
-         */
         zonen_id: {
             type: String,
             trim: true,
@@ -95,6 +90,22 @@ const nachsorgeCheckSchema = new mongoose.Schema(
             enum: ['better', 'same', 'worse', 'unclear', null],
             default: null,
         },
+        previous_check_id: {
+            type: mongoose.Schema.Types.ObjectId,
+            ref: 'NachsorgeCheck',
+            default: null,
+        },
+        previous_foto_file_id: {
+            type: mongoose.Schema.Types.ObjectId,
+            ref: 'FileAsset',
+            default: null,
+        },
+        progression_direction: {
+            type: String,
+            enum: ['improved', 'worsened', 'unchanged', 'unclear', null],
+            default: null,
+        },
+        progression_summary: { type: String, default: '' },
         studio_review_notes: { type: String, trim: true, default: '' },
         healing_status_calculated: {
             type: String,
@@ -116,7 +127,6 @@ const nachsorgeCheckSchema = new mongoose.Schema(
 
 nachsorgeCheckSchema.index({ customer: 1, createdAt: -1 });
 nachsorgeCheckSchema.index({ case: 1, createdAt: -1 });
-// Per-zone healing history for one case.
 nachsorgeCheckSchema.index({ case: 1, zonen_id: 1, createdAt: -1 });
 nachsorgeCheckSchema.index({ studio: 1, createdAt: -1 });
 

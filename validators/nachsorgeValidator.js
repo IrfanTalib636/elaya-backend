@@ -67,9 +67,17 @@ const nachsorgeReviewSchema = z
     })
     .strict();
 
+const nachsorgeContactStudioSchema = z
+    .object({
+        /** Location of the Case's studio company — required when multiple exist. */
+        standort_id: z.string().trim().min(1).max(64).optional().nullable(),
+    })
+    .strict();
+
 module.exports = {
     nachsorgePhotoCheckSchema,
     nachsorgeCheckSchema,
     listNachsorgeQuerySchema,
     nachsorgeReviewSchema,
+    nachsorgeContactStudioSchema,
 };
