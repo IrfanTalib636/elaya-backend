@@ -93,41 +93,7 @@ app.use(
 );
 app.use(
     cors({
-        origin: (origin, callback) => {
-            const configured = (process.env.CORS_ORIGINS || '')
-                .split(',')
-                .map((o) => o.trim())
-                .filter(Boolean);
-            const defaults = [
-                'http://localhost:5173',
-                'http://localhost:3000',
-                'http://localhost:3002',
-                'http://localhost:8081',
-                'http://127.0.0.1:8081',
-                'https://app.elaya.io',
-                'https://inkderm.vercel.app',
-            ];
-            const allowList = [...new Set([...defaults, ...configured])];
-
-            // Native apps / curl often send no Origin.
-            if (!origin) {
-                return callback(null, true);
-            }
-            // Local Expo / Metro (exp:// or LAN http://192.168.x.x:8081)
-            if (
-                process.env.NODE_ENV !== 'production' &&
-                (/^https?:\/\/(localhost|127\.0\.0\.1|192\.168\.\d+\.\d+|10\.\d+\.\d+\.\d+)(:\d+)?$/i.test(
-                    origin
-                ) ||
-                    /^exp:\/\//i.test(origin))
-            ) {
-                return callback(null, true);
-            }
-            if (allowList.includes(origin)) {
-                return callback(null, true);
-            }
-            return callback(new Error(`CORS blocked for origin: ${origin}`));
-        },
+        origin: require('./utils/corsOrigins').corsOriginChecker,
         credentials: true,
     })
 );

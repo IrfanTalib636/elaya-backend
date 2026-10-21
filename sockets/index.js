@@ -9,42 +9,7 @@ const { setIO } = require('./io');
 const { isCustomer, isStudio, refId } = require('../utils/accessHelpers');
 const Customer = require('../models/customerModel');
 const Case = require('../models/caseModel');
-
-const buildCorsOriginChecker = () => {
-    const configured = (process.env.CORS_ORIGINS || '')
-        .split(',')
-        .map((o) => o.trim())
-        .filter(Boolean);
-    const defaults = [
-        'http://localhost:5173',
-        'http://localhost:3000',
-        'http://localhost:3002',
-        'http://localhost:8081',
-        'http://127.0.0.1:8081',
-        'https://app.elaya.io',
-        'https://inkderm.vercel.app',
-    ];
-    const allowList = [...new Set([...defaults, ...configured])];
-
-    return (origin, callback) => {
-        if (!origin) {
-            return callback(null, true);
-        }
-        if (
-            process.env.NODE_ENV !== 'production' &&
-            (/^https?:\/\/(localhost|127\.0\.0\.1|192\.168\.\d+\.\d+|10\.\d+\.\d+\.\d+)(:\d+)?$/i.test(
-                origin
-            ) ||
-                /^exp:\/\//i.test(origin))
-        ) {
-            return callback(null, true);
-        }
-        if (allowList.includes(origin)) {
-            return callback(null, true);
-        }
-        return callback(new Error(`CORS blocked for origin: ${origin}`));
-    };
-};
+const { corsOriginChecker } = require('../utils/corsOrigins');
 
 const joinAvailabilityRooms = async (socket) => {
     const user = socket.user;
@@ -89,7 +54,7 @@ const initSocket = (httpServer) => {
     const io = new Server(httpServer, {
         path: process.env.SOCKET_IO_PATH || '/socket.io',
         cors: {
-            origin: buildCorsOriginChecker(),
+            origin: corsOriginChecker,
             credentials: true,
         },
         transports: ['websocket', 'polling'],
