@@ -205,6 +205,19 @@ const isLockoutDisabled = (caseDoc) => {
 };
 
 const mkSperre = (heute, typ, grund, bisDate, extra = {}) => {
+    // Condition locks (e.g. medical clearance) have no end date — never invent
+    // a far-future sentinel like +3650 days (that surfaced as ~2036 in the UI).
+    if (extra.indefinite || bisDate == null) {
+        return {
+            typ,
+            grund,
+            von: new Date(heute),
+            bis: null,
+            bis_string: null,
+            ...extra,
+            indefinite: true,
+        };
+    }
     const bis = startOfDay(bisDate);
     return {
         typ,
@@ -225,8 +238,8 @@ const serializeSperre = (sperre) => ({
     typ: sperre.typ,
     grund: sperre.grund,
     von: toDateKey(sperre.von),
-    bis: toDateKey(sperre.bis),
-    bis_string: sperre.bis_string,
+    bis: sperre.bis ? toDateKey(sperre.bis) : null,
+    bis_string: sperre.bis_string || null,
     ...(sperre.kategorie ? { kategorie: sperre.kategorie } : {}),
     ...(sperre.tage != null ? { tage: sperre.tage } : {}),
     ...(sperre.case_name ? { case_name: sperre.case_name } : {}),
@@ -243,7 +256,14 @@ const serializeFreeWindow = (window) => ({
 
 const tagIstGesperrt = (datum, sperren) => {
     const tag = startOfDay(datum);
-    return sperren.find((sperre) => tag >= sperre.von && tag < sperre.bis) || null;
+    return (
+        sperren.find((sperre) => {
+            if (sperre.indefinite || !sperre.bis) {
+                return tag >= sperre.von;
+            }
+            return tag >= sperre.von && tag < sperre.bis;
+        }) || null
+    );
 };
 
 const berechneAlleSperren = ({
@@ -282,6 +302,8 @@ const berechneAlleSperren = ({
                 },
             ],
             fruehestes: heute,
+            fruehestes_after_clearance: heute,
+            treatment_blocked_by_clearance: false,
         };
     }
 
@@ -307,12 +329,13 @@ const berechneAlleSperren = ({
                 : 'required';
         const msg =
             status === 'pending_review'
-                ? 'Medical clearance pending studio verification of doctor\'s certificate'
+                ? 'Treatment is currently not bookable. The required medical clearance must first be reviewed and accepted by the studio.'
                 : status === 'rejected'
-                  ? 'Medical clearance rejected — please upload a valid doctor\'s certificate'
-                  : 'Medical clearance required — upload a doctor\'s certificate for studio review';
+                  ? 'Medical clearance rejected — please upload a new document for studio review'
+                  : 'Treatment is currently not bookable. Upload the required medical clearance for studio review.';
+        // Condition lock: no artificial end date (was +3650 days → ~2036).
         sperren.push(
-            mkSperre(heute, 'global', `🩺 ${msg}`, addDays(heute, 3650), {
+            mkSperre(heute, 'global', `🩺 ${msg}`, null, {
                 kategorie: 'medical_clearance',
                 tage: null,
                 indefinite: true,
@@ -558,12 +581,16 @@ const berechneAlleSperren = ({
         );
     }
 
-    const activeSperren = sperren.filter((sperre) => sperre.bis > heute);
-    activeSperren.sort((a, b) => a.von - b.von);
+    const conditionSperren = sperren.filter((sperre) => sperre.indefinite || !sperre.bis);
+    const timeSperren = sperren
+        .filter((sperre) => sperre.bis && sperre.bis > heute && !sperre.indefinite)
+        .sort((a, b) => a.von - b.von);
 
+    // Earliest treatment date from UV / med / case locks only — never from
+    // medical clearance (that is a condition gate, not a calendar end date).
     const freiFenster = [];
     let cursor = new Date(heute);
-    for (const sperre of activeSperren) {
+    for (const sperre of timeSperren) {
         if (sperre.von > cursor) {
             freiFenster.push({
                 von: new Date(cursor),
@@ -583,9 +610,20 @@ const berechneAlleSperren = ({
         bis_string: null,
     });
 
-    const fruehestes = freiFenster[0]?.von || heute;
+    const fruehestesFromTimeLocks = freiFenster[0]?.von || heute;
+    const blockedByClearanceLock = conditionSperren.some(
+        (s) => s.kategorie === 'medical_clearance'
+    );
+    const activeSperren = [...conditionSperren, ...timeSperren];
 
-    return { sperren: activeSperren, frei_fenster: freiFenster, fruehestes };
+    return {
+        sperren: activeSperren,
+        frei_fenster: freiFenster,
+        // When clearance blocks treatment, do not expose a fake bookable date.
+        fruehestes: blockedByClearanceLock ? null : fruehestesFromTimeLocks,
+        fruehestes_after_clearance: fruehestesFromTimeLocks,
+        treatment_blocked_by_clearance: blockedByClearanceLock,
+    };
 };
 
 const buildBlockedDates = (from, to, sperren, fruehestes) => {
@@ -596,11 +634,14 @@ const buildBlockedDates = (from, to, sperren, fruehestes) => {
     const blocked = new Set();
     const start = startOfDay(from);
     const end = startOfDay(to);
-    const earliestKey = toDateKey(fruehestes);
+    const clearanceBlocks = sperren.some(
+        (s) => s.kategorie === 'medical_clearance' && (s.indefinite || !s.bis)
+    );
+    const earliestKey = fruehestes ? toDateKey(fruehestes) : null;
 
     for (let cursor = new Date(start); cursor <= end; cursor.setDate(cursor.getDate() + 1)) {
         const key = toDateKey(cursor);
-        if (key < earliestKey || tagIstGesperrt(cursor, sperren)) {
+        if (clearanceBlocks || (earliestKey && key < earliestKey) || tagIstGesperrt(cursor, sperren)) {
             blocked.add(key);
         }
     }
@@ -669,7 +710,13 @@ const computeAvailability = async ({
         .select('medical_clearance')
         .lean();
 
-    const { sperren, frei_fenster, fruehestes: lockoutEarliest } = berechneAlleSperren({
+    const {
+        sperren,
+        frei_fenster,
+        fruehestes: lockoutEarliest,
+        fruehestes_after_clearance: afterClearanceRaw,
+        treatment_blocked_by_clearance: treatmentBlockedByClearance = false,
+    } = berechneAlleSperren({
         activeCaseId,
         cases: context.cases,
         appointmentsByCase: context.appointmentsByCase,
@@ -683,9 +730,20 @@ const computeAvailability = async ({
 
     // A studio may require a lead time; it can only push the earliest date later.
     const leadTimeEarliest = earliestFromLeadTime(termin_einstellungen.min_vorlaufzeit_stunden);
-    const fruehestes = leadTimeEarliest > lockoutEarliest ? leadTimeEarliest : lockoutEarliest;
+    const afterClearanceBase = afterClearanceRaw || lockoutEarliest || new Date();
+    const fruehestesAfterClearance =
+        leadTimeEarliest > afterClearanceBase ? leadTimeEarliest : afterClearanceBase;
+    // When medical clearance blocks treatment, there is no bookable treatment date yet.
+    const fruehestes =
+        !consultationOnly && treatmentBlockedByClearance
+            ? null
+            : lockoutEarliest
+              ? leadTimeEarliest > lockoutEarliest
+                  ? leadTimeEarliest
+                  : lockoutEarliest
+              : fruehestesAfterClearance;
 
-    let blockedDates = buildBlockedDates(from, to, sperren, fruehestes);
+    let blockedDates = buildBlockedDates(from, to, sperren, fruehestes || fruehestesAfterClearance);
     let studio_schedule = null;
     let occupied_times = {};
     if (from && to && activeCase?.studio) {
@@ -750,7 +808,12 @@ const computeAvailability = async ({
         case_id: activeCaseId.toString(),
         consultationOnly,
         preSessionCheck,
-        fruehestes: toDateKey(fruehestes),
+        fruehestes: fruehestes ? toDateKey(fruehestes) : null,
+        /** Earliest treatment day once medical clearance is accepted (other locks still apply). */
+        fruehestes_after_clearance: toDateKey(fruehestesAfterClearance),
+        treatment_blocked_by_clearance: Boolean(
+            !consultationOnly && treatmentBlockedByClearance
+        ),
         /** Last bookable day per the studio's horizon — clients build their range from this. */
         spaetestes: toDateKey(spaetestes),
         sperren: sperren.map(serializeSperre),
@@ -770,7 +833,21 @@ const isBookingDateAllowed = (date, availability, lang = 'de') => {
     const dayKey = toDateKey(date);
     const en = lang === 'en';
 
-    if (dayKey < availability.fruehestes) {
+    if (
+        !availability.consultationOnly &&
+        availability.treatment_blocked_by_clearance
+    ) {
+        return {
+            allowed: false,
+            message: en
+                ? 'Treatment is currently not bookable. The required medical clearance must first be reviewed and accepted by the studio.'
+                : 'Behandlung derzeit nicht buchbar. Die erforderliche medizinische Freigabe muss zuerst vom Studio geprüft und akzeptiert werden.',
+            fruehestes: null,
+            treatment_blocked_by_clearance: true,
+        };
+    }
+
+    if (availability.fruehestes && dayKey < availability.fruehestes) {
         return {
             allowed: false,
             message: en

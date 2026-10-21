@@ -1,6 +1,7 @@
 const Case = require('../models/caseModel');
 const Appointment = require('../models/appointmentModel');
 const NachsorgeCheck = require('../models/nachsorgeCheckModel');
+const Customer = require('../models/customerModel');
 const Studio = require('../models/studioModel');
 const User = require('../models/userModel');
 const OpenActionNotice = require('../models/openActionNoticeModel');
@@ -19,6 +20,7 @@ const {
 const ACTION_TYPES = {
     CONFIRM_PRICE: 'confirm_price',
     REVIEW_MEDICAL: 'review_medical',
+    REVIEW_CLEARANCE: 'review_clearance',
     REVIEW_CASE: 'review_case',
     REVIEW_AFTERCARE: 'review_aftercare',
     HEALING_ISSUE: 'healing_issue',
@@ -35,6 +37,7 @@ const PRIORITY = {
 const TYPE_LABEL_DE = {
     confirm_price: 'Preis bestätigen',
     review_medical: 'Medizinische Angaben prüfen',
+    review_clearance: 'Medizinische Freigabe prüfen',
     review_case: 'Neuen Fall prüfen',
     review_aftercare: 'Nachsorgefoto prüfen',
     healing_issue: 'Heilung braucht Aufmerksamkeit',
@@ -169,6 +172,48 @@ const collectActions = async ({ studioId = null } = {}) => {
             });
         }
 
+    }
+
+    // Certificate / medical clearance pending studio accept/reject
+    const clearanceFilter = {
+        'medical_clearance.status': 'pending_review',
+        ...(studioId ? { aktuelle_firma_id: studioId } : {}),
+    };
+    const pendingClearance = await Customer.find(clearanceFilter)
+        .select('_id vorname nachname aktuelle_firma_id medical_clearance')
+        .limit(studioId ? 200 : 400)
+        .lean();
+
+    for (const cust of pendingClearance) {
+        const cid = String(cust._id);
+        const docs = cust.medical_clearance?.documents || [];
+        const latestDoc = [...docs].reverse().find((d) => d.review_status !== 'accepted') || docs[docs.length - 1];
+        const caseId = latestDoc?.case_id ? String(latestDoc.case_id) : null;
+        let caseRef = '';
+        if (caseId) {
+            const c = cases.find((row) => String(row._id) === caseId);
+            caseRef = c?.caseId || '';
+        }
+        if (!caseRef && caseId) {
+            const c = await Case.findById(caseId).select('caseId').lean();
+            caseRef = c?.caseId || '';
+        }
+        const openedAt = latestDoc?.uploaded_at || cust.medical_clearance?.required_since || new Date();
+        pushAction(actions, {
+            key: `review_clearance:${cid}`,
+            type: ACTION_TYPES.REVIEW_CLEARANCE,
+            priority: PRIORITY.HIGH,
+            studio_id: String(cust.aktuelle_firma_id || studioId || ''),
+            customer_id: cid,
+            customer_name: customerName(cust),
+            case_id: caseId,
+            case_ref: caseRef,
+            opened_at: openedAt,
+            title: caseRef
+                ? `Medical clearance requires review – ${require('./formatCaseRef').formatCaseLabel(caseRef)}`
+                : 'Medical clearance requires review',
+            path: `/studio/customers/${cid}?focus=medical_clearance`,
+        });
     }
 
     const checks = await NachsorgeCheck.find({

@@ -119,41 +119,78 @@ const findPreviousAnamnesis = async (customerId, excludeCaseId) => {
 };
 
 const buildCustomerMedicalTimeline = async (customerId, { includeSignatures = false } = {}) => {
+    const Customer = require('../models/customerModel');
     const cases = await Case.find({ customer: customerId })
         .select('_id caseId bodyLabel tc_title')
         .lean();
-    if (!cases.length) return [];
-
     const byId = new Map(cases.map((c) => [String(c._id), c]));
-    const docs = await Anamnesis.find({ case: { $in: cases.map((c) => c._id) } })
-        .select('case antworten medical_history audit_log createdAt')
-        .lean();
-
     const events = [];
-    for (const doc of docs) {
-        const source = byId.get(String(doc.case));
-        const label = caseLabelOf(source);
-        const history = Array.isArray(doc.medical_history) ? doc.medical_history : [];
-        if (history.length) {
-            for (const entry of history) {
+
+    if (cases.length) {
+        const docs = await Anamnesis.find({ case: { $in: cases.map((c) => c._id) } })
+            .select('case antworten medical_history audit_log createdAt')
+            .lean();
+
+        for (const doc of docs) {
+            const source = byId.get(String(doc.case));
+            const label = caseLabelOf(source);
+            const history = Array.isArray(doc.medical_history) ? doc.medical_history : [];
+            if (history.length) {
+                for (const entry of history) {
+                    events.push({
+                        ...formatHistoryEntry(entry, includeSignatures),
+                        case_id: String(doc.case),
+                        case_label: label,
+                        case_code: source?.caseId || '',
+                    });
+                }
+            } else if (doc.antworten?.zeitstempel) {
                 events.push({
-                    ...formatHistoryEntry(entry, includeSignatures),
+                    typ: 'submitted',
+                    zeitstempel: doc.antworten.zeitstempel,
+                    details: 'Anamnese eingereicht',
                     case_id: String(doc.case),
                     case_label: label,
                     case_code: source?.caseId || '',
+                    hat_unterschrift: false,
                 });
             }
-        } else if (doc.antworten?.zeitstempel) {
+        }
+    }
+
+    // Medical clearance certificates (central storage, linked to customer + case)
+    try {
+        const customer = await Customer.findById(customerId)
+            .select('medical_clearance')
+            .lean();
+        for (const doc of customer?.medical_clearance?.documents || []) {
+            const caseId = doc.case_id ? String(doc.case_id) : null;
+            const source = caseId ? byId.get(caseId) : null;
+            const status = doc.review_status || 'pending';
+            const statusLabel =
+                status === 'accepted'
+                    ? 'Medical clearance accepted by the studio'
+                    : status === 'rejected'
+                      ? 'Medical clearance rejected — please upload a new document'
+                      : 'Medical certificate uploaded – waiting for studio review';
             events.push({
-                typ: 'submitted',
-                zeitstempel: doc.antworten.zeitstempel,
-                details: 'Anamnese eingereicht',
-                case_id: String(doc.case),
-                case_label: label,
+                typ: 'medical_clearance',
+                zeitstempel: doc.uploaded_at || doc.reviewed_at || null,
+                details: statusLabel,
+                case_id: caseId,
+                case_label: source ? caseLabelOf(source) : '',
                 case_code: source?.caseId || '',
                 hat_unterschrift: false,
+                file_id: doc.file_id ? String(doc.file_id) : null,
+                document_type: doc.document_type || 'medical_clearance',
+                review_status: status,
+                medication_category: doc.medication_category || '',
+                reviewed_at: doc.reviewed_at || null,
+                review_comment: doc.review_comment || '',
             });
         }
+    } catch (err) {
+        console.error('Clearance timeline attach failed:', err.message);
     }
 
     events.sort((a, b) => new Date(b.zeitstempel || 0) - new Date(a.zeitstempel || 0));

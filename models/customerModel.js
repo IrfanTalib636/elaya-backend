@@ -212,6 +212,34 @@ const customerSchema = new mongoose.Schema(
                         },
                         original_name: { type: String, default: '' },
                         mime_type: { type: String, default: '' },
+                        /** Central doc linked to customer + case (not stored twice). */
+                        document_type: {
+                            type: String,
+                            default: 'medical_clearance',
+                        },
+                        case_id: {
+                            type: mongoose.Schema.Types.ObjectId,
+                            ref: 'Case',
+                            default: null,
+                        },
+                        studio_id: {
+                            type: mongoose.Schema.Types.ObjectId,
+                            ref: 'Studio',
+                            default: null,
+                        },
+                        medication_category: { type: String, default: '' },
+                        review_status: {
+                            type: String,
+                            enum: ['pending', 'accepted', 'rejected'],
+                            default: 'pending',
+                        },
+                        reviewed_by: {
+                            type: mongoose.Schema.Types.ObjectId,
+                            ref: 'User',
+                            default: null,
+                        },
+                        reviewed_at: { type: Date, default: null },
+                        review_comment: { type: String, default: '' },
                     },
                 ],
                 default: [],

@@ -973,7 +973,8 @@ const contactStudio = asyncHandler(async (req, res) => {
         studioId
     );
 
-    const caseDisplay = caseDoc.caseId || String(caseId).slice(-6);
+    const { formatCaseRef, formatCaseLabel } = require('../utils/formatCaseRef');
+    const caseDisplay = formatCaseRef(caseDoc.caseId || String(caseId).slice(-6));
     const checkAt = check.createdAt
         ? new Date(check.createdAt).toLocaleString('de-CH', {
               day: '2-digit',
@@ -989,7 +990,7 @@ const contactStudio = asyncHandler(async (req, res) => {
     const deepLink = `/studio/aftercare?check=${check._id}`;
 
     const text = [
-        `Aftercare Alert – Case ${String(caseDisplay).startsWith('#') ? caseDisplay : `#${caseDisplay}`}`,
+        `Aftercare Alert – ${formatCaseLabel(caseDisplay)}`,
         '',
         `Standort: ${standortName}`,
         `Check: ${checkAt}`,

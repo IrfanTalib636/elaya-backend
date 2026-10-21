@@ -117,6 +117,7 @@ const uploadClearanceDocument = asyncHandler(async (req, res) => {
         customerId: customer._id,
         fileAsset,
         userId: req.user._id,
+        caseId: req.body.case_id || req.query.case_id || null,
     });
 
     res.status(201).json({
