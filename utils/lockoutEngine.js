@@ -634,14 +634,18 @@ const buildBlockedDates = (from, to, sperren, fruehestes) => {
     const blocked = new Set();
     const start = startOfDay(from);
     const end = startOfDay(to);
-    const clearanceBlocks = sperren.some(
-        (s) => s.kategorie === 'medical_clearance' && (s.indefinite || !s.bis)
+    // Medical clearance / other indefinite condition locks are NOT calendar-day
+    // blocks — they gate treatment booking via `treatment_blocked_by_clearance`.
+    // Consultations stay bookable on normal available days; only dated (UV,
+    // cross-case, medication, …) sperren belong in blocked_dates.
+    const dateSperren = (sperren || []).filter(
+        (s) => s.kategorie !== 'medical_clearance' && s.bis && !s.indefinite
     );
     const earliestKey = fruehestes ? toDateKey(fruehestes) : null;
 
     for (let cursor = new Date(start); cursor <= end; cursor.setDate(cursor.getDate() + 1)) {
         const key = toDateKey(cursor);
-        if (clearanceBlocks || (earliestKey && key < earliestKey) || tagIstGesperrt(cursor, sperren)) {
+        if ((earliestKey && key < earliestKey) || tagIstGesperrt(cursor, dateSperren)) {
             blocked.add(key);
         }
     }
