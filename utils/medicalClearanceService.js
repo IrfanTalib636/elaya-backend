@@ -1,10 +1,3 @@
-/**
- * Customer-level medical clearance (doctor's certificate) workflow.
- *
- * Upload alone never unlocks treatment booking — only studio verification does.
- * Consultation-only appointments stay bookable without clearance.
- */
-
 const Customer = require('../models/customerModel');
 const User = require('../models/userModel');
 const Case = require('../models/caseModel');
@@ -17,7 +10,6 @@ const { createForUsers } = require('../services/notificationService');
 const { sendToUsers } = require('../services/pushService');
 const { FILE_PURPOSE, FILE_STATUS } = require('../config/storageConfig');
 
-/** Pre-session med key → platform condition_locks key */
 const MED_TO_CONDITION_KEY = {
     antidepressiva: 'antidepressants',
     antidepressants: 'antidepressants',
@@ -246,9 +238,38 @@ const notifyCustomerClearance = async ({ userId, title, body, studioId, type = '
     }
 };
 
-/**
- * Mark clearance required from pre-session meds. Does not verify / unlock.
- */
+const clearSoftClearanceRequiredFromPreSession = async (customerId) => {
+    const customer = await Customer.findById(customerId);
+    if (!customer) return null;
+    if (!customer.medical_clearance) {
+        customer.medical_clearance = emptyClearance();
+    }
+    const mc = customer.medical_clearance;
+    if (mc.status !== CLEARANCE_STATUSES.REQUIRED) {
+        return serializeClearance(mc);
+    }
+    mc.status = CLEARANCE_STATUSES.NOT_REQUIRED;
+    mc.reasons = [];
+    mc.required_since = null;
+    customer.markModified('medical_clearance');
+    await customer.save();
+    return serializeClearance(mc);
+};
+
+const reconcileClearanceFromPreSessionMeds = async (
+    customerId,
+    meds,
+    sperrfristen,
+    meta = {}
+) => {
+    const needed = clearanceRequiredMedKeys(meds, sperrfristen);
+    if (needed.length) {
+        return markClearanceRequiredFromMeds(customerId, meds, sperrfristen, meta);
+    }
+    return clearSoftClearanceRequiredFromPreSession(customerId);
+};
+
+
 const markClearanceRequiredFromMeds = async (customerId, meds, sperrfristen, meta = {}) => {
     const needed = clearanceRequiredMedKeys(meds, sperrfristen);
     if (!needed.length) return null;
@@ -261,7 +282,6 @@ const markClearanceRequiredFromMeds = async (customerId, meds, sperrfristen, met
     }
     const mc = customer.medical_clearance;
 
-    // Already verified for same reasons — keep verified
     if (mc.status === CLEARANCE_STATUSES.VERIFIED) {
         const existingKeys = new Set((mc.reasons || []).map((r) => r.condition_key));
         const allCovered = needed.every((n) => existingKeys.has(n.condition_key));
@@ -297,7 +317,6 @@ const markClearanceRequiredFromMeds = async (customerId, meds, sperrfristen, met
     customer.markModified('medical_clearance');
     await customer.save();
 
-    const name = `${customer.vorname || ''} ${customer.nachname || ''}`.trim() || 'Customer';
     if (mc.status === CLEARANCE_STATUSES.REQUIRED) {
         await notifyCustomerClearance({
             userId: customer.user,
@@ -715,6 +734,8 @@ module.exports = {
     medUsesClearanceNotDateLock,
     resolveConditionLocks,
     markClearanceRequiredFromMeds,
+    clearSoftClearanceRequiredFromPreSession,
+    reconcileClearanceFromPreSessionMeds,
     attachUploadedDocument,
     reviewClearance,
     notifyStudioClearance,

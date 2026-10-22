@@ -248,18 +248,17 @@ const applyBookingPrecheckToCase = async (caseDoc, bookingPrecheck, options = {}
         }
     }
 
-    // Condition locks: antidepressants etc. → customer-level medical clearance required
     try {
-        const { markClearanceRequiredFromMeds } = require('./medicalClearanceService');
+        const { reconcileClearanceFromPreSessionMeds } = require('./medicalClearanceService');
         const meds = validation.pre_session_check?.medikamente || preSession.medikamente || [];
-        await markClearanceRequiredFromMeds(
+        await reconcileClearanceFromPreSessionMeds(
             caseDoc.customer,
             meds,
             await getEffectiveSperrfristen(caseDoc.studio),
             { source: 'pre_session' }
         );
     } catch (err) {
-        console.error('Medical clearance mark failed:', err.message);
+        console.error('Medical clearance reconcile failed:', err.message);
     }
 
     const activityEntries = buildActivityEntries(ampel.rote_fragen, wiederholungen, koAnswers);

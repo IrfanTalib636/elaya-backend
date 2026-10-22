@@ -59,14 +59,11 @@ const previewBookingPrecheck = asyncHandler(async (req, res) => {
         sperrfristen,
     });
 
-    // Persist medical-clearance requirement as soon as antidepressants (etc.)
-    // are confirmed in precheck — so calendar availability blocks immediately
-    // instead of only failing at final Confirm booking.
     let medicalClearance = null;
     if (!consultationOnly && caseDoc.customer) {
-        const { markClearanceRequiredFromMeds } = require('../utils/medicalClearanceService');
+        const { reconcileClearanceFromPreSessionMeds } = require('../utils/medicalClearanceService');
         const Customer = require('../models/customerModel');
-        medicalClearance = await markClearanceRequiredFromMeds(
+        medicalClearance = await reconcileClearanceFromPreSessionMeds(
             caseDoc.customer,
             result.pre_session_check?.medikamente || [],
             sperrfristen,
@@ -80,8 +77,7 @@ const previewBookingPrecheck = asyncHandler(async (req, res) => {
         }
     }
 
-    // Always computed for a real treatment: cross-case and same-case lockouts
-    // apply regardless of whether the customer reported UV exposure.
+
     let availabilityHint = null;
     if (!consultationOnly) {
         availabilityHint = await computeAvailability({

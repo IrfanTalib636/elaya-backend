@@ -4,11 +4,6 @@ const Session = require('../models/sessionModel');
 const { APPOINTMENT_STATUS, APPOINTMENT_TYPE } = require('../config/constants');
 const { PLATFORM_CONFIG_DEFAULTS } = require('../config/platformDefaults');
 
-/**
- * Blocking periods are studio configuration, never constants. These platform
- * defaults only apply when a caller has no studio context (e.g. a case that is
- * not yet attached to a studio).
- */
 const resolveSperrfristen = (sperrfristen) => ({
     ...PLATFORM_CONFIG_DEFAULTS.sperrfristen,
     ...(sperrfristen || {}),
@@ -156,6 +151,9 @@ const normalizePreSessionCheck = (check = {}) => {
         };
         normalized.uv_exposition = uvMap[check.uv_level] || normalized.uv_exposition;
     }
+    const medsProvided = Object.prototype.hasOwnProperty.call(check, 'medikamente')
+        ? check.medikamente !== undefined && check.medikamente !== null
+        : false;
 
     if (Array.isArray(normalized.medikamente)) {
         normalized.medikamente = normalized.medikamente.filter(
@@ -166,9 +164,11 @@ const normalizePreSessionCheck = (check = {}) => {
             .split(',')
             .map((m) => m.trim())
             .filter((item) => item && item !== 'keine');
-    } else if (!normalized.medikamente) {
+    } else {
         normalized.medikamente = [];
     }
+
+    normalized.meds_provided = medsProvided;
 
     // Empty meds → no intake date. Also drop invalid/epoch dates from null coercion.
     if (!normalized.medikamente.length) {
@@ -309,20 +309,23 @@ const berechneAlleSperren = ({
 
     const sperren = [];
 
-    // Customer-level medical clearance: blocks treatment until studio verifies document.
-    // Upload alone must not unlock — only status === verified clears this.
-    // Also honour meds in the current pre-session answers (before DB is updated).
     const {
         treatmentBlockedByClearance,
         clearanceRequiredMedKeys,
+        CLEARANCE_STATUSES,
     } = require('./medicalClearanceService');
     const preSessionNeedsClearance =
         clearanceRequiredMedKeys(preSessionCheck?.medikamente || [], sperrfristen).length > 0 &&
         medicalClearance?.status !== 'verified';
-    if (
-        treatmentBlockedByClearance(medicalClearance) ||
-        preSessionNeedsClearance
-    ) {
+    const answeredNoClearanceMeds =
+        Boolean(preSessionCheck?.meds_provided) && !preSessionNeedsClearance;
+    const softRequiredOnly =
+        medicalClearance?.status === CLEARANCE_STATUSES.REQUIRED ||
+        medicalClearance?.status === 'required';
+    const storedBlocksTreatment =
+        treatmentBlockedByClearance(medicalClearance) &&
+        !(answeredNoClearanceMeds && softRequiredOnly);
+    if (storedBlocksTreatment || preSessionNeedsClearance) {
         const status =
             medicalClearance?.status && medicalClearance.status !== 'not_required'
                 ? medicalClearance.status
@@ -333,7 +336,6 @@ const berechneAlleSperren = ({
                 : status === 'rejected'
                   ? 'Medical clearance rejected — please upload a new document for studio review'
                   : 'Treatment is currently not bookable. Upload the required medical clearance for studio review.';
-        // Condition lock: no artificial end date (was +3650 days → ~2036).
         sperren.push(
             mkSperre(heute, 'global', `🩺 ${msg}`, null, {
                 kategorie: 'medical_clearance',

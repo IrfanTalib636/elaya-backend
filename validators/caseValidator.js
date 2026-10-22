@@ -235,7 +235,6 @@ const availabilityQuerySchema = z.object({
         .transform((value) => value === true || value === 'true'),
     from: z.coerce.date().optional(),
     to: z.coerce.date().optional(),
-    /** Scope hours, slot interval and occupancy to one studio location. */
     standort_id: z.string().trim().optional(),
     uv_level: z.enum(['none', 'moderate', 'intense']).optional(),
     uv_exposition: z.enum(['keine', 'leicht', 'mittel', 'intensiv']).optional(),
@@ -243,8 +242,8 @@ const availabilityQuerySchema = z.object({
         .union([z.string(), z.array(z.string())])
         .optional()
         .transform((value) => {
-            if (!value) return [];
-            const list = Array.isArray(value) ? value : value.split(',');
+            if (value === undefined || value === null) return undefined;
+            const list = Array.isArray(value) ? value : String(value).split(',');
             return list.map((item) => item.trim()).filter(Boolean);
         }),
     medikament_datum: optionalNullableDate,
