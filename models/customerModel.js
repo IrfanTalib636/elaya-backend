@@ -168,7 +168,6 @@ const customerSchema = new mongoose.Schema(
                 default: null,
             },
         },
-        /** Fired automation rule log (prototype automatisierungen_log + cooldown). */
         automatisierungen_log: {
             type: [
                 {
@@ -244,6 +243,28 @@ const customerSchema = new mongoose.Schema(
                 ],
                 default: [],
             },
+            overrides: {
+                type: [
+                    {
+                        condition_key: { type: String, default: '' },
+                        med_key: { type: String, default: '' },
+                        accepted_at: { type: Date, default: null },
+                        accepted_by: {
+                            type: mongoose.Schema.Types.ObjectId,
+                            ref: 'User',
+                            default: null,
+                        },
+                        note: { type: String, default: '' },
+                        revoked_at: { type: Date, default: null },
+                        case_id: {
+                            type: mongoose.Schema.Types.ObjectId,
+                            ref: 'Case',
+                            default: null,
+                        },
+                    },
+                ],
+                default: [],
+            },
             required_since: { type: Date, default: null },
             verified_at: { type: Date, default: null },
             verified_by: {
@@ -259,7 +280,6 @@ const customerSchema = new mongoose.Schema(
                 default: null,
             },
             rejected_reason: { type: String, default: '' },
-            /** Pre-treatment antibiotic / recovery check replies (last response). */
             antibiotic_checks: {
                 type: [
                     {

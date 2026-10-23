@@ -13,10 +13,20 @@ const { FILE_PURPOSE, FILE_STATUS } = require('../config/storageConfig');
 const MED_TO_CONDITION_KEY = {
     antidepressiva: 'antidepressants',
     antidepressants: 'antidepressants',
+    antibiotika: 'antibiotics',
+    antibiotics: 'antibiotics',
+    retinoide: 'skin_acne_medication',
+    retinoids: 'skin_acne_medication',
     skin_acne_medication: 'skin_acne_medication',
     acne_medication: 'skin_acne_medication',
     other_unknown_medication: 'other_unknown_medication',
     illness_not_recovered: 'illness_not_recovered',
+};
+
+const CONDITION_LOCK_MODES = {
+    MEDICAL_CLEARANCE_REQUIRED: 'MEDICAL_CLEARANCE_REQUIRED',
+    MEDICAL_REVIEW_REQUIRED: 'MEDICAL_REVIEW_REQUIRED',
+    DATE_LOCK_CLEARANCE_OVERRIDE: 'DATE_LOCK_CLEARANCE_OVERRIDE',
 };
 
 const CLEARANCE_STATUSES = {
@@ -37,6 +47,7 @@ const emptyClearance = () => ({
     status: CLEARANCE_STATUSES.NOT_REQUIRED,
     reasons: [],
     documents: [],
+    overrides: [],
     required_since: null,
     verified_at: null,
     verified_by: null,
@@ -47,32 +58,60 @@ const emptyClearance = () => ({
 });
 
 const resolveConditionLocks = (sperrfristen) => {
-    const locks =
-        sperrfristen?.condition_locks ||
+    const defaults =
         require('../config/platformDefaults').PLATFORM_CONFIG_DEFAULTS.sperrfristen
-            .condition_locks;
-    return locks && typeof locks === 'object' ? locks : {};
+            .condition_locks || {};
+    const locks = sperrfristen?.condition_locks;
+    if (!locks || typeof locks !== 'object') return { ...defaults };
+    return { ...defaults, ...locks };
 };
 
-/** Med keys that need MEDICAL_CLEARANCE_REQUIRED under current platform rules. */
-const clearanceRequiredMedKeys = (meds = [], sperrfristen = null) => {
+const conditionLockMode = (condKey, sperrfristen = null) => {
     const locks = resolveConditionLocks(sperrfristen);
+    return locks[condKey] || null;
+};
+
+const clearanceRequiredMedKeys = (meds = [], sperrfristen = null) => {
     const out = [];
     for (const med of meds || []) {
         if (!med || med === 'keine') continue;
         const condKey = MED_TO_CONDITION_KEY[med] || med;
-        if (locks[condKey] === 'MEDICAL_CLEARANCE_REQUIRED') {
-            out.push({ med_key: med, condition_key: condKey });
+        const mode = conditionLockMode(condKey, sperrfristen);
+        if (
+            mode === CONDITION_LOCK_MODES.MEDICAL_CLEARANCE_REQUIRED ||
+            mode === CONDITION_LOCK_MODES.DATE_LOCK_CLEARANCE_OVERRIDE
+        ) {
+            out.push({ med_key: med, condition_key: condKey, mode });
         }
     }
     return out;
 };
 
-/** True when antidepressiva (etc.) should use clearance instead of a day-count lock. */
 const medUsesClearanceNotDateLock = (medKey, sperrfristen = null) => {
-    const locks = resolveConditionLocks(sperrfristen);
     const condKey = MED_TO_CONDITION_KEY[medKey] || medKey;
-    return locks[condKey] === 'MEDICAL_CLEARANCE_REQUIRED';
+    return conditionLockMode(condKey, sperrfristen) === CONDITION_LOCK_MODES.MEDICAL_CLEARANCE_REQUIRED;
+};
+
+const medAllowsClearanceOverride = (medKey, sperrfristen = null) => {
+    const condKey = MED_TO_CONDITION_KEY[medKey] || medKey;
+    return (
+        conditionLockMode(condKey, sperrfristen) ===
+        CONDITION_LOCK_MODES.DATE_LOCK_CLEARANCE_OVERRIDE
+    );
+};
+
+const hasActiveClearanceOverride = (medicalClearance, medKey) => {
+    if (!medicalClearance || medicalClearance.status !== CLEARANCE_STATUSES.VERIFIED) {
+        return false;
+    }
+    const condKey = MED_TO_CONDITION_KEY[medKey] || medKey;
+    const overrides = medicalClearance.overrides || [];
+    return overrides.some(
+        (o) =>
+            o &&
+            !o.revoked_at &&
+            (o.med_key === medKey || o.condition_key === condKey)
+    );
 };
 
 const serializeClearance = (raw, { includeDocs = true } = {}) => {
@@ -104,6 +143,16 @@ const serializeClearance = (raw, { includeDocs = true } = {}) => {
         rejected_by: c.rejected_by ? String(c.rejected_by) : null,
         rejected_reason: c.rejected_reason || '',
         blocks_treatment: BLOCKING_STATUSES.has(c.status || CLEARANCE_STATUSES.NOT_REQUIRED),
+        overrides: Array.isArray(c.overrides)
+            ? c.overrides.map((o) => ({
+                  condition_key: o.condition_key || '',
+                  med_key: o.med_key || '',
+                  accepted_at: o.accepted_at || null,
+                  accepted_by: o.accepted_by ? String(o.accepted_by) : null,
+                  note: o.note || '',
+                  revoked_at: o.revoked_at || null,
+              }))
+            : [],
         ...(includeDocs ? { documents: docs } : {}),
     };
 };
@@ -245,12 +294,25 @@ const clearSoftClearanceRequiredFromPreSession = async (customerId) => {
         customer.medical_clearance = emptyClearance();
     }
     const mc = customer.medical_clearance;
-    if (mc.status !== CLEARANCE_STATUSES.REQUIRED) {
+    const clearable = new Set([
+        CLEARANCE_STATUSES.REQUIRED,
+        CLEARANCE_STATUSES.PENDING_REVIEW,
+        CLEARANCE_STATUSES.REJECTED,
+    ]);
+    if (!clearable.has(mc.status)) {
+        if (mc.status === CLEARANCE_STATUSES.VERIFIED && (mc.reasons || []).length) {
+            mc.reasons = [];
+            customer.markModified('medical_clearance');
+            await customer.save();
+        }
         return serializeClearance(mc);
     }
     mc.status = CLEARANCE_STATUSES.NOT_REQUIRED;
     mc.reasons = [];
     mc.required_since = null;
+    mc.rejected_at = null;
+    mc.rejected_by = null;
+    mc.rejected_reason = '';
     customer.markModified('medical_clearance');
     await customer.save();
     return serializeClearance(mc);
@@ -362,8 +424,6 @@ const attachUploadedDocument = async ({
         mc.status === CLEARANCE_STATUSES.NOT_REQUIRED &&
         !(mc.reasons || []).length
     ) {
-        // Allow upload when studio/admin already expects clearance, or customer
-        // proactively uploads — mark required then pending.
         mc.status = CLEARANCE_STATUSES.REQUIRED;
         mc.required_since = mc.required_since || new Date();
     }
@@ -390,12 +450,10 @@ const attachUploadedDocument = async ({
         review_comment: '',
     });
 
-    // Upload alone must NOT unlock — move to pending_review only.
     mc.status = CLEARANCE_STATUSES.PENDING_REVIEW;
     mc.rejected_at = null;
     mc.rejected_by = null;
     mc.rejected_reason = '';
-    // Clear verified so a re-upload after revoke waits for review again
     mc.verified_at = null;
     mc.verified_by = null;
     mc.verified_note = '';
@@ -403,7 +461,6 @@ const attachUploadedDocument = async ({
     customer.markModified('medical_clearance');
     await customer.save();
 
-    // Case timeline stub (same central file — linked, not duplicated)
     if (caseDoc?._id) {
         try {
             const liveCase = await Case.findById(caseDoc._id);
@@ -411,7 +468,7 @@ const attachUploadedDocument = async ({
                 liveCase.chat_nachrichten = liveCase.chat_nachrichten || [];
                 liveCase.chat_nachrichten.push({
                     typ: 'system',
-                    text: 'Medical certificate uploaded — waiting for studio review.',
+                    text: 'Medical certificate uploaded. Waiting for studio review.',
                     zeitstempel: new Date(),
                     meta: {
                         kind: 'medical_clearance_upload',
@@ -434,16 +491,16 @@ const attachUploadedDocument = async ({
         studioId: customer.aktuelle_firma_id,
         customerId: customer._id,
         customerName: name,
-        title: `Medical clearance requires review – ${caseLabel}`,
+        title: `Review medical clearance: ${name} / ${caseLabel}`,
         body:
             `${name} uploaded a medical clearance document for ${caseLabel}. ` +
-            'Please confirm that the required clearance has been provided and reviewed — this is not a medical diagnosis.',
+            'Please open the document and choose Accept clearance or Reject clearance. ' +
+            'This confirms the certificate was provided and reviewed. This is not a medical diagnosis.',
     });
 
     try {
         require('./openActionService').publishOpenActionsChanged(customer.aktuelle_firma_id);
     } catch (_) {
-        /* optional */
     }
 
     return serializeClearance(mc);
@@ -474,7 +531,6 @@ const reviewClearance = async ({
             throw new ApiError(400, 'Cannot verify without an uploaded document');
         }
         if (mc.status !== CLEARANCE_STATUSES.PENDING_REVIEW && mc.status !== CLEARANCE_STATUSES.REJECTED) {
-            // Allow verify from pending or after re-upload path
             if (mc.status !== CLEARANCE_STATUSES.REQUIRED || !(mc.documents || []).length) {
                 throw new ApiError(400, 'No document pending review');
             }
@@ -493,6 +549,34 @@ const reviewClearance = async ({
                 doc.reviewed_at = now;
                 doc.review_comment = comment;
             }
+        }
+        let sperrfristen = null;
+        try {
+            const { getEffectiveSperrfristen } = require('./configService');
+            sperrfristen = await getEffectiveSperrfristen(studioId);
+        } catch (_) {
+        }
+        mc.overrides = Array.isArray(mc.overrides) ? mc.overrides : [];
+        for (const reason of mc.reasons || []) {
+            const medKey = reason.med_key || reason.condition_key;
+            if (!medKey || !medAllowsClearanceOverride(medKey, sperrfristen)) continue;
+            const condKey = reason.condition_key || MED_TO_CONDITION_KEY[medKey] || medKey;
+            const already = mc.overrides.some(
+                (o) =>
+                    o &&
+                    !o.revoked_at &&
+                    (o.med_key === medKey || o.condition_key === condKey)
+            );
+            if (already) continue;
+            mc.overrides.push({
+                condition_key: condKey,
+                med_key: reason.med_key || medKey,
+                accepted_at: now,
+                accepted_by: reviewerUserId,
+                note: comment,
+                revoked_at: null,
+                case_id: [...(mc.documents || [])].reverse().find((d) => d.case_id)?.case_id || null,
+            });
         }
     } else if (decision === 'reject') {
         mc.status = CLEARANCE_STATUSES.REJECTED;
@@ -569,7 +653,6 @@ const reviewClearance = async ({
             },
         });
 
-        // Internal ELAYA chat system message + Book appointment CTA
         try {
             if (customer.aktuelle_firma_id && customer._id) {
                 const messagingService = require('../services/messagingService');
@@ -620,7 +703,7 @@ const reviewClearance = async ({
             title: 'Medical clearance rejected',
             body:
                 mc.rejected_reason ||
-                'Medical clearance rejected — please upload a new document.',
+                'Medical clearance rejected. Please upload a new document.',
         });
         if (linkedCaseId) {
             try {
@@ -629,7 +712,7 @@ const reviewClearance = async ({
                     liveCase.chat_nachrichten = liveCase.chat_nachrichten || [];
                     liveCase.chat_nachrichten.push({
                         typ: 'system',
-                        text: 'Medical clearance rejected — please upload a new document.',
+                        text: 'Medical clearance rejected. Please upload a new document.',
                         zeitstempel: now,
                     });
                     liveCase.markModified('chat_nachrichten');
@@ -644,10 +727,6 @@ const reviewClearance = async ({
     return serializeClearance(mc);
 };
 
-/**
- * ~24h before treatment: ask customer about antibiotics / recovery via inbox,
- * and prepare antibiotic_checks entry. Studio is notified only after a positive answer.
- */
 async function runAntibioticPreTreatmentChecks({ limit = 100 } = {}) {
     const Appointment = require('../models/appointmentModel');
     const { APPOINTMENT_STATUS, APPOINTMENT_TYPE } = require('../config/constants');
@@ -700,7 +779,6 @@ async function runAntibioticPreTreatmentChecks({ limit = 100 } = {}) {
                 'Your treatment is about tomorrow. Are you still taking antibiotics, or not fully recovered from an illness? Please answer in the app so your studio can prepare.',
         });
 
-        // Case chat stub
         if (apt.case) {
             try {
                 const caseDoc = await Case.findById(apt.case);
@@ -726,12 +804,15 @@ async function runAntibioticPreTreatmentChecks({ limit = 100 } = {}) {
 
 module.exports = {
     CLEARANCE_STATUSES,
+    CONDITION_LOCK_MODES,
     MED_TO_CONDITION_KEY,
     emptyClearance,
     serializeClearance,
     treatmentBlockedByClearance,
     clearanceRequiredMedKeys,
     medUsesClearanceNotDateLock,
+    medAllowsClearanceOverride,
+    hasActiveClearanceOverride,
     resolveConditionLocks,
     markClearanceRequiredFromMeds,
     clearSoftClearanceRequiredFromPreSession,

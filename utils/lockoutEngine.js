@@ -229,11 +229,7 @@ const mkSperre = (heute, typ, grund, bisDate, extra = {}) => {
     };
 };
 
-/**
- * `grund` is a ready-made German sentence. `kategorie` and `tage` are the
- * machine-readable equivalents so clients can render the reason in the
- * customer's own language.
- */
+
 const serializeSperre = (sperre) => ({
     typ: sperre.typ,
     grund: sperre.grund,
@@ -244,6 +240,10 @@ const serializeSperre = (sperre) => ({
     ...(sperre.tage != null ? { tage: sperre.tage } : {}),
     ...(sperre.case_name ? { case_name: sperre.case_name } : {}),
     ...(sperre.clearance_status ? { clearance_status: sperre.clearance_status } : {}),
+    ...(Array.isArray(sperre.clearance_reasons) && sperre.clearance_reasons.length
+        ? { clearance_reasons: sperre.clearance_reasons }
+        : {}),
+    ...(sperre.med_key ? { med_key: sperre.med_key } : {}),
     ...(sperre.indefinite ? { indefinite: true } : {}),
 });
 
@@ -312,36 +312,43 @@ const berechneAlleSperren = ({
     const {
         treatmentBlockedByClearance,
         clearanceRequiredMedKeys,
-        CLEARANCE_STATUSES,
     } = require('./medicalClearanceService');
+    const neededClearance = clearanceRequiredMedKeys(
+        preSessionCheck?.medikamente || [],
+        sperrfristen
+    );
     const preSessionNeedsClearance =
-        clearanceRequiredMedKeys(preSessionCheck?.medikamente || [], sperrfristen).length > 0 &&
-        medicalClearance?.status !== 'verified';
+        neededClearance.length > 0 && medicalClearance?.status !== 'verified';
     const answeredNoClearanceMeds =
-        Boolean(preSessionCheck?.meds_provided) && !preSessionNeedsClearance;
-    const softRequiredOnly =
-        medicalClearance?.status === CLEARANCE_STATUSES.REQUIRED ||
-        medicalClearance?.status === 'required';
+        Boolean(preSessionCheck?.meds_provided) && neededClearance.length === 0;
     const storedBlocksTreatment =
-        treatmentBlockedByClearance(medicalClearance) &&
-        !(answeredNoClearanceMeds && softRequiredOnly);
+        !answeredNoClearanceMeds && treatmentBlockedByClearance(medicalClearance);
     if (storedBlocksTreatment || preSessionNeedsClearance) {
         const status =
             medicalClearance?.status && medicalClearance.status !== 'not_required'
                 ? medicalClearance.status
                 : 'required';
+        const reasonKeys = [
+            ...new Set(
+                (neededClearance.length
+                    ? neededClearance
+                    : medicalClearance?.reasons || []
+                ).map((r) => r.condition_key || r.med_key).filter(Boolean)
+            ),
+        ];
         const msg =
             status === 'pending_review'
-                ? 'Treatment is currently not bookable. The required medical clearance must first be reviewed and accepted by the studio.'
+                ? 'Medical clearance uploaded. Waiting for review by your studio. Consultations remain bookable.'
                 : status === 'rejected'
-                  ? 'Medical clearance rejected — please upload a new document for studio review'
-                  : 'Treatment is currently not bookable. Upload the required medical clearance for studio review.';
+                  ? 'Medical clearance rejected. Please upload a new document for studio review. Consultations remain bookable.'
+                  : 'Treatment is currently only possible with medical clearance. Please upload a medical confirmation. Consultations remain bookable.';
         sperren.push(
             mkSperre(heute, 'global', `🩺 ${msg}`, null, {
                 kategorie: 'medical_clearance',
                 tage: null,
                 indefinite: true,
                 clearance_status: status,
+                clearance_reasons: reasonKeys,
             })
         );
     }
@@ -506,7 +513,11 @@ const berechneAlleSperren = ({
 
     const medKategorie = (tage) => ({ kategorie: 'medikament', tage });
 
-    if (meds.includes('retinoide')) {
+    const {
+        medUsesClearanceNotDateLock,
+        hasActiveClearanceOverride,
+    } = require('./medicalClearanceService');
+    if (meds.includes('retinoide') && !hasActiveClearanceOverride(medicalClearance, 'retinoide')) {
         const until = addDays(intakeDate, MED_RETINOID_DAYS);
         if (until > heute) {
             sperren.push(
@@ -515,12 +526,12 @@ const berechneAlleSperren = ({
                     'global',
                     `💊 ${MED_RETINOID_DAYS} Tage nach Retinoiden`,
                     until,
-                    medKategorie(MED_RETINOID_DAYS)
+                    { ...medKategorie(MED_RETINOID_DAYS), med_key: 'retinoide' }
                 )
             );
         }
     }
-    if (meds.includes('antibiotika')) {
+    if (meds.includes('antibiotika') && !hasActiveClearanceOverride(medicalClearance, 'antibiotika')) {
         const until = addDays(intakeDate, MED_SHORT_DAYS);
         if (until > heute) {
             sperren.push(
@@ -529,15 +540,16 @@ const berechneAlleSperren = ({
                     'global',
                     `💊 ${MED_SHORT_DAYS} Tage nach Antibiotika`,
                     until,
-                    medKategorie(MED_SHORT_DAYS)
+                    { ...medKategorie(MED_SHORT_DAYS), med_key: 'antibiotika' }
                 )
             );
         }
     }
-    // Antidepressants: when platform condition_locks say MEDICAL_CLEARANCE_REQUIRED,
-    // do NOT apply a day-count lock — customer-level clearance gate handles it.
-    const { medUsesClearanceNotDateLock } = require('./medicalClearanceService');
-    if (meds.includes('antidepressiva') && !medUsesClearanceNotDateLock('antidepressiva', sperrfristen)) {
+    if (
+        meds.includes('antidepressiva') &&
+        !medUsesClearanceNotDateLock('antidepressiva', sperrfristen) &&
+        !hasActiveClearanceOverride(medicalClearance, 'antidepressiva')
+    ) {
         const until = addDays(intakeDate, MED_SHORT_DAYS);
         if (until > heute) {
             sperren.push(
@@ -546,7 +558,7 @@ const berechneAlleSperren = ({
                     'global',
                     `💊 ${MED_SHORT_DAYS} Tage nach Antidepressiva`,
                     until,
-                    medKategorie(MED_SHORT_DAYS)
+                    { ...medKategorie(MED_SHORT_DAYS), med_key: 'antidepressiva' }
                 )
             );
         }
@@ -569,7 +581,6 @@ const berechneAlleSperren = ({
         }
     }
 
-    // Stored block dates carry no duration — only the end date is known.
     if (maxUvBlock) {
         sperren.push(
             mkSperre(heute, 'global', '☀️ UV-Sperre aktiv', maxUvBlock, { kategorie: 'uv' })
@@ -588,8 +599,6 @@ const berechneAlleSperren = ({
         .filter((sperre) => sperre.bis && sperre.bis > heute && !sperre.indefinite)
         .sort((a, b) => a.von - b.von);
 
-    // Earliest treatment date from UV / med / case locks only — never from
-    // medical clearance (that is a condition gate, not a calendar end date).
     const freiFenster = [];
     let cursor = new Date(heute);
     for (const sperre of timeSperren) {
@@ -636,10 +645,7 @@ const buildBlockedDates = (from, to, sperren, fruehestes) => {
     const blocked = new Set();
     const start = startOfDay(from);
     const end = startOfDay(to);
-    // Medical clearance / other indefinite condition locks are NOT calendar-day
-    // blocks — they gate treatment booking via `treatment_blocked_by_clearance`.
-    // Consultations stay bookable on normal available days; only dated (UV,
-    // cross-case, medication, …) sperren belong in blocked_dates.
+
     const dateSperren = (sperren || []).filter(
         (s) => s.kategorie !== 'medical_clearance' && s.bis && !s.indefinite
     );
@@ -655,7 +661,7 @@ const buildBlockedDates = (from, to, sperren, fruehestes) => {
     return [...blocked].sort();
 };
 
-/** First day that satisfies the studio's minimum lead time. */
+
 const earliestFromLeadTime = (hours) => {
     const lead = Number(hours) || 0;
     if (lead <= 0) {
@@ -665,7 +671,6 @@ const earliestFromLeadTime = (hours) => {
     return startOfDay(threshold);
 };
 
-/** Last day customers may book, derived from the studio's booking horizon. */
 const latestFromHorizon = (days) => addDays(new Date(), Math.max(1, Number(days) || 1));
 
 const loadLockoutContext = async (customerId) => {
@@ -712,9 +717,37 @@ const computeAvailability = async ({
     );
 
     const Customer = require('../models/customerModel');
-    const customerDoc = await Customer.findById(customerId)
-        .select('medical_clearance')
-        .lean();
+    const normalizedPre = normalizePreSessionCheck(preSessionCheck);
+    let medicalClearance = null;
+    if (!consultationOnly && normalizedPre.meds_provided) {
+        try {
+            const { reconcileClearanceFromPreSessionMeds, serializeClearance } = require(
+                './medicalClearanceService'
+            );
+            medicalClearance = await reconcileClearanceFromPreSessionMeds(
+                customerId,
+                normalizedPre.medikamente || [],
+                sperrfristen,
+                { caseId: activeCaseId, source: 'availability' }
+            );
+            if (!medicalClearance) {
+                const customerDoc = await Customer.findById(customerId)
+                    .select('medical_clearance')
+                    .lean();
+                medicalClearance = customerDoc?.medical_clearance
+                    ? serializeClearance(customerDoc.medical_clearance)
+                    : null;
+            }
+        } catch (err) {
+            console.error('Availability clearance reconcile failed:', err.message);
+        }
+    }
+    if (!medicalClearance) {
+        const customerDoc = await Customer.findById(customerId)
+            .select('medical_clearance')
+            .lean();
+        medicalClearance = customerDoc?.medical_clearance || null;
+    }
 
     const {
         sperren,
@@ -727,19 +760,17 @@ const computeAvailability = async ({
         cases: context.cases,
         appointmentsByCase: context.appointmentsByCase,
         sessionsByCase: context.sessionsByCase,
-        preSessionCheck,
+        preSessionCheck: normalizedPre,
         consultationOnly,
         lockoutDisabled: activeCase ? isLockoutDisabled(activeCase) : false,
         sperrfristen,
-        medicalClearance: customerDoc?.medical_clearance || null,
+        medicalClearance,
     });
 
-    // A studio may require a lead time; it can only push the earliest date later.
     const leadTimeEarliest = earliestFromLeadTime(termin_einstellungen.min_vorlaufzeit_stunden);
     const afterClearanceBase = afterClearanceRaw || lockoutEarliest || new Date();
     const fruehestesAfterClearance =
         leadTimeEarliest > afterClearanceBase ? leadTimeEarliest : afterClearanceBase;
-    // When medical clearance blocks treatment, there is no bookable treatment date yet.
     const fruehestes =
         !consultationOnly && treatmentBlockedByClearance
             ? null
@@ -768,8 +799,7 @@ const computeAvailability = async ({
             )
             .lean();
         if (studio) {
-            // Hours, buffer and slot interval of the selected location, falling
-            // back to the studio-wide schedule when it defines no override.
+           
             const schedule = resolveStandortSchedule(studio, standortId);
             const closed = collectClosedDates(schedule, from, to);
             blockedDates = [...new Set([...blockedDates, ...closed])].sort();
@@ -778,8 +808,7 @@ const computeAvailability = async ({
                 studio: activeCase.studio,
                 status: APPOINTMENT_STATUS.GEBUCHT,
                 date: { $gte: new Date(from), $lte: new Date(to) },
-                // Only this location's bookings occupy its slots. Appointments
-                // without a location predate locations and block every location.
+               
                 ...(standortId ? { standort_id: { $in: [String(standortId), ''] } } : {}),
             })
                 .select('date time dauer_minuten')
@@ -794,7 +823,6 @@ const computeAvailability = async ({
 
     const spaetestes = latestFromHorizon(termin_einstellungen.buchung_horizont_tage);
     if (from && to) {
-        // Everything past the studio's horizon is unbookable, same as a closed day.
         const beyondHorizon = [];
         const horizonKey = toDateKey(spaetestes);
         for (
@@ -815,21 +843,17 @@ const computeAvailability = async ({
         consultationOnly,
         preSessionCheck,
         fruehestes: fruehestes ? toDateKey(fruehestes) : null,
-        /** Earliest treatment day once medical clearance is accepted (other locks still apply). */
         fruehestes_after_clearance: toDateKey(fruehestesAfterClearance),
         treatment_blocked_by_clearance: Boolean(
             !consultationOnly && treatmentBlockedByClearance
         ),
-        /** Last bookable day per the studio's horizon — clients build their range from this. */
         spaetestes: toDateKey(spaetestes),
         sperren: sperren.map(serializeSperre),
         frei_fenster: frei_fenster.map(serializeFreeWindow),
         blocked_dates: blockedDates,
         studio_schedule,
         occupied_times,
-        /** Appointment durations, horizon and lead time as configured by the studio. */
         termin_einstellungen,
-        /** Blocking periods in days as configured by the studio. */
         sperrfristen,
         standort_id: standortId ? String(standortId) : '',
     };
@@ -926,7 +950,6 @@ const assertBookingDateAllowed = async ({
         );
     }
 
-    // Treatment lockouts / medical clearance — never mislabel as "studio closed"
     if (!consultationOnly) {
         const result = isBookingDateAllowed(date, availability, lang);
         if (!result.allowed) {
@@ -938,7 +961,6 @@ const assertBookingDateAllowed = async ({
         }
     }
 
-    // Studio closed / hours: only when day is blocked but not by a lockout window
     const lockoutHit = (availability.sperren || []).some((s) => {
         const von = s.von;
         const bis = s.bis;

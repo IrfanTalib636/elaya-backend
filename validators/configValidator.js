@@ -9,8 +9,12 @@ const gruppenGroessenSchema = z
     })
     .optional();
 
-/** Blocking periods in days — ranges match Medical & Safety catalog (prototype). */
-const CONDITION_LOCK = z.enum(['MEDICAL_CLEARANCE_REQUIRED', 'MEDICAL_REVIEW_REQUIRED']);
+const CONDITION_LOCK = z.enum([
+    'MEDICAL_CLEARANCE_REQUIRED',
+    'MEDICAL_REVIEW_REQUIRED',
+    /** Day lock + certificate may override that date lock after studio accept. */
+    'DATE_LOCK_CLEARANCE_OVERRIDE',
+]);
 
 const sperrfristenSchema = z
     .object({
@@ -23,6 +27,7 @@ const sperrfristenSchema = z
         condition_locks: z
             .object({
                 antidepressants: CONDITION_LOCK.optional(),
+                antibiotics: CONDITION_LOCK.optional(),
                 skin_acne_medication: CONDITION_LOCK.optional(),
                 other_unknown_medication: CONDITION_LOCK.optional(),
                 illness_not_recovered: CONDITION_LOCK.optional(),

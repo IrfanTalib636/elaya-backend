@@ -37,7 +37,7 @@ const PRIORITY = {
 const TYPE_LABEL_DE = {
     confirm_price: 'Preis bestätigen',
     review_medical: 'Medizinische Angaben prüfen',
-    review_clearance: 'Medizinische Freigabe prüfen',
+    review_clearance: 'Ärztliche Freigabe prüfen: Kunde / Case',
     review_case: 'Neuen Fall prüfen',
     review_aftercare: 'Nachsorgefoto prüfen',
     healing_issue: 'Heilung braucht Aufmerksamkeit',
@@ -210,8 +210,8 @@ const collectActions = async ({ studioId = null } = {}) => {
             case_ref: caseRef,
             opened_at: openedAt,
             title: caseRef
-                ? `Medical clearance requires review – ${require('./formatCaseRef').formatCaseLabel(caseRef)}`
-                : 'Medical clearance requires review',
+                ? `Review medical clearance: ${customerName(cust)} / ${require('./formatCaseRef').formatCaseLabel(caseRef)}`
+                : `Review medical clearance: ${customerName(cust)}`,
             path: `/studio/customers/${cid}?focus=medical_clearance`,
         });
     }
