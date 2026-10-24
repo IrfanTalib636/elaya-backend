@@ -2,7 +2,8 @@ const path = require('path');
 
 const UPLOAD_ROOT = process.env.UPLOAD_ROOT || path.join(process.cwd(), 'uploads');
 
-const MAX_FILE_BYTES = Number(process.env.UPLOAD_MAX_BYTES) || 5 * 1024 * 1024;
+/** Default 15 MB — must stay at/under nginx client_max_body_size on the API host. */
+const MAX_FILE_BYTES = Number(process.env.UPLOAD_MAX_BYTES) || 15 * 1024 * 1024;
 
 const ALLOWED_MIME_TYPES = new Set([
     'image/jpeg',
