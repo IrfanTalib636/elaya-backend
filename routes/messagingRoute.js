@@ -14,6 +14,7 @@ const {
     listMessages,
     sendMessage,
     markRead,
+    getUnreadCount,
 } = require('../controllers/messagingController');
 const { requireFeature } = require('../utils/featureGate');
 
@@ -72,6 +73,9 @@ const MESSAGING_ROLES = [
  *       200:
  *         description: Conversation
  */
+
+router.get('/unread-count', protect, authorize(...MESSAGING_ROLES), getUnreadCount);
+
 router.get(
     '/conversations',
     protect,

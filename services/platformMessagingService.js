@@ -311,12 +311,37 @@ const markRead = async (user, conversationId) => {
     return formatConversation(conversation, { studio });
 };
 
+/**
+ * Aggregate unread for Support / Studio-Chat nav badges.
+ * Cleared only when the conversation is opened (markRead).
+ */
+const unreadCountForUser = async (user) => {
+    if (isStudio(user.role)) {
+        const studioId = refId(user.studio_id);
+        if (!studioId) return 0;
+        const conversation = await PlatformStudioConversation.findOne({ studio: studioId })
+            .select('unread_studio')
+            .lean();
+        return Number(conversation?.unread_studio) || 0;
+    }
+
+    if (isAdmin(user.role)) {
+        const [row] = await PlatformStudioConversation.aggregate([
+            { $group: { _id: null, unread: { $sum: '$unread_admin' } } },
+        ]);
+        return Number(row?.unread) || 0;
+    }
+
+    throw new ApiError(403, 'Forbidden');
+};
+
 module.exports = {
     conversationRoom,
     studioRoom,
     adminRoom,
     assertAccess,
     listStudioInbox,
+    unreadCountForUser,
     getOrCreateByStudio,
     getConversationById,
     listMessages,

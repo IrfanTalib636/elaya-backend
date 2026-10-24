@@ -14,6 +14,7 @@ const {
     listMessages,
     sendMessage,
     markRead,
+    getUnreadCount,
 } = require('../controllers/platformMessagingController');
 const { requireFeature } = require('../utils/featureGate');
 
@@ -30,6 +31,8 @@ const ROLES = [
  * Platform (super admin) ↔ studio live chat.
  * Separate from customer ↔ studio `/messaging`.
  */
+router.get('/unread-count', protect, authorize(...ROLES), getUnreadCount);
+
 router.get('/conversations', protect, authorize(...ROLES), listInbox);
 
 router.post(

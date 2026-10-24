@@ -47,6 +47,46 @@ const emitConversationRead = (conversationId, payload) => {
                 ...payload,
             }
         );
+        // Refresh nav/tab unread badges for anyone with the inbox open.
+        const conversation = payload?.conversation;
+        if (conversation) {
+            const studioId = conversation.studio?.id || conversation.studio_id;
+            if (studioId) {
+                io.to(messagingService.studioRoom(studioId)).emit(
+                    'messaging:conversation_updated',
+                    { conversation }
+                );
+            }
+            const customerId = conversation.customer?.id || conversation.customer_id;
+            if (customerId) {
+                io.to(messagingService.userRoom(`customer:${customerId}`)).emit(
+                    'messaging:conversation_updated',
+                    { conversation }
+                );
+            }
+        }
+    } catch {
+        // ignore
+    }
+};
+
+const emitPlatformConversationRead = (payload) => {
+    try {
+        const io = getIO();
+        if (!io) return;
+        const conversation = payload?.conversation;
+        if (!conversation) return;
+        const studioId = conversation.studio?.id || conversation.studio_id;
+        if (studioId) {
+            io.to(platformMessagingService.studioRoom(studioId)).emit(
+                'platform_messaging:conversation_updated',
+                { conversation }
+            );
+        }
+        io.to(platformMessagingService.adminRoom()).emit(
+            'platform_messaging:conversation_updated',
+            { conversation }
+        );
     } catch {
         // ignore
     }
@@ -130,5 +170,6 @@ module.exports = {
     emitMessageCreated,
     emitConversationRead,
     emitPlatformMessageCreated,
+    emitPlatformConversationRead,
     emitStudioTransferEvent,
 };

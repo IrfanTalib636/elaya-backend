@@ -97,6 +97,14 @@ const markRead = asyncHandler(async (req, res) => {
     });
 });
 
+const getUnreadCount = asyncHandler(async (req, res) => {
+    const unread_count = await messagingService.unreadCountForUser(req.user);
+    res.status(200).json({
+        success: true,
+        data: { unread_count },
+    });
+});
+
 module.exports = {
     listConversations,
     createOrGetConversation,
@@ -104,4 +112,5 @@ module.exports = {
     listMessages,
     sendMessage,
     markRead,
+    getUnreadCount,
 };

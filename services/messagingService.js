@@ -227,6 +227,35 @@ const listConversations = async (user, { skip = 0, limit = 20 } = {}) => {
     };
 };
 
+/**
+ * Aggregate unread for nav/tab badges. Cleared only via markConversationRead
+ * when the user opens the chat — not by push/in-app notification alone.
+ */
+const unreadCountForUser = async (user) => {
+    const match = { status: CHAT_CONVERSATION_STATUS.OPEN };
+    let field;
+
+    if (isCustomer(user.role)) {
+        if (!user.customer_id) return 0;
+        match.customer = user.customer_id;
+        field = 'unread_customer';
+    } else if (isStudio(user.role)) {
+        if (!user.studio_id) return 0;
+        match.studio = user.studio_id;
+        field = 'unread_studio';
+    } else if (isAdmin(user.role)) {
+        field = 'unread_studio';
+    } else {
+        throw new ApiError(403, 'You do not have permission for this action');
+    }
+
+    const [row] = await ChatConversation.aggregate([
+        { $match: match },
+        { $group: { _id: null, unread: { $sum: `$${field}` } } },
+    ]);
+    return Number(row?.unread) || 0;
+};
+
 const getConversationById = async (user, conversationId) => {
     const conversation = await ChatConversation.findById(conversationId)
         .populate('customer', 'vorname nachname email')
@@ -451,6 +480,7 @@ module.exports = {
     getOrCreateConversation,
     getOrCreateConversationForPair,
     listConversations,
+    unreadCountForUser,
     getConversationById,
     listMessages,
     sendMessage,

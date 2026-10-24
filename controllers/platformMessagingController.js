@@ -1,7 +1,10 @@
 const asyncHandler = require('../utils/asyncHandler');
 const { parsePagination, buildPaginationMeta } = require('../utils/pagination');
 const platformMessagingService = require('../services/platformMessagingService');
-const { emitPlatformMessageCreated } = require('../sockets/emitHelpers');
+const {
+    emitPlatformMessageCreated,
+    emitPlatformConversationRead,
+} = require('../sockets/emitHelpers');
 
 const listInbox = asyncHandler(async (req, res) => {
     const { page, limit, skip } = parsePagination({
@@ -94,9 +97,18 @@ const markRead = asyncHandler(async (req, res) => {
         req.user,
         req.params.conversationId
     );
+    emitPlatformConversationRead({ conversation });
     res.status(200).json({
         success: true,
         data: { conversation },
+    });
+});
+
+const getUnreadCount = asyncHandler(async (req, res) => {
+    const unread_count = await platformMessagingService.unreadCountForUser(req.user);
+    res.status(200).json({
+        success: true,
+        data: { unread_count },
     });
 });
 
@@ -107,4 +119,5 @@ module.exports = {
     listMessages,
     sendMessage,
     markRead,
+    getUnreadCount,
 };
