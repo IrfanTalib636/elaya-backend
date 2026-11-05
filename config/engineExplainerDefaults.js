@@ -1,12 +1,3 @@
-/**
- * Default Super Admin copy for “How ELAYA works”.
- * Placeholders are filled from the published (or draft) Engine config so the
- * wording cannot drift from the real formula.
- *
- * Super Admin can edit this copy (DRAFT → Publish). Numbers always come from
- * session_prediction + default_pricing.
- */
-
 const EN = {
     title: 'How does ELAYA work?',
     liveDraft: {
