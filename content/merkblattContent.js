@@ -1,6 +1,3 @@
-/**
- * TC_08 Merkblatt — aftercare text (prototype MERKBLATT_TEXT, plain text for API/mobile).
- */
 const MERKBLATT_SECTIONS = {
     de: [
         {

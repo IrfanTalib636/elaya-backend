@@ -1,9 +1,3 @@
-/**
- * Reference colour profiles (prototype ENGINE_DEFAULTS.laserProfile). Seed only when the
- * laser catalog is first created: diffs vs platform defaults become sparse overrides.
- * New lasers created later inherit until a colour is explicitly changed. Never read at
- * prediction time — session_prediction.laser_color_overrides is the source of truth.
- */
 const SKIN_TONE = { skin_tone: 3 };
 
 const LASER_COLOR_PROFILES = [

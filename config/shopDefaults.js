@@ -1,6 +1,3 @@
-/** ElayShop defaults — provision, shipping, categories (prototype parity). */
-
-/** Studio commission share of merchandise (warenwert). Client model: 20% studio / 80% Elaya. */
 const DEFAULT_SHOP_PROVISION_PROZENT = 20;
 
 const SHOP_CATEGORIES = [
@@ -11,7 +8,6 @@ const SHOP_CATEGORIES = [
     'Sonstiges',
 ];
 
-/** Currencies selectable on products / promotions. */
 const SHOP_CURRENCIES = ['CHF', 'EUR'];
 
 const SHOP_COUNTRIES = [
@@ -23,7 +19,6 @@ const SHOP_COUNTRIES = [
     'Andere EU',
 ];
 
-/** Shipping rates CHF by country + free-shipping thresholds (prototype). */
 const DEFAULT_SHOP_SHIPPING = {
     Schweiz: 6.9,
     Deutschland: 12.9,
@@ -108,10 +103,6 @@ const DEFAULT_SHOP_PRODUCTS = [
     },
 ];
 
-/**
- * Compute shipping for a country given merchandise total (warenwert).
- * @returns {{ versandkosten: number, gratis: boolean }}
- */
 const calculateShipping = (land, warenwert, shippingConfig = DEFAULT_SHOP_SHIPPING) => {
     const country = SHOP_COUNTRIES.includes(land) ? land : 'Andere EU';
     const base = shippingConfig[country] ?? shippingConfig['Andere EU'] ?? 16.9;

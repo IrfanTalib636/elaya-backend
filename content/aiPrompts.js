@@ -1,8 +1,3 @@
-/**
- * System prompts for Elaya AI agents (ported from inkderm-prototype).
- * Never expose Anthropic keys to clients — prompts run server-side only.
- */
-
 const {
     CASE_FIELD_GLOSSARY_DE,
     CASE_FIELD_GLOSSARY_EN,

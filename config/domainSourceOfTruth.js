@@ -1,14 +1,3 @@
-/**
- * Master Excel IT_Clarifications §10 + README_ClaudeCode + Flow_Mapping.
- *
- * CSV exports are technical imports only. If CSV and Master Excel differ,
- * this file (and the Excel it documents) wins.
- *
- * Parameters, weights, scores and multipliers stay internal — customers
- * never see them. Price, sessions, lightening and healing may calculate
- * automatically, but studio review/correction must remain available.
- */
-
 const DOMAIN_SOURCE_OF_TRUTH = {
     precedence: [
         'IT_Clarifications',

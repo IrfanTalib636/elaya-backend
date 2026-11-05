@@ -21,7 +21,6 @@ const ACTIVITY_ACTOR_ROLE = {
     SYSTEM: 'system',
 };
 
-/** Maps Case.activityLog.type → feed category (null = skip, covered elsewhere). */
 const CASE_ACTIVITY_TYPE_MAP = {
     booked: null,
     cancelled: null,

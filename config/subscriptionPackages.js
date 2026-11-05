@@ -1,17 +1,4 @@
-/**
- * Subscription packages (prototype Starter / Pro / Network).
- * Mapped onto existing studio.subscription_plan: basic | professional | enterprise.
- *
- * Reines Abo-Modell:
- * - Monthly abo fee per studio (override > package)
- * - Shop: studio gets shop_provision_studio_prozent of Warenwert; Elaya gets the rest
- * - NO transaction fee on platform Erlös
- *
- * Editable copy lives on platform_config.subscription_packages; this file is the seed.
- */
-
 const { FEATURE_KEYS, migrateFeatureKeyList } = require('./featureCatalog');
-
 const PLAN_TO_PACKAGE = {
     basic: 'starter',
     professional: 'pro',
@@ -24,7 +11,6 @@ const PACKAGE_TO_PLAN = {
     network: 'enterprise',
 };
 
-/** Prototype PAKET_LIMITS_DEFAULT */
 const PACKAGE_LIMITS_DEFAULT = {
     starter: {
         mitarbeiter_max: 2,
@@ -59,7 +45,6 @@ const DEFAULT_KI_GEWICHTUNGEN = {
     studio_ki_chat: 1,
 };
 
-/** Prototype STARTER_FEATURES / PRO_EXTRA / Network = all keys */
 const STARTER_FEATURES = [
     'case_basic',
     'case_zonen',
@@ -156,7 +141,6 @@ const defaultSubscriptionPackages = () => [
     }),
 ];
 
-/** Legacy map shape used by older Finance callers */
 const SUBSCRIPTION_PACKAGES = Object.fromEntries(
     defaultSubscriptionPackages().map((p) => [
         p.id,
@@ -277,12 +261,6 @@ const packageFromStudioPlan = (subscriptionPlan, packagesList) =>
 
 const hasOverrideValue = (v) => v !== null && v !== undefined && v !== '';
 
-/**
- * Effective monthly abo fee (CHF) and studio shop provision % for a studio doc.
- * @param {object} studio
- * @param {number} [fallbackPlatformProvision=20]
- * @param {object[]|object} [packagesSource] — platform packages array or by-id map
- */
 const resolveStudioFinanceTerms = (
     studio = {},
     fallbackPlatformProvision = 20,
@@ -327,7 +305,6 @@ const resolveStudioFinanceTerms = (
     };
 };
 
-/** Derive subscription_plans + seat limits from editable packages (canonical ids). */
 const derivePlanConfigFromPackages = (packagesList) => {
     const list = normalizePackagesList(packagesList);
     const byId = packagesByIdMap(list);

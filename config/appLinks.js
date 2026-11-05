@@ -1,18 +1,3 @@
-/**
- * App Links / Universal Links configuration for the customer mobile app.
- *
- * Required for:
- *   GET /.well-known/apple-app-site-association  (iOS)
- *   GET /.well-known/assetlinks.json             (Android)
- *
- * Env (see .env.example):
- *   APP_LINKS_DOMAIN                 e.g. app.elaya.ch
- *   IOS_TEAM_ID                      Apple Developer Team ID
- *   IOS_BUNDLE_ID                    default com.elayaMobile.app
- *   ANDROID_PACKAGE_NAME             default com.elayaMobile.app
- *   ANDROID_SHA256_CERT_FINGERPRINTS comma-separated SHA-256 cert fingerprints
- */
-
 const DEFAULT_IOS_BUNDLE = 'com.elayaMobile.app';
 const DEFAULT_ANDROID_PACKAGE = 'com.elayaMobile.app';
 
@@ -33,7 +18,6 @@ const getAppLinksConfig = () => {
         androidPackage,
         androidFingerprints,
         isConfigured: Boolean(iosTeamId && androidFingerprints.length > 0),
-        // Prefer Railway / env domain; never invent a private domain silently in prod.
         resetBase: process.env.APP_CUSTOMER_RESET_URL || `https://${domain}/reset-password`,
     };
 };

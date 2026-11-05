@@ -1,5 +1,3 @@
-/** Prototype-aligned enums for tattoo case intake (customer app + studio dashboard). */
-
 const BODY_LOCATIONS = [
     'arm',
     'leg',
@@ -82,7 +80,6 @@ const FITZ_TYPE_TO_INT = {
     unsicher: 3,
 };
 
-/** Tattoo + PMU smoker values (prototype PMU uses never/occasional). */
 const LIFE_SMOKER = [
     'no',
     'never',
@@ -91,7 +88,6 @@ const LIFE_SMOKER = [
     'daily_light',
     'daily_heavy',
 ];
-/** Tattoo + PMU alcohol values (prototype PMU uses moderate/frequent). */
 const LIFE_ALCOHOL = [
     'never',
     'rarely',
@@ -101,23 +97,16 @@ const LIFE_ALCOHOL = [
     '3-4x_week',
     '5+x_week',
 ];
-/** Tattoo + PMU activity (prototype PMU uses medium). */
 const LIFE_ACTIVITY = ['low', 'light', 'medium', 'regular', 'high'];
-/** Lifestyle_Regeneration: 0|1-2|3-4|5+ */
 const LIFE_SPORT_FREQ = ['0', '1-2', '3-4', '5+'];
-/** Excel options include <5; app stores under_5. */
 const LIFE_SLEEP_HOURS = ['under_5', '<5', '5-6', '6-7', '7-8', '8+'];
 const LIFE_SLEEP_QUALITY = ['poor', 'fair', 'good', 'excellent'];
 const LIFE_STRESS = ['low', 'medium', 'high', 'very_high'];
-/** Tattoo + PMU hydration (prototype PMU uses medium/high). */
 const LIFE_HYDRATION = ['low', 'normal', 'medium', 'good', 'high'];
-/** Customer App, Studio case creation, both Case Simulators, Prediction Engine. Labels: Poor / Medium / Good. */
 const LIFE_NUTRITION = ['poor', 'fair', 'good'];
-/** Older simulator-only values. Persist so existing cases still load; UI and new writes do not offer them. */
 const LIFE_NUTRITION_LEGACY = ['very_good', 'very_poor'];
 const LIFE_AFTERCARE = ['low', 'medium', 'high'];
 
-/** Prototype PMU_01–PMU_05 enums (exact values from customer/studio prototype). */
 const PMU_TYPE = ['eyebrows', 'eyeliner', 'lips', 'microblading', 'other'];
 const PMU_TYPE_LABELS = {
     eyebrows: 'Augenbrauen',

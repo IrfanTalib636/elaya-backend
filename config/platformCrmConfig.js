@@ -114,7 +114,6 @@ const studioFunnelStageIndex = (stage) => {
     return i >= 0 ? i : -1;
 };
 
-/** Furthest of two customer stages by funnel order. */
 const maxCustomerFunnelStage = (a, b) => {
     if (!a) return b || CUSTOMER_FUNNEL_STAGE.REGISTERED;
     if (!b) return a;
@@ -149,7 +148,6 @@ module.exports = {
     STUDIO_MISSING_STEPS,
     CUSTOMER_FUNNEL_ACTION,
     STUDIO_FUNNEL_ACTION,
-    // Re-export shared CRM enums so platform models can import from one place
     PLATFORM_CRM_TASK_TYP: CRM_TASK_TYP,
     PLATFORM_CRM_TASK_PRIORITAET: CRM_TASK_PRIORITAET,
     PLATFORM_CRM_NOTE_TYP: CRM_NOTE_TYP,

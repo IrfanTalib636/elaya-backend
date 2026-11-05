@@ -12,10 +12,8 @@ const DEFAULT_OEFFNUNGSZEITEN = {
     so: { offen: false, von: '10:00', bis: '19:00' },
 };
 
-/** Schedule fallbacks used whenever a studio (or location) leaves a field unset. */
 const DEFAULT_SLOT_INTERVAL_MINUTEN = 60;
 const DEFAULT_PUFFERZEIT_MINUTEN = 10;
-/** Slot grid granularity floor — shorter grids make the calendar unusable. */
 const MIN_SLOT_INTERVAL_MINUTEN = 15;
 const MAX_SLOT_INTERVAL_MINUTEN = 60;
 const MAX_PUFFERZEIT_MINUTEN = 120;

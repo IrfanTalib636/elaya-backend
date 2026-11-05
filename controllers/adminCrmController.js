@@ -95,10 +95,6 @@ const formatLead = (doc) => {
     };
 };
 
-/**
- * Platform CRM dashboard: customer funnel, studio registration counts,
- * attention items, and a recent activity slice across all studios.
- */
 const getCrmOverview = asyncHandler(async (_req, res) => {
     const [
         appDownloaded,
@@ -294,10 +290,6 @@ const updateStudioLead = asyncHandler(async (req, res) => {
     });
 });
 
-/**
- * Prototype status actions:
- * send_contract | sign_contract | set_payment | start_trial | activate | deactivate
- */
 const advanceStudioLead = asyncHandler(async (req, res) => {
     const lead = await StudioLead.findById(req.params.id);
     if (!lead) throw new ApiError(404, 'Lead not found');

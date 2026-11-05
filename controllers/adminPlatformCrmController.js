@@ -51,7 +51,6 @@ const escapeRegex = (value) => String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$
 const stuckCutoff = () =>
     new Date(Date.now() - PLATFORM_CRM_STUCK_DAYS * 24 * 60 * 60 * 1000);
 
-/** Customer IDs with cancelled appt(s) and no open appt. */
 const customerIdsCancelledNotRebooked = async () => {
     const [cancelled, open] = await Promise.all([
         Appointment.distinct('customer', { status: { $in: CANCELLED_APPOINTMENT } }),
@@ -197,7 +196,6 @@ const formatCustomerListItem = (doc) => {
         first_session_at: pc.first_session_at || null,
         completed_at: pc.completed_at || null,
         recommended_action: CUSTOMER_FUNNEL_ACTION[pc.funnel_stage] || '',
-        // Studio CRM field — read-only for context, not Admin funnel
         studio_pipeline_stufe: doc.pipeline_stufe || null,
     };
 };

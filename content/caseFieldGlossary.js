@@ -1,11 +1,3 @@
-/**
- * Central case-field definitions. Helper texts in the customer app, studio
- * intake, Case Simulator and ELAYA Chat must stay identical.
- *
- * English copy is the client-approved wording. German is Swiss High German
- * (ss, not ß).
- */
-
 const CASE_FIELD_HELPERS = {
     density: {
         en: 'How densely the tattooed area is filled with pigment — from lightly or loosely covered to very compact and heavily filled.',

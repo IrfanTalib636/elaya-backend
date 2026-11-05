@@ -74,8 +74,6 @@ const inviteAdminUser = asyncHandler(async (req, res) => {
 
     const existing = await User.findOne({ email });
     if (existing) {
-        // Same email already invited as admin but never logged in → resend invite
-        // instead of a dead-end 409 (common when SMTP failed on first attempt).
         if (
             ADMIN_ROLES.includes(existing.role) &&
             !existing.last_login &&
@@ -179,7 +177,6 @@ const inviteAdminUser = asyncHandler(async (req, res) => {
             user: formatAdminUser(user),
             invite_sent: data.invite_sent,
             resent: false,
-            // Dev convenience only — never in production responses.
             temporary_password:
                 process.env.NODE_ENV === 'production' ? undefined : tempPassword,
         },

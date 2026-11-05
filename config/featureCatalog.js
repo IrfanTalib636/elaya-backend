@@ -1,15 +1,3 @@
-/**
- * Platform feature catalog — prototype parity (`ELAYA_ALLE_FEATURES`).
- * Toggled: package entitlements → per-studio overrides → global kill switch.
- *
- * Clients gate UX with GET /config/features/effective.
- * Backend enforces via requireFeature / isFeatureEnabled.
- */
-
-/** @typedef {{ key: string, label: string, label_en?: string }} FeatureDef */
-/** @typedef {{ gruppe: string, gruppe_en: string, icon: string, category: string, features: FeatureDef[] }} FeatureGroup */
-
-/** Full catalog — 9 groups / 30 keys (inkderm-prototype admin Feature Flags). */
 const FEATURE_GROUPS = [
     {
         gruppe: 'Core',
@@ -123,7 +111,6 @@ const FEATURE_GROUPS = [
     },
 ];
 
-/** Flat catalog (backward-compatible shape for admin API). */
 const FEATURE_CATALOG = FEATURE_GROUPS.flatMap((g) =>
     g.features.map((f) => ({
         key: f.key,
@@ -138,10 +125,6 @@ const FEATURE_CATALOG = FEATURE_GROUPS.flatMap((g) =>
 
 const FEATURE_KEYS = FEATURE_CATALOG.map((f) => f.key);
 
-/**
- * Legacy Elaya keys → canonical prototype keys.
- * `ai_chat` expands to both customer Elaya chat and studio KI (see migrateFeatureKeyList).
- */
 const LEGACY_FEATURE_ALIASES = {
     booking: 'terminbuchung',
     cases: 'case_basic',
@@ -156,13 +139,8 @@ const LEGACY_FEATURE_ALIASES = {
     studio_transfer: 'studio_wechsel',
 };
 
-/** When legacy `ai_chat` was enabled, also enable studio KI assistant. */
 const LEGACY_AI_CHAT_EXPANSION = ['elaya_chat_kunde', 'ki_studio_assistent'];
 
-/**
- * Reverse map: canonical → list of legacy keys that should mirror its value
- * in effective-feature responses (old clients keep working).
- */
 const CANONICAL_TO_LEGACY = (() => {
     const map = {};
     for (const [legacy, canonical] of Object.entries(LEGACY_FEATURE_ALIASES)) {
@@ -178,10 +156,6 @@ const resolveCanonicalKey = (key) => {
     return LEGACY_FEATURE_ALIASES[key] || key;
 };
 
-/**
- * Migrate a stored feature-key list (packages / plans / overrides keys) to canonical keys.
- * Drops unknown keys; expands legacy ai_chat → both chat flags.
- */
 const migrateFeatureKeyList = (list) => {
     if (!Array.isArray(list)) return [];
     const out = new Set();
@@ -198,10 +172,6 @@ const migrateFeatureKeyList = (list) => {
     return [...out];
 };
 
-/**
- * Migrate a feature_overrides / feature_global object’s keys to canonical.
- * Conflicting values: explicit false wins over true when merging aliases.
- */
 const migrateFeatureMap = (obj) => {
     if (!obj || typeof obj !== 'object' || Array.isArray(obj)) return {};
     const out = {};

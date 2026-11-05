@@ -236,7 +236,6 @@ const ELAYCOIN_SITUATIONS = [
 
 const ELAYCOIN_SITUATION_MAP = Object.fromEntries(ELAYCOIN_SITUATIONS.map((s) => [s.key, s]));
 
-/** Prototype Elaycoin-Regeln defaults — platform-editable override of engine constants. */
 const DEFAULT_ELAYCOIN_REGELN = {
     geldwert_coins: ELAYCOIN_COIN_GELDWERT,
     geldwert_chf: ELAYCOIN_CHF_PRO_EINHEIT,

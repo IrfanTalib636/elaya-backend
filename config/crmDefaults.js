@@ -19,7 +19,6 @@ const CRM_NOTE_TYP = {
     SONSTIGES: 'sonstiges',
 };
 
-/** Default recommended action per pipeline stage (Neu is overridden when cases exist). */
 const CRM_STAGE_AKTION = {
     Neu: 'Ersten Fall anlegen',
     'Beratung geplant': 'Termin bestätigen',
@@ -27,7 +26,6 @@ const CRM_STAGE_AKTION = {
     'Beratung erledigt': 'Follow-up senden',
 };
 
-/** Context-aware action — Neu + existing case(s) → book consultation, not create case. */
 const getStageAktion = (pipelineStufe, totalCases = 0) => {
     if (pipelineStufe === 'Neu' && totalCases > 0) {
         return 'Beratung terminieren';
@@ -35,7 +33,6 @@ const getStageAktion = (pipelineStufe, totalCases = 0) => {
     return CRM_STAGE_AKTION[pipelineStufe] ?? '';
 };
 
-/** Chat/message templates per pipeline stage (copy-to-clipboard in UI) */
 const getLeadTemplate = (pipelineStufe, vorname, totalCases = 0) => {
     const name = vorname?.trim() || 'Kunde';
 

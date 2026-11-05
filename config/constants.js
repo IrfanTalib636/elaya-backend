@@ -38,7 +38,6 @@ const CASE_TYPE = {
 };
 
 const CASE_STATUS = {
-    /** Customer onboarding in progress — hidden from studio CRM until finalized */
     DRAFT: 'draft',
     PENDING: 'pending',
     ACTIVE: 'active',
@@ -53,7 +52,6 @@ const STUDIO_FREIGABE_STATUS = {
     ABGLEHNT: 'abgelehnt',
 };
 
-/** Studio confirmation of the AI price + session-range estimate (client requirement §4d). */
 const ESTIMATE_CONFIRMATION_STATUS = {
     OFFEN: 'offen',
     BESTAETIGT: 'bestaetigt',
@@ -83,7 +81,6 @@ const TC_COVERUP = {
 };
 
 const GOAL_TARGET = {
-    /** @deprecated use FULL_REMOVAL — kept for existing records */
     FULL: 'full',
     FULL_REMOVAL: 'full_removal',
     PARTIAL_FADE: 'partial_fade',
@@ -120,14 +117,12 @@ const SHOP_ORDER_STATUS = {
     GELIEFERT: 'geliefert',
 };
 
-/** Studio transfer (Firmenwechsel) request lifecycle */
 const STUDIO_TRANSFER_STATUS = {
     AUSSTEHEND: 'ausstehend',
     GENEHMIGT: 'genehmigt',
     ABGELEHNT: 'abgelehnt',
 };
 
-/** Studio ↔ customer live chat (Socket.io + REST /messaging) — not AI FAB /chat */
 const CHAT_MESSAGE_TYP = {
     TEXT: 'text',
     SYSTEM: 'system',
@@ -144,7 +139,6 @@ const CHAT_CONVERSATION_STATUS = {
     ARCHIVED: 'archived',
 };
 
-/** Super admin ↔ studio live chat (`/platform-messaging`) */
 const PLATFORM_CHAT_SENDER_ROLE = {
     ADMIN: 'admin',
     STUDIO: 'studio',

@@ -1,9 +1,3 @@
-/**
- * Prototype Automatisierungen defaults (elaya_automatisierungen).
- * Platform-admin catalog of automatic customer message rules.
- * Send/trigger logic is separate — this store only defines who may edit what.
- */
-
 const R = (
     id,
     kategorie,

@@ -158,7 +158,6 @@ const buildCustomerMedicalTimeline = async (customerId, { includeSignatures = fa
         }
     }
 
-    // Medical clearance certificates (central storage, linked to customer + case)
     try {
         const customer = await Customer.findById(customerId)
             .select('medical_clearance')
@@ -231,7 +230,6 @@ const syncAmpelIfStale = async (anamnesis) => {
         return anamnesis;
     }
 
-    // Keys from answers stay the source of flagged questions; ampel_status is effective (with klaerung)
     anamnesis.orange_fragen = ampel.orange_keys;
     anamnesis.rote_fragen = ampel.rote_keys;
     anamnesis.ampel_status = evaluation.ampel_status;
@@ -476,7 +474,6 @@ const upsertCaseAnamnesis = asyncHandler(async (req, res) => {
         const previousAnswers = { ...(anamnesis.antworten || {}) };
         const previousAmpel = anamnesis.ampel_status;
 
-        // Archive previous answers — original history preserved in wiederholungen
         if (previousAnswers.zeitstempel) {
             anamnesis.wiederholungen.push({
                 ...previousAnswers,
@@ -506,7 +503,6 @@ const upsertCaseAnamnesis = asyncHandler(async (req, res) => {
         anamnesis.medical_history.push(historyEntry);
         anamnesis.markModified('medical_history');
 
-        // Fresh answers → reset klaerung (new flags need new review)
         anamnesis.klaerung = {};
         anamnesis.markModified('klaerung');
         anamnesis.ampel_status = ampel_status;
@@ -549,7 +545,6 @@ const upsertCaseAnamnesis = asyncHandler(async (req, res) => {
     });
 });
 
-/** PATCH /cases/:id/anamnesis/klaerung — studio review of one medical flag */
 const updateKlaerung = asyncHandler(async (req, res) => {
     if (!isStudio(req.user.role) && !isAdmin(req.user.role)) {
         throw new ApiError(403, 'Only studio staff can update klaerung');
@@ -580,7 +575,6 @@ const updateKlaerung = asyncHandler(async (req, res) => {
     const now = new Date();
     const label = staffLabel(req.user);
 
-    // antworten are NEVER modified here
     anamnesis.klaerung[frageKey] = {
         status,
         notiz,
@@ -646,7 +640,6 @@ const updateKlaerung = asyncHandler(async (req, res) => {
     });
 });
 
-/** PATCH /cases/:id/studio-freigabe — approve / reject Stufe-2 freigabe */
 const updateStudioFreigabe = asyncHandler(async (req, res) => {
     if (!isStudio(req.user.role) && !isAdmin(req.user.role)) {
         throw new ApiError(403, 'Only studio staff can update studio freigabe');

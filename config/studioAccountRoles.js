@@ -1,8 +1,3 @@
-/**
- * Studio login account roles (separate from Staff Profile labels).
- * Auth still uses USER_ROLES.studio_admin | studio_staff;
- * granular rights live on user.studio_account_role.
- */
 const STUDIO_ACCOUNT_ROLES = {
     OWNER: 'owner',
     MANAGER: 'manager',
@@ -51,7 +46,6 @@ const STUDIO_ACCOUNT_ROLE_META = [
     },
 ];
 
-/** Permission keys checked by requireStudioPermission. */
 const STUDIO_PERMISSIONS = {
     MANAGE_SETTINGS: 'manage_settings',
     MANAGE_TEAM_LOGINS: 'manage_team_logins',

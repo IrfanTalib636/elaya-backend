@@ -1,7 +1,5 @@
 const DEFAULT_SESSION_PREDICTION = {
-    /** Future treatments add their own session_prediction profile; tattoo is the current one. */
     treatment_key: 'tattoo',
-    /** Colour impact: max = MAX(hardest colour, colour-count); sum = add both. */
     color_aggregation: 'max',
     base_sessions: 8,
     min_sessions: 3,
@@ -87,7 +85,6 @@ const DEFAULT_SESSION_PREDICTION = {
             very_high: 2,
             unknown: 0,
         },
-        /** All zeros until an admin publishes a delta. unknown is its own key, not medium. */
         shading: {
             none: 0,
             low: 0,
@@ -95,7 +92,6 @@ const DEFAULT_SESSION_PREDICTION = {
             high: 0,
             unknown: 0,
         },
-        /** All zeros until an admin publishes a delta. unknown is its own key, not medium. */
         linework: {
             fine: 0,
             medium: 0,
@@ -117,7 +113,6 @@ const DEFAULT_SESSION_PREDICTION = {
             over_15: -1,
             unknown: 0,
         },
-        /** Ink depth. All zeros until an admin publishes a delta, so existing cases stay unchanged. */
         depth: {
             shallow: 0,
             normal: 0,
@@ -209,17 +204,12 @@ const DEFAULT_SESSION_PREDICTION = {
             good: 2,
             fair: 3,
             poor: 4,
-            // Legacy keys from the five-option simulator. Same scores as their canonical aliases.
             very_good: 2,
             balanced: 2,
             very_poor: 4,
             very_bad: 4,
         },
     },
-    /**
-     * How strongly each of the seven composite factors pulls the lifestyle average.
-     * A weight is not extra sessions. Missing keys inherit these starting values.
-     */
     lifestyle_factor_weights: {
         smoker: 3,
         alcohol: 2,
@@ -229,7 +219,6 @@ const DEFAULT_SESSION_PREDICTION = {
         hydration: 2,
         nutrition: 1,
     },
-    /** Average 1.0–1.6 → 1 ×0.85; 1.7–2.4 → 2 ×0.95; 2.5–3.2 → 3 ×1.00; 3.3–4.0 → 4 ×1.20; 4.1–5.0 → 5 ×1.50 */
     lifestyle_bands: [
         { max_avg: 1.6, score: 1, multiplier: 0.85 },
         { max_avg: 2.4, score: 2, multiplier: 0.95 },
@@ -237,12 +226,10 @@ const DEFAULT_SESSION_PREDICTION = {
         { max_avg: 4.0, score: 4, multiplier: 1.2 },
         { max_avg: 5.0, score: 5, multiplier: 1.5 },
     ],
-    /** SessionForecast score 5 mentions obese. Floor the discrete score; BMI is not averaged. */
     lifestyle_bmi_floors: [
         { min_bmi: 35, min_score: 5 },
         { min_bmi: 30, min_score: 4 },
     ],
-    /** SessionLogic sit_smoking uses smoker_status + cigarettes_per_day. */
     lifestyle_smoker_cigs: [
         { min_cigs: 20, min_score: 5 },
         { min_cigs: 15, min_score: 4 },
@@ -266,7 +253,6 @@ const deepMergeMaps = (base = {}, override = {}) => {
     return out;
 };
 
-/** Colour keys of a per-laser delta map (session_prediction.laser_color_overrides[laserId]). */
 const LASER_COLOR_KEYS = Object.keys(DEFAULT_SESSION_PREDICTION.tattoo_deltas.color);
 
 const finiteColor = (value) => {
@@ -284,10 +270,6 @@ const cleanLaserColorMap = (map = {}) => {
     return clean;
 };
 
-/**
- * Keep only colours that differ from the platform default. Missing keys inherit,
- * so a later default change still applies to lasers without an override.
- */
 const sparseLaserColorMap = (map = {}, platformColors = {}) => {
     const clean = {};
     const source = cleanLaserColorMap(map);
@@ -325,11 +307,6 @@ const sameLaserColorOverrides = (a = {}, b = {}) => {
     return true;
 };
 
-/**
- * Per-laser replace: a patch for `laserId` is the full override map for that laser
- * (sparse: only colours that differ from the platform default). Omitted lasers stay.
- * Sending `{}` clears every override on that laser so it inherits again.
- */
 const mergeLaserColorMaps = (base = {}, override = {}) => {
     const out = {};
     for (const [id, map] of Object.entries(base || {})) {
@@ -392,10 +369,6 @@ const mergeSessionPrediction = (stored = {}) => {
                       min_score: Number(rule.min_score),
                   }))
                 : DEFAULT_SESSION_PREDICTION.lifestyle_smoker_cigs.map((rule) => ({ ...rule })),
-        /**
-         * Sparse per-laser overrides on top of tattoo_deltas.color. Missing colours inherit
-         * the platform default; only explicit diffs are stored, so default edits still apply.
-         */
         laser_color_overrides: sparseLaserColorOverrides(
             mergeLaserColorMaps({}, raw.laser_color_overrides || {}),
             tattoo_deltas.color
