@@ -68,6 +68,7 @@ const behandlungsraumSchema = z
         laser_brand: z.string().trim().optional(),
         laser_model: z.string().trim().optional(),
         laser_device_id: z.string().trim().nullable().optional(),
+        laser_device_ids: z.array(z.string().trim().min(1)).optional(),
         /** Empty means the room is used at every location. */
         standort_id: z.string().trim().optional(),
     })

@@ -67,11 +67,13 @@ const resolveSessionLaserFields = async (fields, studioId) => {
             seenNm.add(nm);
         }
         if (out.raum_id) {
+            const { roomLaserIds } = require('../utils/studioLaserInventory');
             const room = (studio.behandlungsraeume || []).find(
                 (r) => String(r._id) === String(out.raum_id)
             );
-            if (room?.laser_device_id && String(room.laser_device_id) !== String(device.id)) {
-                throw new ApiError(400, 'Selected laser does not match the room laser');
+            const allowed = roomLaserIds(room);
+            if (allowed.length && !allowed.includes(String(device.id))) {
+                throw new ApiError(400, 'Selected laser does not match the room lasers');
             }
         }
         out.laser_device_id = device.id;

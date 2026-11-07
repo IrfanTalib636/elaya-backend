@@ -188,6 +188,13 @@ router.get(
 
 router.get('/lasers', protect, authorize(...studioRoles), listStudioLasers);
 
+router.get(
+    '/studios/:studioId/lasers',
+    protect,
+    authorize(...adminRoles),
+    listStudioLasers
+);
+
 /**
  * @swagger
  * /studio/settings:

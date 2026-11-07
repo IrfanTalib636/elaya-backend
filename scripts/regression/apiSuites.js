@@ -1616,6 +1616,100 @@ const runApiSuites = async (ctx) => {
         assertStatus(await request('GET', '/lasers', { session: customer }), 403);
     });
 
+    await test('admin assigns a catalog laser to a studio by ObjectId', async () => {
+        assert(ctx.laserDeviceId, 'missing seeded laser device id');
+        const studioId =
+            studio?.user?.studio_id ||
+            studio?.user?.studioId ||
+            ctx.studioSettings?.studio_id ||
+            null;
+        assert(studioId, 'missing studio id on studio session');
+        ctx.studioId = String(studioId);
+        const res = assertStatus(
+            await request('POST', '/lasers/assign-to-studio', {
+                session: admin,
+                body: {
+                    studio_id: ctx.studioId,
+                    laser_device_id: ctx.laserDeviceId,
+                },
+            }),
+            200
+        );
+        assert(
+            res.body?.data?.device?.id === ctx.laserDeviceId ||
+                res.body?.data?.already === true ||
+                res.body?.success === true,
+            'assign response missing device'
+        );
+        return res.body?.data?.already ? 'already assigned' : 'assigned';
+    });
+
+    await test('admin assign rejects a studio name (not ObjectId)', async () => {
+        assertStatus(
+            await request('POST', '/lasers/assign-to-studio', {
+                session: admin,
+                body: {
+                    studio_id: 'InkFree Aesch',
+                    laser_device_id: ctx.laserDeviceId,
+                },
+            }),
+            400
+        );
+    });
+
+    await test('studio GET /studio/lasers returns assigned inventory', async () => {
+        const res = assertStatus(await request('GET', '/studio/lasers', { session: studio }), 200);
+        const devices = res.body?.data?.devices || [];
+        assert(Array.isArray(devices), 'devices should be an array');
+        assert(
+            devices.some((d) => d.id === ctx.laserDeviceId),
+            'assigned laser missing from studio inventory'
+        );
+        return `${devices.length} device(s)`;
+    });
+
+    await test('admin GET /studio/studios/:id/lasers lists the same inventory', async () => {
+        assert(ctx.studioId, 'missing studio id');
+        const res = assertStatus(
+            await request('GET', `/studio/studios/${ctx.studioId}/lasers`, {
+                session: admin,
+            }),
+            200
+        );
+        const devices = res.body?.data?.devices || [];
+        assert(
+            devices.some((d) => d.id === ctx.laserDeviceId),
+            'admin studio lasers missing assigned device'
+        );
+    });
+
+    await test('admin can unassign a laser from a studio', async () => {
+        assert(ctx.studioId, 'missing studio id');
+        const res = assertStatus(
+            await request('POST', '/lasers/unassign-from-studio', {
+                session: admin,
+                body: {
+                    studio_id: ctx.studioId,
+                    laser_device_id: ctx.laserDeviceId,
+                },
+            }),
+            200
+        );
+        assertEqual(res.body?.data?.removed, true, 'removed flag');
+
+        // Re-assign so later suites that need inventory keep working.
+        assertStatus(
+            await request('POST', '/lasers/assign-to-studio', {
+                session: admin,
+                body: {
+                    studio_id: ctx.studioId,
+                    laser_device_id: ctx.laserDeviceId,
+                },
+            }),
+            200
+        );
+    });
+
     suite('AI Configuration');
 
     await test('GET /ai-config returns the live prompts for admin', async () => {

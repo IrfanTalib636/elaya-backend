@@ -74,13 +74,21 @@ const behandlungsraumSchema = new mongoose.Schema(
         aktiv: { type: Boolean, default: true },
         laser_brand: { type: String, default: '', trim: true },
         laser_model: { type: String, default: '', trim: true },
-        /** Optional link to platform LaserDevice catalog. */
+        
+        laser_device_ids: {
+            type: [
+                {
+                    type: mongoose.Schema.Types.ObjectId,
+                    ref: 'LaserDevice',
+                },
+            ],
+            default: [],
+        },
         laser_device_id: {
             type: mongoose.Schema.Types.ObjectId,
             ref: 'LaserDevice',
             default: null,
         },
-        /** Owning location (`standorte._id`). Empty means available at every location. */
         standort_id: { type: String, default: '', trim: true },
     },
     { _id: true }
@@ -92,7 +100,6 @@ const mitarbeiterSchema = new mongoose.Schema(
         nachname: { type: String, required: true, trim: true },
         rolle: { type: String, default: 'Laser-Therapeutin', trim: true },
         raum_id: { type: String, default: '', trim: true },
-        /** Owning location (`standorte._id`). Empty means working at every location. */
         standort_id: { type: String, default: '', trim: true },
         aktiv: { type: Boolean, default: true },
         user_id: {
@@ -170,60 +177,42 @@ const studioSchema = new mongoose.Schema(
             type: String,
             default: '',
         },
-        /** CHF value per coin — must stay within platform minWert/maxWert */
         coin_wert: {
             type: Number,
             default: null,
         },
-        /** Studio pricing multiplier overrides — maps prototype `inkderm_pricing` → `studio_pricing` */
         studio_pricing: {
             type: mongoose.Schema.Types.Mixed,
             default: {},
         },
-        /** Per-situation Elaycoin overrides ({ [situationKey]: { coins?, aktiv? } }) */
         elaycoin_studio_cfg: {
             type: mongoose.Schema.Types.Mixed,
             default: {},
         },
-        /**
-         * Per-rule Automations overrides from studio (prototype ss.automatisierungen).
-         * Shape: { [ruleId]: { aktiv?: boolean, wert?: number } }
-         * Only applied when platform rule has editierbar_studio=true.
-         */
+        
         automatisierungen_overrides: {
             type: mongoose.Schema.Types.Mixed,
             default: {},
         },
-        /**
-         * Group-booking size points + discount for this studio.
-         * Empty/partial object inherits missing keys from platform defaults.
-         */
+        
         gruppen_groessen: {
             type: mongoose.Schema.Types.Mixed,
             default: {},
         },
-        /**
-         * Blocking periods in days for this studio.
-         * Empty/partial object inherits missing keys from platform defaults.
-         */
+        
         sperrfristen: {
             type: mongoose.Schema.Types.Mixed,
             default: {},
         },
-        /**
-         * Appointment durations, booking horizon and lead time for this studio.
-         * Empty/partial object inherits missing keys from platform defaults.
-         */
+       
         termin_einstellungen: {
             type: mongoose.Schema.Types.Mixed,
             default: {},
         },
-        /** Weekly opening hours — keys mo–so, each { offen, von, bis } */
         oeffnungszeiten: {
             type: mongoose.Schema.Types.Mixed,
             default: () => ({ ...DEFAULT_OEFFNUNGSZEITEN }),
         },
-        /** Date-specific overrides: extra open days or closed days (holidays). */
         oeffnungs_ausnahmen: {
             type: [
                 {
@@ -237,10 +226,7 @@ const studioSchema = new mongoose.Schema(
             ],
             default: [],
         },
-        /**
-         * Platform lasers assigned to this studio. Rooms and sessions may only
-         * pick devices from this inventory — not the full catalog.
-         */
+        
         laser_inventory: {
             type: [
                 {
@@ -265,40 +251,32 @@ const studioSchema = new mongoose.Schema(
             ],
             default: [],
         },
-        /** Treatment rooms for calendar + sessions */
         behandlungsraeume: {
             type: [behandlungsraumSchema],
             default: [],
         },
-        /** Staff roster (display / assignment — separate from login User accounts) */
         mitarbeiter: {
             type: [mitarbeiterSchema],
             default: [],
         },
-        /** Buffer minutes after each appointment block */
         pufferzeit_minuten: {
             type: Number,
             default: DEFAULT_PUFFERZEIT_MINUTEN,
             min: 0,
         },
-        /** Booking slot interval in minutes (15 / 30 / 45 / 60) */
         slot_interval_minuten: {
             type: Number,
             default: DEFAULT_SLOT_INTERVAL_MINUTEN,
             min: MIN_SLOT_INTERVAL_MINUTEN,
             max: MAX_SLOT_INTERVAL_MINUTEN,
         },
-        /** Subscription package: basic | professional | enterprise */
         subscription_plan: {
             type: String,
             enum: ['basic', 'professional', 'enterprise'],
             default: 'professional',
             index: true,
         },
-        /**
-         * Finance Sonderkonditionen (prototype elaya_studio_konditionen).
-         * null = use package default (Starter/Pro/Network mapped from subscription_plan).
-         */
+        
         preis_override: {
             type: Number,
             default: null,
@@ -319,15 +297,11 @@ const studioSchema = new mongoose.Schema(
             type: Date,
             default: null,
         },
-        /**
-         * Per-feature overrides on top of plan defaults.
-         * true = force enable, false = force disable, omit = use plan.
-         */
+        
         feature_overrides: {
             type: mongoose.Schema.Types.Mixed,
             default: {},
         },
-        /** Stripe Connect Express account id (acct_…) */
         stripe_account_id: {
             type: String,
             trim: true,

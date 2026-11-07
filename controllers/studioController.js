@@ -31,6 +31,8 @@ const formatStandort = (doc) => {
 
 const formatRaum = (doc) => {
     const r = doc.toObject ? doc.toObject() : doc;
+    const { roomLaserIds } = require('../utils/studioLaserInventory');
+    const ids = roomLaserIds(r);
     return {
         id: String(r._id),
         name: r.name,
@@ -38,7 +40,8 @@ const formatRaum = (doc) => {
         aktiv: r.aktiv !== false,
         laser_brand: r.laser_brand ?? '',
         laser_model: r.laser_model ?? '',
-        laser_device_id: r.laser_device_id ? String(r.laser_device_id) : null,
+        laser_device_ids: ids,
+        laser_device_id: ids[0] || null,
         standort_id: r.standort_id ?? '',
     };
 };
@@ -153,35 +156,41 @@ const mapStandorteInput = (standorte = []) =>
 
 const mapRoomsInput = async (rooms = [], studio = null) => {
     const { assertActiveLaserDeviceId } = require('../utils/laserCatalogService');
-    const { studioHasLaser, syncInventoryFromRooms } = require('../utils/studioLaserInventory');
+    const {
+        studioHasLaser,
+        syncInventoryFromRooms,
+        roomLaserIds,
+    } = require('../utils/studioLaserInventory');
     if (studio) {
         await syncInventoryFromRooms(studio);
     }
     const mapped = [];
     for (const r of rooms) {
-        let laserBrand = '';
-        let laserModel = '';
-        let laserDeviceId = r.laser_device_id || null;
-        if (laserDeviceId) {
-            const device = await assertActiveLaserDeviceId(laserDeviceId);
+        const rawIds = roomLaserIds(r);
+        const resolvedIds = [];
+        const labels = [];
+        for (const rawId of rawIds) {
+            const device = await assertActiveLaserDeviceId(rawId);
             if (studio && !studioHasLaser(studio, device.id)) {
                 throw new ApiError(
                     400,
                     `Laser ${device.label} is not assigned to this studio. Request or assign it first.`
                 );
             }
-            laserBrand = device.manufacturer;
-            laserModel = device.model;
-            laserDeviceId = device.id;
+            if (!resolvedIds.includes(device.id)) {
+                resolvedIds.push(device.id);
+                labels.push(device.label);
+            }
         }
         mapped.push({
             ...(r.id && mongoose.Types.ObjectId.isValid(r.id) ? { _id: r.id } : {}),
             name: r.name,
             farbe: r.farbe ?? '#3B8BD4',
             aktiv: r.aktiv !== false,
-            laser_brand: laserBrand,
-            laser_model: laserModel,
-            laser_device_id: laserDeviceId,
+            laser_brand: labels.length ? labels.map((l) => l.split(' ')[0]).join(', ') : '',
+            laser_model: labels.join(' · '),
+            laser_device_ids: resolvedIds,
+            laser_device_id: resolvedIds[0] || null,
             standort_id: r.standort_id ?? '',
         });
     }

@@ -734,19 +734,20 @@ const validateElaycoinStudioCfg = (cfg = {}) => {
 
 const escapeRegex = (value) => String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
-/**
- * Catalog device for a treatment room. Colour deltas themselves are resolved by the engine
- * from session_prediction.laser_color_overrides[deviceId] — rooms only point at the device.
- */
+
 const laserDeviceIdFromRoom = async (room) => {
     if (!room) return null;
+    if (Array.isArray(room.laser_device_ids) && room.laser_device_ids.length) {
+        return String(room.laser_device_ids[0]);
+    }
     if (room.laser_device_id) return String(room.laser_device_id);
     const brand = String(room.laser_brand || '').trim();
     const model = String(room.laser_model || '').trim();
     if (!brand || !model) return null;
+    const firstModel = model.split('·')[0].trim();
     const device = await LaserDevice.findOne({
-        manufacturer: new RegExp(`^${escapeRegex(brand)}$`, 'i'),
-        model: new RegExp(`^${escapeRegex(model)}$`, 'i'),
+        manufacturer: new RegExp(`^${escapeRegex(brand.split(',')[0].trim())}$`, 'i'),
+        model: new RegExp(`^${escapeRegex(firstModel)}$`, 'i'),
     })
         .select('_id')
         .lean();

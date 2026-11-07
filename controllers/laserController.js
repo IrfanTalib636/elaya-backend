@@ -300,6 +300,26 @@ const assignLaserToStudioHandler = asyncHandler(async (req, res) => {
     });
 });
 
+const unassignLaserFromStudioHandler = asyncHandler(async (req, res) => {
+    if (!hasPermission(req.user, ADMIN_PERMISSIONS.MANAGE_LASER_CATALOG)) {
+        throw new ApiError(403, 'Missing manage_laser_catalog permission');
+    }
+    const studioId = req.body.studio_id;
+    const laserDeviceId = req.body.laser_device_id;
+    if (!studioId || !laserDeviceId) {
+        throw new ApiError(400, 'studio_id and laser_device_id are required');
+    }
+    const { unassignLaserFromStudio } = require('../utils/studioLaserInventory');
+    const result = await unassignLaserFromStudio({ studioId, laserDeviceId });
+    res.status(200).json({
+        success: true,
+        message: result.removed
+            ? 'Laser removed from studio'
+            : 'Laser was not assigned to this studio',
+        data: { removed: result.removed },
+    });
+});
+
 module.exports = {
     listLasers,
     getLaser,
@@ -310,4 +330,5 @@ module.exports = {
     listLaserRequests,
     resolveLaserRequest,
     assignLaserToStudioHandler,
+    unassignLaserFromStudioHandler,
 };

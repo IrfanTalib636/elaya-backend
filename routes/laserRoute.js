@@ -57,6 +57,8 @@ const assignSchema = z
     })
     .strict();
 
+const unassignSchema = assignSchema;
+
 router.get('/', protect, authorize(...studioAndAdmin), laserController.listLasers);
 router.get('/requests', protect, authorize(...adminRoles), laserController.listLaserRequests);
 router.get(
@@ -85,6 +87,13 @@ router.post(
     authorize(...adminRoles),
     validate(assignSchema),
     laserController.assignLaserToStudioHandler
+);
+router.post(
+    '/unassign-from-studio',
+    protect,
+    authorize(...adminRoles),
+    validate(unassignSchema),
+    laserController.unassignLaserFromStudioHandler
 );
 router.get('/:id', protect, authorize(...studioAndAdmin), laserController.getLaser);
 router.post(
