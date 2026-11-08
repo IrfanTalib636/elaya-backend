@@ -197,6 +197,16 @@ const submitCaseSignature = asyncHandler(async (req, res) => {
     const customerId = caseDoc.customer._id ?? caseDoc.customer;
     await syncCustomerPipeline(customerId);
 
+    let documents = [];
+    try {
+        const { recordSignedDocuments } = require('../services/caseDocumentService');
+        const locale = req.body?.locale === 'en' ? 'en' : 'de';
+        documents = await recordSignedDocuments(caseDoc, { locale });
+    } catch (err) {
+        // Signature itself succeeded — document generation failure must not roll it back.
+        console.error('[caseDocuments] failed to record signed PDFs', err?.message || err);
+    }
+
     const zones = caseDoc.zonen_aktiv
         ? await CaseZone.find({ case: caseDoc._id }).sort({ zonen_id: 1 })
         : [];
@@ -210,6 +220,12 @@ const submitCaseSignature = asyncHandler(async (req, res) => {
             anamnesis_signature_complete: !!caseDoc.unterschrift_anamnese?.zeitstempel,
             finalized: wasDraft,
             signature_bytes: buffer.length,
+            documents: documents.map((d) => ({
+                id: d._id.toString(),
+                type: d.type,
+                version: d.version,
+                title: d.title,
+            })),
         },
     });
 });

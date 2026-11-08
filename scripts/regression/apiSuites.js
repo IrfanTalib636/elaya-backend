@@ -851,6 +851,58 @@ const runApiSuites = async (ctx) => {
         return `both signatures stored (status ${res.status})`;
     });
 
+    await test('GET /cases/{id}/documents returns versioned signed PDFs', async () => {
+        const res = assertStatus(
+            await request('GET', `/cases/${ctx.caseA}/documents?locale=en`, { session: customer }),
+            200
+        );
+        const docs = res.body?.data?.documents || [];
+        assert(docs.length >= 2, `expected ≥2 documents, got ${docs.length}`);
+        const types = new Set(docs.map((d) => d.type));
+        assert(types.has('medical_anamnesis'), 'missing medical_anamnesis');
+        assert(types.has('consent_merkblatt'), 'missing consent_merkblatt');
+        assert(
+            docs.every((d) => d.status === 'signed' && d.version >= 1),
+            'docs must be signed with version ≥ 1'
+        );
+        ctx.docA = docs.find((d) => d.type === 'consent_merkblatt') || docs[0];
+        return `${docs.length} documents`;
+    });
+
+    await test('GET /cases/{id}/documents/{docId}/content returns a PDF', async () => {
+        assert(ctx.docA?.id, 'no document id from previous step');
+        const res = assertStatus(
+            await request(
+                'GET',
+                `/cases/${ctx.caseA}/documents/${ctx.docA.id}/content`,
+                { session: customer, raw: true }
+            ),
+            200
+        );
+        const buf = Buffer.isBuffer(res.body)
+            ? res.body
+            : Buffer.from(res.body || '');
+        assert(buf.slice(0, 4).toString() === '%PDF', 'response is not a PDF');
+        const contentType =
+            (typeof res.headers?.get === 'function'
+                ? res.headers.get('content-type')
+                : res.headers?.['content-type']) || '';
+        assert(String(contentType).includes('pdf'), 'content-type should be application/pdf');
+        return `${buf.length} bytes`;
+    });
+
+    await test('GET /customers/me/documents groups by case', async () => {
+        const res = assertStatus(
+            await request('GET', '/customers/me/documents?locale=en', { session: customer }),
+            200
+        );
+        const groups = res.body?.data?.groups || [];
+        assert(groups.length >= 1, 'expected at least one case group');
+        const flat = res.body?.data?.documents || [];
+        assert(flat.length >= 2, `expected ≥2 flat docs, got ${flat.length}`);
+        return `${groups.length} groups / ${flat.length} docs`;
+    });
+
     await test('prerequisites now allow a treatment booking', async () => {
         const res = assertStatus(
             await request('GET', `/cases/${ctx.caseA}/booking-precheck`, { session: customer }),

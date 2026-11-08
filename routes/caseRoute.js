@@ -3,6 +3,7 @@ const caseController = require('../controllers/caseController');
 const anamnesisController = require('../controllers/anamnesisController');
 const bookingPrecheckController = require('../controllers/bookingPrecheckController');
 const signatureController = require('../controllers/signatureController');
+const caseDocumentController = require('../controllers/caseDocumentController');
 const validateMiddleware = require('../middleware/validateMiddleware');
 const { protect, authorize } = require('../middleware/authMiddleware');
 const { createCaseSchema, updateCaseSchema, previewCasePricingSchema, estimateConfirmationSchema, availabilityQuerySchema, listCasesQuerySchema } = require('../validators/caseValidator');
@@ -736,6 +737,20 @@ router.post(
     requireFeature('unterschrift'),
     validateMiddleware(submitSignatureSchema),
     signatureController.submitCaseSignature
+);
+
+router.get(
+    '/:id/documents',
+    protect,
+    authorize(...caseAccessRoles),
+    caseDocumentController.listCaseDocuments
+);
+
+router.get(
+    '/:id/documents/:docId/content',
+    protect,
+    authorize(...caseAccessRoles),
+    caseDocumentController.getDocumentContent
 );
 
 /**

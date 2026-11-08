@@ -19,6 +19,7 @@ const {
     exportTransferProtocol,
     deleteMe,
 } = require('../controllers/customerMeController');
+const caseDocumentController = require('../controllers/caseDocumentController');
 const { USER_ROLES } = require('../config/constants');
 
 const router = express.Router();
@@ -228,6 +229,10 @@ router
 router
     .route('/me/transfer-protocol')
     .get(protect, authorize(USER_ROLES.CUSTOMER), exportTransferProtocol);
+
+router
+    .route('/me/documents')
+    .get(protect, authorize(USER_ROLES.CUSTOMER), caseDocumentController.listMyDocuments);
 
 /**
  * @swagger
