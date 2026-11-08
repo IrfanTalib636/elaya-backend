@@ -47,6 +47,7 @@ const FILE_PURPOSE = {
     CASE_INTAKE: 'case_intake',
     ZONE_PHOTO: 'zone_photo',
     SESSION_PROGRESS: 'session_progress',
+    SESSION_UNUSUAL_REACTION: 'session_unusual_reaction',
     NACHSORGE: 'nachsorge',
     MEDICAL_CLEARANCE: 'medical_clearance',
 };

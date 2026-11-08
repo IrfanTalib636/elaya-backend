@@ -4,6 +4,20 @@ const { paginationQueryFields } = require('./paginationValidator');
 
 const optionalTrimmedString = z.string().trim().optional();
 
+const ENDPOINT_REACTION_VALUES = [
+    'frosting',
+    'redness',
+    'swelling',
+    'pinpoint_bleeding',
+    'none',
+    'other',
+];
+
+const endpointReactionsSchema = z
+    .array(z.enum(ENDPOINT_REACTION_VALUES))
+    .optional()
+    .default([]);
+
 const zahlungSchema = z
     .object({
         betrag: z.number().min(0).optional(),
@@ -52,9 +66,17 @@ const sessionFieldsSchema = {
     pass_count: z.number().min(0).nullable().optional(),
     cooling_used: z.boolean().optional().default(false),
     endpoint_reaction: optionalTrimmedString.default(''),
+    endpoint_reactions: endpointReactionsSchema,
+    endpoint_reaction_note: optionalTrimmedString.default(''),
     pain_score_0_10: z.number().min(0).max(10).nullable().optional(),
     adverse_event_flag: z.boolean().optional().default(false),
     adverse_event_type: optionalTrimmedString.default(''),
+    unusual_immediate_reaction: z.boolean().optional().default(false),
+    unusual_reaction_type: optionalTrimmedString.default(''),
+    unusual_reaction_description: optionalTrimmedString.default(''),
+    unusual_reaction_photo_file_id: optionalTrimmedString.nullable().optional(),
+    unusual_reaction_action_taken: optionalTrimmedString.default(''),
+    unusual_reaction_treatment_stopped: z.boolean().optional().default(false),
     special_notes: optionalTrimmedString.default(''),
     removal_pct: z.number().min(0).max(100).nullable().optional(),
     verblassung_prozent: z.number().min(0).max(100).nullable().optional(),
@@ -111,9 +133,17 @@ const updateSessionSchema = z
         pass_count: z.number().min(0).nullable().optional(),
         cooling_used: z.boolean().optional(),
         endpoint_reaction: optionalTrimmedString,
+        endpoint_reactions: z.array(z.enum(ENDPOINT_REACTION_VALUES)).optional(),
+        endpoint_reaction_note: optionalTrimmedString,
         pain_score_0_10: z.number().min(0).max(10).nullable().optional(),
         adverse_event_flag: z.boolean().optional(),
         adverse_event_type: optionalTrimmedString,
+        unusual_immediate_reaction: z.boolean().optional(),
+        unusual_reaction_type: optionalTrimmedString,
+        unusual_reaction_description: optionalTrimmedString,
+        unusual_reaction_photo_file_id: optionalTrimmedString.nullable().optional(),
+        unusual_reaction_action_taken: optionalTrimmedString,
+        unusual_reaction_treatment_stopped: z.boolean().optional(),
         special_notes: optionalTrimmedString,
         removal_pct: z.number().min(0).max(100).nullable().optional(),
         verblassung_prozent: z.number().min(0).max(100).nullable().optional(),
@@ -147,4 +177,5 @@ module.exports = {
     createSessionSchema,
     updateSessionSchema,
     listSessionsQuerySchema,
+    ENDPOINT_REACTION_VALUES,
 };

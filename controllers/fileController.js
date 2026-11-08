@@ -15,6 +15,7 @@ const {
     stagingPath,
     caseIntakePath,
     sessionProgressPath,
+    sessionUnusualReactionPath,
     relativePath,
     writeBuffer,
     readFileBuffer,
@@ -224,6 +225,56 @@ const uploadSessionProgress = asyncHandler(async (req, res) => {
     });
 });
 
+const uploadSessionUnusualReaction = asyncHandler(async (req, res) => {
+    if (!req.file) {
+        throw new ApiError(400, 'No image file provided');
+    }
+
+    const sessionDoc = await Session.findById(req.params.sessionId);
+    if (!sessionDoc) throw new ApiError(404, 'Session not found');
+
+    await assertSessionAccess(req.user, sessionDoc);
+    await ensureUploadRoot();
+
+    const image = await preparedFile(req.file);
+    const absPath = sessionUnusualReactionPath(sessionDoc.studio, sessionDoc._id, image.mimeType);
+
+    const fileAsset = await saveUploadedFile({
+        buffer: image.buffer,
+        mimeType: image.mimeType,
+        originalName: req.file.originalname || '',
+        studioId: sessionDoc.studio,
+        customerId: sessionDoc.customer,
+        userId: req.user._id,
+        purpose: FILE_PURPOSE.SESSION_UNUSUAL_REACTION,
+        slot: 'unusual_reaction',
+        caseId: sessionDoc.case,
+        sessionId: sessionDoc._id,
+        status: FILE_STATUS.ACTIVE,
+        storageAbsolutePath: absPath,
+    });
+
+    await logFileAccess(fileAsset._id, req.user, FILE_AUDIT_ACTION.UPLOAD, req, {
+        session_id: sessionDoc._id.toString(),
+    });
+
+    sessionDoc.unusual_reaction_photo_file_id = fileAsset._id;
+    sessionDoc.unusual_immediate_reaction = true;
+    if (!sessionDoc.adverse_event_flag) {
+        sessionDoc.adverse_event_flag = true;
+    }
+    await sessionDoc.save();
+
+    res.status(201).json({
+        success: true,
+        message: 'Unusual reaction photo uploaded',
+        data: {
+            ...formatFileAsset(fileAsset),
+            file_id: fileAsset._id.toString(),
+        },
+    });
+});
+
 const getFileMeta = asyncHandler(async (req, res) => {
     const fileAsset = await FileAsset.findById(req.params.fileId);
     if (!fileAsset || fileAsset.status === FILE_STATUS.DELETED) {
@@ -286,6 +337,7 @@ module.exports = {
     uploadStaging,
     uploadCaseIntake,
     uploadSessionProgress,
+    uploadSessionUnusualReaction,
     getFileMeta,
     getFileContent,
     deleteStagingFile,

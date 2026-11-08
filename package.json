@@ -27,7 +27,8 @@
     "verify:account-deletion": "node scripts/verifyAccountDeletion.js",
     "verify:zone-tracking": "node scripts/verifyZoneTracking.js",
     "verify:laser-assignment": "node scripts/verifyStudioLaserAssignment.js",
-    "verify:case-documents": "node scripts/verifyCaseDocuments.js"
+    "verify:case-documents": "node scripts/verifyCaseDocuments.js",
+    "verify:session-outcome": "node scripts/verifySessionOutcome.js"
   },
   "keywords": [],
   "author": "",

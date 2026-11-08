@@ -101,13 +101,27 @@ const sessionSchema = new mongoose.Schema(
         pass_count: { type: Number, default: null, min: 0 },
         cooling_used: { type: Boolean, default: false },
         endpoint_reaction: { type: String, default: '' },
+        endpoint_reactions: {
+            type: [String],
+            default: [],
+        },
+        endpoint_reaction_note: { type: String, default: '' },
         pain_score_0_10: { type: Number, min: 0, max: 10, default: null },
         adverse_event_flag: { type: Boolean, default: false },
         adverse_event_type: { type: String, default: '' },
+        unusual_immediate_reaction: { type: Boolean, default: false },
+        unusual_reaction_type: { type: String, default: '' },
+        unusual_reaction_description: { type: String, default: '' },
+        unusual_reaction_photo_file_id: {
+            type: mongoose.Schema.Types.ObjectId,
+            ref: 'FileAsset',
+            default: null,
+        },
+        unusual_reaction_action_taken: { type: String, default: '' },
+        unusual_reaction_treatment_stopped: { type: Boolean, default: false },
         special_notes: { type: String, default: '' },
         removal_pct: { type: Number, min: 0, max: 100, default: null },
         verblassung_prozent: { type: Number, min: 0, max: 100, default: null },
-        /** Studio-only theoretical estimate when comparison_eligible is false (IT_Clarifications §8). */
         lightening_internal_pct: { type: Number, min: 0, max: 100, default: null },
         lightening_score: { type: Number, min: 0, max: 100, default: null },
         progress_direction: {

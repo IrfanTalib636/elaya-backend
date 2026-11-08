@@ -26,6 +26,7 @@ const { parsePagination, buildPaginationMeta } = require('../utils/pagination');
 const { APPOINTMENT_STATUS, APPOINTMENT_TYPE } = require('../config/constants');
 const { evaluateAndApplySessionLightening } = require('../utils/lighteningSessionService');
 const { emitAvailabilityChanged } = require('../sockets/availabilityEmit');
+const { applySessionOutcomeMirrors } = require('../utils/sessionOutcomeNormalize');
 
 const CUSTOMER_SESSION_SELECT =
     'case customer studio session_number treatment_date treatment_time removal_pct verblassung_prozent comparison_eligible uncertainty_level progress_direction lightening_confidence verblassung_ki fortschritt_foto_file_id is_draft is_no_show zonen_id createdAt updatedAt';
@@ -226,9 +227,19 @@ const formatSession = (doc, role, options = {}) => {
         pass_count: s.pass_count,
         cooling_used: s.cooling_used,
         endpoint_reaction: s.endpoint_reaction,
+        endpoint_reactions: Array.isArray(s.endpoint_reactions) ? s.endpoint_reactions : [],
+        endpoint_reaction_note: s.endpoint_reaction_note || '',
         pain_score_0_10: s.pain_score_0_10,
         adverse_event_flag: s.adverse_event_flag,
         adverse_event_type: s.adverse_event_type,
+        unusual_immediate_reaction: !!s.unusual_immediate_reaction,
+        unusual_reaction_type: s.unusual_reaction_type || '',
+        unusual_reaction_description: s.unusual_reaction_description || '',
+        unusual_reaction_photo_file_id: s.unusual_reaction_photo_file_id
+            ? String(s.unusual_reaction_photo_file_id)
+            : null,
+        unusual_reaction_action_taken: s.unusual_reaction_action_taken || '',
+        unusual_reaction_treatment_stopped: !!s.unusual_reaction_treatment_stopped,
         special_notes: s.special_notes,
         fortschritt_foto_data: s.fortschritt_foto_data,
         lightening_internal_pct: s.lightening_internal_pct ?? null,
@@ -364,7 +375,8 @@ const createSession = asyncHandler(async (req, res) => {
         throw new ApiError(403, 'Only studio staff or admins can record sessions');
     }
 
-    const { case_id, appointment_id, zahlung, ...fields } = req.body;
+    const { case_id, appointment_id, zahlung, ...rawFields } = req.body;
+    const fields = applySessionOutcomeMirrors(rawFields);
 
     const caseDoc = await Case.findById(case_id);
     if (!caseDoc) {
@@ -603,7 +615,8 @@ const updateSession = asyncHandler(async (req, res) => {
     const wasDraft = session.is_draft;
     const wasNoShow = session.is_no_show;
 
-    const { appointment_id, zahlung, zonen_id, ...fields } = req.body;
+    const { appointment_id, zahlung, zonen_id, ...rawFields } = req.body;
+    const fields = applySessionOutcomeMirrors(rawFields);
 
     if (appointment_id !== undefined) {
         const caseDoc = await Case.findById(session.case);

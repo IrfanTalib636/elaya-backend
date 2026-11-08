@@ -138,6 +138,42 @@ router.post(
 
 /**
  * @swagger
+ * /files/sessions/{sessionId}/unusual-reaction:
+ *   post:
+ *     summary: Upload photo of an unusual immediate reaction
+ *     tags: [Files]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: sessionId
+ *         required: true
+ *         schema:
+ *           type: string
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         multipart/form-data:
+ *           schema:
+ *             type: object
+ *             required: [file]
+ *             properties:
+ *               file:
+ *                 type: string
+ *                 format: binary
+ *     responses:
+ *       201:
+ *         description: Unusual reaction photo uploaded
+ */
+router.post(
+    '/sessions/:sessionId/unusual-reaction',
+    authorize(...fileController.uploadRoles),
+    handleUpload,
+    fileController.uploadSessionUnusualReaction
+);
+
+/**
+ * @swagger
  * /files/{fileId}:
  *   get:
  *     summary: Get file metadata (no image bytes)
