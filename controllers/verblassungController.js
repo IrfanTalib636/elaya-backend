@@ -31,6 +31,7 @@ const {
     resolveProgressFileIdForSession,
     resolveZoneBaselinePhotoId,
 } = require('../utils/lighteningSessionService');
+const { applySessionForecastToCase } = require('../utils/sessionForecastFromProgress');
 
 const clampPercent = (value) => {
     const n = Number(value);
@@ -305,6 +306,23 @@ const analyzeVerblassung = asyncHandler(async (req, res) => {
         }
         await sessionDoc.save();
         await syncCaseSessionStats(sessionDoc.case);
+
+        if (assessment.customer_progress_visible && assessment.percent_estimate != null) {
+            try {
+                const freshCase = await Case.findById(sessionDoc.case);
+                if (freshCase) {
+                    await applySessionForecastToCase(freshCase, {
+                        sessionsDone: freshCase.sessionsDone,
+                        actualFadePct: freshCase.removal ?? assessment.percent_estimate,
+                        comparisonEligible: assessment.comparison_eligible,
+                        customerProgressVisible: assessment.customer_progress_visible,
+                        sourceSessionId: sessionDoc._id,
+                    });
+                }
+            } catch (err) {
+                console.error('[SESSION_FORECAST] analyzeVerblassung:', err.message);
+            }
+        }
     }
 
     const forStudio = isStudio(req.user.role) || isAdmin(req.user.role);

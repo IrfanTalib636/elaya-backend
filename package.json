@@ -28,7 +28,8 @@
     "verify:zone-tracking": "node scripts/verifyZoneTracking.js",
     "verify:laser-assignment": "node scripts/verifyStudioLaserAssignment.js",
     "verify:case-documents": "node scripts/verifyCaseDocuments.js",
-    "verify:session-outcome": "node scripts/verifySessionOutcome.js"
+    "verify:session-outcome": "node scripts/verifySessionOutcome.js",
+    "verify:session-forecast": "node scripts/verifySessionForecast.js"
   },
   "keywords": [],
   "author": "",

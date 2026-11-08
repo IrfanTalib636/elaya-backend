@@ -36,6 +36,10 @@ const {
     syncDerivedIntakeFields,
 } = require('../utils/caseIntakeHelpers');
 const {
+    formatSessionForecastFields,
+    resolveBaselinePhotoFileId,
+} = require('../utils/sessionForecastFromProgress');
+const {
     linkCaseIntakeFiles,
     linkZonePhotoFiles,
 } = require('../services/fileAccessService');
@@ -136,6 +140,7 @@ const formatEstimateConfirmation = (confirmation, role) => {
 const formatCase = (caseDoc, zones, role, options = {}) => {
     const doc = caseDoc.toObject ? caseDoc.toObject() : { ...caseDoc };
     const prices = resolveDisplayedPrices(doc);
+    const forecast = formatSessionForecastFields(doc);
     const payload = {
         id: doc._id,
         caseId: doc.caseId,
@@ -159,6 +164,15 @@ const formatCase = (caseDoc, zones, role, options = {}) => {
         removal: doc.removal,
         healing: doc.healing,
         status: doc.status,
+        original_sessionsMin: forecast.original_sessionsMin,
+        original_sessionsMax: forecast.original_sessionsMax,
+        current_sessionsMin: forecast.current_sessionsMin,
+        current_sessionsMax: forecast.current_sessionsMax,
+        remaining_sessionsMin: forecast.remaining_sessionsMin,
+        remaining_sessionsMax: forecast.remaining_sessionsMax,
+        sessions_forecast_updated_at: forecast.sessions_forecast_updated_at,
+        sessions_forecast_meta: forecast.sessions_forecast_meta,
+        baseline_photo_file_id: resolveBaselinePhotoFileId(doc, zones || []),
         medical_flag_level: doc.medical_flag_level,
         open_medical_flags_count: doc.open_medical_flags_count ?? 0,
         anamnesis_complete: doc.anamnesis_complete ?? false,

@@ -27,6 +27,7 @@ const { APPOINTMENT_STATUS, APPOINTMENT_TYPE } = require('../config/constants');
 const { evaluateAndApplySessionLightening } = require('../utils/lighteningSessionService');
 const { emitAvailabilityChanged } = require('../sockets/availabilityEmit');
 const { applySessionOutcomeMirrors } = require('../utils/sessionOutcomeNormalize');
+const { applySessionForecastToCase } = require('../utils/sessionForecastFromProgress');
 
 const CUSTOMER_SESSION_SELECT =
     'case customer studio session_number treatment_date treatment_time removal_pct verblassung_prozent comparison_eligible uncertainty_level progress_direction lightening_confidence verblassung_ki fortschritt_foto_file_id is_draft is_no_show zonen_id createdAt updatedAt';
@@ -647,9 +648,10 @@ const updateSession = asyncHandler(async (req, res) => {
     }
 
     const caseDoc = await Case.findById(session.case);
+    let lighteningAssessment = null;
     if (caseDoc) {
         const enteredFade = fields.verblassung_prozent ?? fields.removal_pct;
-        await evaluateAndApplySessionLightening(session, caseDoc, {
+        lighteningAssessment = await evaluateAndApplySessionLightening(session, caseDoc, {
             visual_fade_pct:
                 enteredFade === undefined
                     ? undefined
@@ -663,6 +665,27 @@ const updateSession = asyncHandler(async (req, res) => {
     await session.save();
     await syncCaseSessionStats(session.case);
     await syncCustomerPipeline(session.customer);
+
+    if (
+        caseDoc &&
+        lighteningAssessment?.customer_progress_visible &&
+        lighteningAssessment.percent_estimate != null
+    ) {
+        try {
+            const freshCase = await Case.findById(session.case);
+            if (freshCase) {
+                await applySessionForecastToCase(freshCase, {
+                    sessionsDone: freshCase.sessionsDone,
+                    actualFadePct: freshCase.removal ?? lighteningAssessment.percent_estimate,
+                    comparisonEligible: lighteningAssessment.comparison_eligible,
+                    customerProgressVisible: lighteningAssessment.customer_progress_visible,
+                    sourceSessionId: session._id,
+                });
+            }
+        } catch (err) {
+            console.error('[SESSION_FORECAST] updateSession:', err.message);
+        }
+    }
 
     if (!session.is_draft) {
         await markAppointmentCompletedForSession(session);

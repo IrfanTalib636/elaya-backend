@@ -427,6 +427,28 @@ const caseSchema = new mongoose.Schema(
         calculated_pricePerSession: { type: Number, default: 0, min: 0 },
         calculated_sessionsMin: { type: Number, default: 0, min: 0 },
         calculated_sessionsMax: { type: Number, default: 0, min: 0 },
+        /** Frozen first commercial/displayed range before progress-based forecast. */
+        original_sessionsMin: { type: Number, default: null, min: 0 },
+        original_sessionsMax: { type: Number, default: null, min: 0 },
+        /** Live forecast after suitable AI fade analyses (does not overwrite studio confirmation). */
+        current_sessionsMin: { type: Number, default: null, min: 0 },
+        current_sessionsMax: { type: Number, default: null, min: 0 },
+        sessions_forecast_updated_at: { type: Date, default: null },
+        sessions_forecast_meta: {
+            type: new mongoose.Schema(
+                {
+                    pace: { type: String, default: '' },
+                    expected_fade_pct: { type: Number, default: null },
+                    actual_fade_pct: { type: Number, default: null },
+                    visibility_factor: { type: Number, default: null },
+                    sessions_done: { type: Number, default: null },
+                    lightening_delta: { type: Number, default: null },
+                    source_session_id: { type: String, default: '' },
+                },
+                { _id: false }
+            ),
+            default: null,
+        },
         akquise_quelle: {
             type: String,
             enum: Object.values(AKQUISE_QUELLE),
