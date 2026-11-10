@@ -73,7 +73,6 @@ const isOpenTreatmentAppointment = (appointment) =>
     !appointment.consultationOnly &&
     appointment.type !== APPOINTMENT_TYPE.BERATUNG;
 
-/** Close booked treatments that already have a documented session (stale "upcoming" rows). */
 const reconcileAppointmentsCoveredBySessions = async (appointments, sessions) => {
     const ids = new Set();
     const sessionsByCase = groupByCaseId(sessions);
@@ -170,7 +169,6 @@ const normalizePreSessionCheck = (check = {}) => {
 
     normalized.meds_provided = medsProvided;
 
-    // Empty meds → no intake date. Also drop invalid/epoch dates from null coercion.
     if (!normalized.medikamente.length) {
         normalized.medikament_datum = undefined;
     } else if (normalized.medikament_datum) {
@@ -205,8 +203,6 @@ const isLockoutDisabled = (caseDoc) => {
 };
 
 const mkSperre = (heute, typ, grund, bisDate, extra = {}) => {
-    // Condition locks (e.g. medical clearance) have no end date — never invent
-    // a far-future sentinel like +3650 days (that surfaced as ~2036 in the UI).
     if (extra.indefinite || bisDate == null) {
         return {
             typ,
@@ -381,28 +377,34 @@ const berechneAlleSperren = ({
                 ? new Date(Math.max(...futureAppointmentDates.map((d) => d.getTime())))
                 : null;
 
+        const priorLast =
+            activeCase.tc_prior_treatment === true && activeCase.tc_prior_last_treatment_date
+                ? startOfDay(activeCase.tc_prior_last_treatment_date)
+                : null;
+
+        const candidates = [];
+        if (latestSession) candidates.push({ date: latestSession, type: 'Sitzung' });
+        if (latestFutureAppt) candidates.push({ date: latestFutureAppt, type: 'Termin' });
+        if (priorLast) candidates.push({ date: priorLast, type: 'Vorbehandlung' });
+
         let latestRef = null;
         let referenceType = 'Sitzung';
-
-        if (latestSession && latestFutureAppt) {
-            if (latestFutureAppt.getTime() >= latestSession.getTime()) {
-                latestRef = latestFutureAppt;
-                referenceType = 'Termin';
-            } else {
-                latestRef = latestSession;
-            }
-        } else if (latestFutureAppt) {
-            latestRef = latestFutureAppt;
-            referenceType = 'Termin';
-        } else if (latestSession) {
-            latestRef = latestSession;
+        if (candidates.length > 0) {
+            candidates.sort((a, b) => b.date.getTime() - a.date.getTime());
+            latestRef = candidates[0].date;
+            referenceType = candidates[0].type;
         }
 
         if (latestRef && SAME_CASE_DAYS > 0) {
             const sameCaseUntil = addDays(latestRef, SAME_CASE_DAYS);
             if (sameCaseUntil > heute) {
                 const caseTitle = activeCase.tc_title || activeCase.bodyLabel || 'Dieser Case';
-                const refLabel = referenceType === 'Termin' ? 'Termin vom' : 'Sitzung vom';
+                const refLabel =
+                    referenceType === 'Termin'
+                        ? 'Termin vom'
+                        : referenceType === 'Vorbehandlung'
+                          ? 'Letzte Vorbehandlung vom'
+                          : 'Sitzung vom';
                 sperren.push(
                     mkSperre(
                         heute,
@@ -413,6 +415,7 @@ const berechneAlleSperren = ({
                             kategorie: 'same_case',
                             tage: SAME_CASE_DAYS,
                             case_name: caseTitle,
+                            reference_type: referenceType,
                         }
                     )
                 );
@@ -630,7 +633,6 @@ const berechneAlleSperren = ({
     return {
         sperren: activeSperren,
         frei_fenster: freiFenster,
-        // When clearance blocks treatment, do not expose a fake bookable date.
         fruehestes: blockedByClearanceLock ? null : fruehestesFromTimeLocks,
         fruehestes_after_clearance: fruehestesFromTimeLocks,
         treatment_blocked_by_clearance: blockedByClearanceLock,

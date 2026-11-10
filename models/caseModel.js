@@ -60,11 +60,6 @@ const unterschriftSchema = new mongoose.Schema(
     },
     { _id: false }
 );
-
-/**
- * Second signature, kept separate from `unterschrift` because it confirms the
- * correctness of the customer's medical anamnesis rather than the aftercare leaflet.
- */
 const unterschriftAnamneseSchema = new mongoose.Schema(
     {
         zeitstempel: { type: Date, default: null },
@@ -120,11 +115,6 @@ const studioFreigabeSchema = new mongoose.Schema(
     { _id: false }
 );
 
-/**
- * Studio confirmation of the AI price + session-range estimate.
- * While status is offen the server keeps recomputing the estimate from the
- * studio's pricing config; once bestaetigt/angepasst the confirmed values win.
- */
 const estimateConfirmationSchema = new mongoose.Schema(
     {
         status: {
@@ -205,7 +195,9 @@ const caseSchema = new mongoose.Schema(
         },
         tc_prior_treatment: { type: Boolean, default: null },
         tc_prior_treatment_count: { type: Number, min: 0, max: 99, default: null },
-        // TC_02 — properties
+        tc_prior_last_treatment_date: { type: Date, default: null },
+        tc_prior_studio: { type: String, default: '' },
+        elaya_tracking_started_at: { type: Date, default: null },
         tc_colors_present: { type: [String], default: [] },
         tc_density: {
             type: String,
@@ -239,9 +231,7 @@ const caseSchema = new mongoose.Schema(
             enum: [...Object.values(TC_TYPE), null],
             default: null,
         },
-        /** Legacy numeric age — optional; prefer tc_age_bucket from prototype wizard */
         tc_age_years: { type: Number, default: null },
-        // TC_03 — skin & risk
         skin_fitzpatrick_type: {
             type: String,
             enum: [...SKIN_FITZPATRICK_TYPE, null],
@@ -263,7 +253,6 @@ const caseSchema = new mongoose.Schema(
             enum: [...SUN_EXPOSURE, null],
             default: null,
         },
-        // TC_04 — lifestyle
         life_smoker: {
             type: String,
             enum: [...LIFE_SMOKER, null],
@@ -312,7 +301,6 @@ const caseSchema = new mongoose.Schema(
             enum: [...LIFE_NUTRITION, ...LIFE_NUTRITION_LEGACY, null],
             default: null,
         },
-        // TC_05 — goal
         tc_coverup: {
             type: String,
             enum: Object.values(TC_COVERUP),
@@ -324,7 +312,6 @@ const caseSchema = new mongoose.Schema(
             default: null,
         },
         goal_notes: { type: String, trim: true, default: '' },
-        // PMU_01–PMU_05 — prototype permanent-makeup intake
         pmu_type: {
             type: String,
             enum: [...PMU_TYPE, null],
@@ -376,7 +363,6 @@ const caseSchema = new mongoose.Schema(
             enum: [...LIFE_AFTERCARE, null],
             default: null,
         },
-        // TC_06 — photos (optional until upload service; store URL or ref string)
         photo_intake_main: { type: String, default: '' },
         photo_intake_detail: { type: String, default: '' },
         photo_marker: { type: String, default: '' },
@@ -384,7 +370,6 @@ const caseSchema = new mongoose.Schema(
             type: photoStdIntakeSchema,
             default: () => ({}),
         },
-        // Merkblatt PDF ref — optional until PDF service
         merkblatt_pdf: { type: String, default: '' },
         sessions: { type: Number, default: 0, min: 0 },
         sessionsMin: { type: Number, default: 0, min: 0 },
@@ -398,16 +383,13 @@ const caseSchema = new mongoose.Schema(
             default: CASE_STATUS.PENDING,
             index: true,
         },
-        /** Synced from anamnesis ampel — gruen | orange | rot | null */
         medical_flag_level: {
             type: String,
             enum: [...Object.values(MEDICAL_FLAG_LEVEL), null],
             default: null,
             index: true,
         },
-        /** Count of flagged anamnesis questions (orange + red) at last save */
         open_medical_flags_count: { type: Number, default: 0, min: 0 },
-        /** True after complete anamnesis PUT */
         anamnesis_complete: { type: Boolean, default: false, index: true },
         studio_freigabe: {
             type: studioFreigabeSchema,
@@ -418,19 +400,14 @@ const caseSchema = new mongoose.Schema(
             default: () => ({}),
         },
         lastSessionDate: { type: Date, default: null },
-        /** Engine flag — empty/unclear fields still calculate, but studio should review. */
         estimate_needs_review: { type: Boolean, default: false },
         estimate_review_triggers: { type: [String], default: [] },
-        /** Effective price per session (CHF) — AI estimate until studio confirms, then confirmed value. */
         pricePerSession: { type: Number, default: 0, min: 0 },
-        /** Immutable-from-studio AI snapshot; always updated by the pricing engine. */
         calculated_pricePerSession: { type: Number, default: 0, min: 0 },
         calculated_sessionsMin: { type: Number, default: 0, min: 0 },
         calculated_sessionsMax: { type: Number, default: 0, min: 0 },
-        /** Frozen first commercial/displayed range before progress-based forecast. */
         original_sessionsMin: { type: Number, default: null, min: 0 },
         original_sessionsMax: { type: Number, default: null, min: 0 },
-        /** Live forecast after suitable AI fade analyses (does not overwrite studio confirmation). */
         current_sessionsMin: { type: Number, default: null, min: 0 },
         current_sessionsMax: { type: Number, default: null, min: 0 },
         sessions_forecast_updated_at: { type: Date, default: null },
@@ -480,7 +457,6 @@ const caseSchema = new mongoose.Schema(
 caseSchema.index({ studio: 1, caseId: 1 }, { unique: true });
 caseSchema.index({ studio: 1, medical_flag_level: 1 });
 caseSchema.index({ customer: 1, status: 1 });
-/** Recent cases per customer — intake prefill reads the newest answers. */
 caseSchema.index({ customer: 1, createdAt: -1 });
 
 const Case = mongoose.model('Case', caseSchema);

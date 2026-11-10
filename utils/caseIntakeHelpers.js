@@ -13,9 +13,7 @@ const NUTRITION_ALIASES = {
     very_bad: 'poor',
 };
 
-/** Fields customers may set during the intake wizard (tattoo + PMU + sign-off). */
 const CUSTOMER_INTAKE_FIELDS = [
-    // TC_01
     'tc_title',
     'bodyLabel',
     'tc_body_location_main',
@@ -28,6 +26,8 @@ const CUSTOMER_INTAKE_FIELDS = [
     'tc_coverup',
     'tc_prior_treatment',
     'tc_prior_treatment_count',
+    'tc_prior_last_treatment_date',
+    'tc_prior_studio',
     // TC_02
     'tc_colors_present',
     'tc_density',
@@ -38,13 +38,11 @@ const CUSTOMER_INTAKE_FIELDS = [
     'tc_size_length',
     'tc_size_width',
     'zonen',
-    // TC_03
     'skin_fitzpatrick_type',
     'skin_fitzpatrick',
     'skin_hyperpig_risk',
     'skin_keloid_risk',
     'skin_sun_zone',
-    // TC_04
     'life_smoker',
     'life_cig_per_day',
     'life_alcohol',
@@ -58,10 +56,8 @@ const CUSTOMER_INTAKE_FIELDS = [
     'life_hydration',
     'life_nutrition',
     'life_aftercare_commitment',
-    // TC_05
     'goal_target',
     'goal_notes',
-    // PMU_01–PMU_05
     'pmu_type',
     'pmu_side',
     'pmu_age_range',
@@ -76,37 +72,24 @@ const CUSTOMER_INTAKE_FIELDS = [
     'has_shading',
     'has_linework',
     'paradox_darkening_acknowledged',
-    // TC_06 — optional until upload API
     'photo_intake_main',
     'photo_intake_detail',
     'photo_marker',
     'photo_std_intake',
-    // TC_08–09 — optional until PDF service
     'unterschrift',
     'merkblatt_pdf',
     'status',
-    // KI/pricing outputs (customer may receive from pricing step)
     'sessions',
     'sessionsMin',
     'sessionsMax',
     'pricePerSession',
 ];
 
-/**
- * Person-level intake fields that stay valid across cases, so a returning
- * customer can reuse them instead of re-answering. Each new case still stores
- * its own copy, keeping the values that were true at creation time traceable.
- *
- * `skin_sun_zone` is deliberately excluded: it describes how exposed the
- * treated body area is, which differs per tattoo.
- */
 const CARRY_OVER_INTAKE_FIELDS = [
-    // TC_03 — skin & risk
     'skin_fitzpatrick_type',
     'skin_fitzpatrick',
     'skin_hyperpig_risk',
     'skin_keloid_risk',
-    // TC_04 — lifestyle & body
     'life_smoker',
     'life_cig_per_day',
     'life_alcohol',
@@ -157,14 +140,13 @@ const syncDerivedIntakeFields = (fields) => {
 
     if (next.tc_prior_treatment === false) {
         next.tc_prior_treatment_count = null;
+        next.tc_prior_last_treatment_date = null;
+        next.tc_prior_studio = '';
     }
 
     if (next.previously_lasered === false) {
         next.lasered_notes = '';
     }
-
-    // Only when the patch actually touches the smoker answer — otherwise an
-    // unrelated partial update would wipe a stored cigarette count.
     if ('life_smoker' in next && !['daily_light', 'daily_heavy'].includes(next.life_smoker)) {
         next.life_cig_per_day = null;
     }

@@ -58,6 +58,9 @@ const INTAKE_RESPONSE_FIELDS = [
     'tc_age_bucket',
     'tc_prior_treatment',
     'tc_prior_treatment_count',
+    'tc_prior_last_treatment_date',
+    'tc_prior_studio',
+    'elaya_tracking_started_at',
     'tc_density',
     'tc_saturation',
     'tc_shading',
@@ -161,6 +164,9 @@ const formatCase = (caseDoc, zones, role, options = {}) => {
         sessionsMin: doc.sessionsMin,
         sessionsMax: doc.sessionsMax,
         sessionsDone: doc.sessionsDone,
+        elaya_sessions_done: doc.sessionsDone ?? 0,
+        prior_treatments_before_elaya:
+            doc.tc_prior_treatment === true ? doc.tc_prior_treatment_count ?? 0 : 0,
         removal: doc.removal,
         healing: doc.healing,
         status: doc.status,
@@ -185,7 +191,6 @@ const formatCase = (caseDoc, zones, role, options = {}) => {
         updatedAt: doc.updatedAt,
     };
 
-    // Shared Case Layer: case originated at another studio, now visible here
     if (options.viewerStudioId && refId(doc.studio) !== refId(options.viewerStudioId)) {
         payload.transferiert = true;
         payload.herkunft_studio_id = refId(doc.studio);
@@ -257,12 +262,10 @@ const formatCase = (caseDoc, zones, role, options = {}) => {
                 flaeche_cm2: zone.flaeche_cm2,
                 foto_url: zone.foto_url,
                 fortschritt_prozent: zone.fortschritt_prozent,
-                // Each zone has its own session log, so it reports its own
-                // count and last treatment date.
+                
                 sitzungen_erledigt: zone.sitzungen_erledigt ?? 0,
                 letzte_sitzung: zone.letzte_sitzung ?? null,
-                // The customer measures each zone, so they also see what it
-                // costs and how many sessions it is expected to take.
+                
                 preis: zone.preis,
                 sitzungen_geschaetzt_min: zone.sitzungen_geschaetzt_min,
                 sitzungen_geschaetzt_max: zone.sitzungen_geschaetzt_max,
@@ -318,15 +321,9 @@ const zoneAreaCm2 = (zone) => {
     const length = Number(zone.laenge_cm);
     const width = Number(zone.breite_cm);
     if (!(length > 0) || !(width > 0)) return null;
-    // One decimal, matching how the engine rounds a single-tattoo area.
     return Math.round(length * width * 10) / 10;
 };
 
-/**
- * Stamps a stable `zonen_id` on every zone and derives its area from the
- * measured dimensions. Runs before photo linking so each zone's file lands in
- * its own slot, and before pricing so the engine sees the area.
- */
 const normalizeZoneInput = (zonenInput) =>
     zonenInput.map((zone, index) => ({
         ...zone,
@@ -364,10 +361,6 @@ const syncCaseZones = async (caseDoc, zonenInput, user, req) => {
     }
 
     const normalized = normalizeZoneInput(zonenInput);
-
-    // Zone rows are replaced wholesale, so carry over the photo of any zone the
-    // payload leaves blank — otherwise editing e.g. a zone name would silently
-    // drop the fading reference shot.
     const existing = await CaseZone.find({ case: caseDoc._id }).lean();
     const photoByZoneId = new Map(
         existing.filter((z) => z.foto_url).map((z) => [z.zonen_id, z.foto_url])
@@ -377,15 +370,12 @@ const syncCaseZones = async (caseDoc, zonenInput, user, req) => {
         foto_url: zone.foto_url || photoByZoneId.get(zone.zonen_id) || '',
     }));
 
-    // Link on update too, not just on create: a photo added while editing would
-    // otherwise stay an unlinked staging file and expire.
     const linked = await linkZonePhotoFiles(caseDoc, withPhotos, user, req);
 
     await CaseZone.deleteMany({ case: caseDoc._id });
     return CaseZone.insertMany(buildZoneDocs(caseDoc._id, linked));
 };
 
-/** Intake fields that feed the price / session-range estimate. */
 const ESTIMATE_RELEVANT_FIELDS = [
     'type',
     'tc_colors_present',
@@ -403,6 +393,8 @@ const ESTIMATE_RELEVANT_FIELDS = [
     'tc_coverup',
     'tc_prior_treatment',
     'tc_prior_treatment_count',
+    'tc_prior_last_treatment_date',
+    'tc_prior_studio',
     'skin_fitzpatrick',
     'skin_fitzpatrick_type',
     'skin_sun_zone',
@@ -433,7 +425,6 @@ const ESTIMATE_RELEVANT_FIELDS = [
     'photo_std_intake',
 ];
 
-/** Server-computed estimate fields — clients may not force these directly. */
 const ESTIMATE_OUTPUT_FIELDS = ['sessions', 'sessionsMin', 'sessionsMax', 'pricePerSession'];
 
 const isEstimateConfirmed = (caseDoc) =>
@@ -503,11 +494,6 @@ const touchesEstimateInput = (body) =>
     ESTIMATE_RELEVANT_FIELDS.some((field) => body[field] !== undefined) ||
     ESTIMATE_OUTPUT_FIELDS.some((field) => body[field] !== undefined);
 
-/**
- * Recompute + persist the AI estimate (price per session + session range)
- * from the owning studio's pricing config. Once the studio has confirmed or
- * adjusted the estimate, the confirmed values win and are never overwritten.
- */
 const refreshCaseEstimate = async (caseDoc, zoneDocs = null) => {
     const pricingInput = caseDoc.toObject ? caseDoc.toObject() : { ...caseDoc };
 
@@ -524,8 +510,6 @@ const refreshCaseEstimate = async (caseDoc, zoneDocs = null) => {
     applyCalculatedPreview(caseDoc, preview);
     await caseDoc.save();
 
-    // The engine returns a price and session range per zone; persist them so
-    // each zone card can show its own estimate instead of a zero.
     if (zones?.length && Array.isArray(preview.zonen)) {
         await Promise.all(
             zones.map((zone, index) => {
@@ -543,8 +527,6 @@ const refreshCaseEstimate = async (caseDoc, zoneDocs = null) => {
                 );
             })
         );
-        // Callers format the response from these docs, so hand back the
-        // persisted values rather than the pre-update copies.
         return CaseZone.find({ case: caseDoc._id }).sort({ zonen_id: 1 }).lean();
     }
 
@@ -609,6 +591,7 @@ const createCase = asyncHandler(async (req, res) => {
             studio: studioId,
             caseId,
             akquise_quelle: caseFields.akquise_quelle ?? customer.akquise_quelle,
+            elaya_tracking_started_at: caseFields.elaya_tracking_started_at || new Date(),
         });
 
         const linkedPhotos = await linkCaseIntakeFiles(
@@ -628,8 +611,6 @@ const createCase = asyncHandler(async (req, res) => {
         }
 
         if (zonen.length > 0) {
-            // Normalize first so each zone has its zonen_id before linking —
-            // the id becomes the photo's storage slot.
             const linkedZones = await linkZonePhotoFiles(
                 caseDoc,
                 normalizeZoneInput(zonen),
@@ -639,8 +620,6 @@ const createCase = asyncHandler(async (req, res) => {
             zoneDocs = await CaseZone.insertMany(buildZoneDocs(caseDoc._id, linkedZones));
         }
 
-        // Persist the AI estimate (price + session range) for BOTH tattoo and
-        // PMU cases, computed from the owning studio's pricing configuration.
         zoneDocs = (await refreshCaseEstimate(caseDoc, zoneDocs)) ?? zoneDocs;
     } catch (error) {
         if (caseDoc?._id) {
@@ -661,14 +640,9 @@ const createCase = asyncHandler(async (req, res) => {
     });
 });
 
-/** How far back to look for a still-valid answer to each intake question. */
 const PREFILL_LOOKBACK_CASES = 10;
 
-/**
- * Person-level intake answers from the customer's most recent case, so a
- * returning customer can review and reuse them instead of re-answering.
- * The new case still stores its own copy of whatever is confirmed.
- */
+
 const getCaseIntakePrefill = asyncHandler(async (req, res) => {
     let customerId;
 
@@ -683,12 +657,8 @@ const getCaseIntakePrefill = asyncHandler(async (req, res) => {
         throw new ApiError(403, 'You do not have permission to read intake prefill');
     }
 
-    // Kept to a plain customer + recency lookup so it can use the
-    // { customer, createdAt } index; cases without answers simply contribute
-    // nothing when the fields are merged below.
     const filter = { customer: customerId };
 
-    // Never offer the case currently being filled in as its own source.
     if (req.query.exclude_case_id) {
         filter._id = { $ne: req.query.exclude_case_id };
     }
@@ -697,8 +667,6 @@ const getCaseIntakePrefill = asyncHandler(async (req, res) => {
         filter.studio = req.user.studio_id;
     }
 
-    // Look across the last few cases so a question answered two cases ago is
-    // still offered when the newest case happens to have skipped it.
     const recentCases = await Case.find(filter)
         .sort({ createdAt: -1 })
         .limit(PREFILL_LOOKBACK_CASES)
@@ -722,7 +690,6 @@ const getCaseIntakePrefill = asyncHandler(async (req, res) => {
         for (const field of CARRY_OVER_INTAKE_FIELDS) {
             const value = candidate[field];
             if (value === null || value === undefined) continue;
-            // Newest case wins, so only fill gaps left by later cases.
             if (!(field in fields)) {
                 fields[field] = value;
                 source = source ?? candidate;
@@ -848,7 +815,6 @@ const getCase = asyncHandler(async (req, res) => {
     if (access.transferiert) formatted.transferiert = true;
     if (access.read_only) formatted.read_only = true;
 
-    // Customer-level medical clearance — visible on every tattoo case
     let medical_clearance = null;
     try {
         const { serializeClearance } = require('../utils/medicalClearanceService');
@@ -886,9 +852,6 @@ const updateCase = asyncHandler(async (req, res) => {
         }
     }
 
-    // Estimate outputs are server-computed (and studio-confirmed values are
-    // immutable) — ignore any client-sent values; refreshCaseEstimate below
-    // recomputes them from the studio's pricing config when still offen.
     const touchedEstimate = touchesEstimateInput(req.body);
     ESTIMATE_OUTPUT_FIELDS.forEach((field) => {
         delete req.body[field];
@@ -938,10 +901,6 @@ const updateCase = asyncHandler(async (req, res) => {
     });
 });
 
-/**
- * Customer (or studio/admin) may delete an incomplete intake case that was never signed.
- * Used to clean up orphan drafts created when Basics is submitted more than once.
- */
 const deleteIncompleteCase = asyncHandler(async (req, res) => {
     const caseDoc = await Case.findById(req.params.id);
 
@@ -1015,11 +974,6 @@ const getCaseAvailability = asyncHandler(async (req, res) => {
     });
 });
 
-/**
- * Bookable locations of the case's studio, plus where the customer last booked
- * and was last treated. Switching between these is a free choice for the
- * customer: the owning studio never changes, so no transfer request applies.
- */
 const getCaseStandorte = asyncHandler(async (req, res) => {
     const caseDoc = await Case.findById(req.params.id);
 
@@ -1070,7 +1024,6 @@ const getCaseStandorte = asyncHandler(async (req, res) => {
 
     const lastBookedId = lastAppointment?.standort_id || '';
     const lastTreatedId = lastSession?.standort_id || '';
-    // "Last used" prefers the most recent of the two signals.
     const lastUsedId =
         lastBookedId && lastTreatedId
             ? new Date(lastSession.treatment_date) > new Date(lastAppointment.date)
@@ -1108,7 +1061,6 @@ const getCaseStandorte = asyncHandler(async (req, res) => {
                 ort: studio.ort ?? '',
             },
             standorte,
-            /** Customers only need to choose when there is more than one option. */
             auswahl_erforderlich: standorte.length > 1,
             last_used_standort_id: lastUsedId,
             last_booked_standort_id: lastBookedId,
@@ -1160,11 +1112,6 @@ const getCasePricing = asyncHandler(async (req, res) => {
     });
 });
 
-/**
- * PATCH /cases/:id/estimate-confirmation — studio confirms (or adjusts) the
- * AI price + session-range estimate directly inside the customer's case.
- * The customer is notified automatically via the internal live chat.
- */
 const updateEstimateConfirmation = asyncHandler(async (req, res) => {
     if (isCustomer(req.user.role)) {
         throw new ApiError(403, 'Only studio staff or admin can confirm estimates');
@@ -1182,7 +1129,6 @@ const updateEstimateConfirmation = asyncHandler(async (req, res) => {
     const label = req.user?.email || 'Studio';
 
     if (status === ESTIMATE_CONFIRMATION_STATUS.OFFEN) {
-        // Re-open: estimate becomes AI-driven again and is recomputed.
         caseDoc.estimate_confirmation = {
             status: ESTIMATE_CONFIRMATION_STATUS.OFFEN,
             pricePerSession: null,
@@ -1251,7 +1197,6 @@ const updateEstimateConfirmation = asyncHandler(async (req, res) => {
     };
     caseDoc.markModified('estimate_confirmation');
 
-    // Confirmed values become the case values shown everywhere.
     caseDoc.pricePerSession = confirmedPrice;
     caseDoc.sessionsMin = confirmedMin;
     caseDoc.sessionsMax = confirmedMax;
@@ -1284,8 +1229,6 @@ const updateEstimateConfirmation = asyncHandler(async (req, res) => {
 
     await caseDoc.save();
 
-    // Live-chat notification to the customer (best effort — the confirmation
-    // itself must not fail if messaging is unavailable).
     let chatNotified = false;
     try {
         const conversation = await messagingService.getOrCreateConversation(req.user, {

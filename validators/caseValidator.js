@@ -102,7 +102,6 @@ const caseZoneInputSchema = z.object({
     sitzungen_geschaetzt_max: z.number().min(0).optional().default(0),
 });
 
-/** Shared intake fields — prototype TC_01–TC_06 + PMU_01–05 + TC_08–09 (all optional on create). */
 const caseIntakeFieldsSchema = {
     tc_title: optionalTrimmedString.default(''),
     bodyLabel: optionalTrimmedString.default(''),
@@ -112,6 +111,11 @@ const caseIntakeFieldsSchema = {
     tc_age_bucket: z.enum(TC_AGE_BUCKET).nullable().optional(),
     tc_prior_treatment: z.boolean().nullable().optional(),
     tc_prior_treatment_count: z.number().min(0).max(99).nullable().optional(),
+    tc_prior_last_treatment_date: z.preprocess(
+        (value) => (value === null || value === '' || value === undefined ? null : value),
+        z.coerce.date().nullable().optional()
+    ),
+    tc_prior_studio: optionalTrimmedString.default(''),
     tc_colors_present: z.array(z.string().trim()).optional().default([]),
     tc_density: z.enum(QUALITY_LEVEL).nullable().optional(),
     tc_saturation: z.enum(QUALITY_LEVEL).nullable().optional(),
@@ -165,7 +169,37 @@ const caseIntakeFieldsSchema = {
     unterschrift: unterschriftSchema,
 };
 
-const createCaseSchema = z.object({
+const priorTreatmentRefine = (data, ctx) => {
+    if (data.tc_prior_treatment !== true) return;
+    const count = data.tc_prior_treatment_count;
+    if (count == null || Number(count) < 1) {
+        ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ['tc_prior_treatment_count'],
+            message: 'Prior treatment count is required when prior treatment is yes',
+        });
+    }
+    if (!data.tc_prior_last_treatment_date) {
+        ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ['tc_prior_last_treatment_date'],
+            message: 'Last treatment date is required when prior treatment is yes',
+        });
+        return;
+    }
+    const last = new Date(data.tc_prior_last_treatment_date);
+    const today = new Date();
+    today.setHours(23, 59, 59, 999);
+    if (Number.isNaN(last.getTime()) || last > today) {
+        ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ['tc_prior_last_treatment_date'],
+            message: 'Last treatment date must be today or earlier',
+        });
+    }
+};
+
+const createCaseObjectSchema = z.object({
     customer_id: z.string().trim().optional(),
     type: caseTypeEnum.default(CASE_TYPE.TATTOO),
     status: caseStatusEnum.optional(),
@@ -177,6 +211,8 @@ const createCaseSchema = z.object({
     zonen_aktiv: z.boolean().optional().default(false),
     zonen: z.array(caseZoneInputSchema).max(8).optional().default([]),
 });
+
+const createCaseSchema = createCaseObjectSchema.superRefine(priorTreatmentRefine);
 
 const updateCaseSchema = z
     .object({
@@ -211,9 +247,9 @@ const updateCaseSchema = z
     })
     .refine((data) => Object.keys(data).length > 0, {
         message: 'At least one field is required to update',
-    });
+    })
+    .superRefine(priorTreatmentRefine);
 
-/** null / '' must not become Date(0) via z.coerce.date() */
 const optionalNullableDate = z.preprocess(
     (value) => (value === null || value === '' || value === undefined ? undefined : value),
     z.coerce.date().optional()
@@ -261,7 +297,9 @@ const listCasesQuerySchema = z.object({
         .transform((v) => v === true || v === 'true' || v === '1'),
 });
 
-const previewCasePricingSchema = createCaseSchema.omit({ customer_id: true });
+const previewCasePricingSchema = createCaseObjectSchema
+    .omit({ customer_id: true })
+    .superRefine(priorTreatmentRefine);
 
 const estimateConfirmationSchema = z.object({
     status: z.enum(Object.values(ESTIMATE_CONFIRMATION_STATUS)),
