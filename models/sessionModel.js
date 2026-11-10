@@ -54,7 +54,6 @@ const sessionSchema = new mongoose.Schema(
         standort_name: { type: String, default: '' },
         mitarbeiter_id: { type: String, default: '' },
         mitarbeiter_name: { type: String, default: '' },
-        /** Logged-in ELAYA user who entered this session (auto-set). */
         documented_by_user: {
             type: mongoose.Schema.Types.ObjectId,
             ref: 'User',
@@ -67,7 +66,6 @@ const sessionSchema = new mongoose.Schema(
         raum_name: { type: String, default: '' },
         dauer_minuten: { type: Number, default: null, min: 0 },
         laser_id: { type: String, default: '' },
-        /** Platform catalog device used for this session (preferred over free-text). */
         laser_device_id: {
             type: mongoose.Schema.Types.ObjectId,
             ref: 'LaserDevice',
@@ -78,10 +76,6 @@ const sessionSchema = new mongoose.Schema(
         studio_laser_model: { type: String, default: '' },
         laser_typ: { type: String, default: '' },
         wavelength_nm: { type: [Number], default: [] },
-        /**
-         * Per-wavelength treatment parameters. Preferred over the single
-         * fluence/spot/freq/passes fields below (kept for legacy reads).
-         */
         wavelength_entries: {
             type: [
                 {
@@ -150,9 +144,13 @@ const sessionSchema = new mongoose.Schema(
         photo_same_angle: { type: Boolean, default: null },
         photo_same_distance: { type: Boolean, default: null },
         photo_comparable_light: { type: Boolean, default: null },
-        /** Legacy string / optional file id string; prefer fortschritt_foto_file_id */
         fortschritt_foto_data: { type: String, default: '' },
         fortschritt_foto_file_id: {
+            type: mongoose.Schema.Types.ObjectId,
+            ref: 'FileAsset',
+            default: null,
+        },
+        post_treatment_foto_file_id: {
             type: mongoose.Schema.Types.ObjectId,
             ref: 'FileAsset',
             default: null,
@@ -178,15 +176,9 @@ const sessionSchema = new mongoose.Schema(
             lightening_score: { type: Number, default: null },
             progress_direction: { type: String, default: '' },
         },
-        /** Audit only — never return to clients */
         verblassung_raw_ai: { type: mongoose.Schema.Types.Mixed, default: null },
         is_draft: { type: Boolean, default: false },
         is_no_show: { type: Boolean, default: false },
-        /**
-         * Zone this treatment belongs to, matching `CaseZone.zonen_id` ("Z001").
-         * Required for zone cases, `null` for single-tattoo cases. Each zone
-         * keeps its own session numbering, session log and fading series.
-         */
         zonen_id: { type: String, default: null, index: true },
         zahlung: {
             type: zahlungSchema,
@@ -198,9 +190,6 @@ const sessionSchema = new mongoose.Schema(
     }
 );
 
-// Session numbers run per zone, so two zones of the same tattoo can both have a
-// session 1. For single-tattoo cases `zonen_id` is null, which keeps the
-// original one-number-per-case guarantee.
 sessionSchema.index({ case: 1, zonen_id: 1, session_number: 1 }, { unique: true });
 sessionSchema.index({ case: 1, treatment_date: -1 });
 sessionSchema.index({ studio: 1, treatment_date: -1, is_draft: 1, is_no_show: 1 });

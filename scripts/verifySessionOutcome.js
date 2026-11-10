@@ -250,7 +250,15 @@ const runModelAndPurpose = () => {
     );
     check(
         FILE_PURPOSE.SESSION_PROGRESS === 'session_progress',
-        'progress purpose unchanged (no new purpose for post photo)'
+        'progress purpose unchanged (pre-treatment / AI)'
+    );
+    check(
+        FILE_PURPOSE.SESSION_POST_TREATMENT === 'session_post_treatment',
+        'SESSION_POST_TREATMENT registered (reaction docs only)'
+    );
+    check(
+        !!paths.post_treatment_foto_file_id,
+        'Session schema has post_treatment_foto_file_id'
     );
 };
 

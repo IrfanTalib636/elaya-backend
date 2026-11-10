@@ -38,6 +38,11 @@ const sessionUnusualReactionPath = (studioId, sessionId, mimeType) => {
     return path.join(studioDir(studioId), 'sessions', sessionId.toString(), `unusual${ext}`);
 };
 
+const sessionPostTreatmentPath = (studioId, sessionId, mimeType) => {
+    const ext = MIME_EXTENSIONS[mimeType] || '.bin';
+    return path.join(studioDir(studioId), 'sessions', sessionId.toString(), `post${ext}`);
+};
+
 const medicalClearancePath = (studioId, customerId, fileId, mimeType) => {
     const ext = MIME_EXTENSIONS[mimeType] || '.bin';
     return path.join(
@@ -113,6 +118,7 @@ module.exports = {
     caseIntakePath,
     sessionProgressPath,
     sessionUnusualReactionPath,
+    sessionPostTreatmentPath,
     medicalClearancePath,
     relativePath,
     absolutePath,

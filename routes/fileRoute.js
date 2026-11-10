@@ -138,6 +138,42 @@ router.post(
 
 /**
  * @swagger
+ * /files/sessions/{sessionId}/post-treatment:
+ *   post:
+ *     summary: Upload immediate post-treatment reaction photo (not used for AI fading)
+ *     tags: [Files]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: sessionId
+ *         required: true
+ *         schema:
+ *           type: string
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         multipart/form-data:
+ *           schema:
+ *             type: object
+ *             required: [file]
+ *             properties:
+ *               file:
+ *                 type: string
+ *                 format: binary
+ *     responses:
+ *       201:
+ *         description: Post-treatment photo uploaded
+ */
+router.post(
+    '/sessions/:sessionId/post-treatment',
+    authorize(...fileController.uploadRoles),
+    handleUpload,
+    fileController.uploadSessionPostTreatment
+);
+
+/**
+ * @swagger
  * /files/sessions/{sessionId}/unusual-reaction:
  *   post:
  *     summary: Upload photo of an unusual immediate reaction

@@ -30,7 +30,7 @@ const { applySessionOutcomeMirrors } = require('../utils/sessionOutcomeNormalize
 const { applySessionForecastToCase } = require('../utils/sessionForecastFromProgress');
 
 const CUSTOMER_SESSION_SELECT =
-    'case customer studio session_number treatment_date treatment_time removal_pct verblassung_prozent comparison_eligible uncertainty_level progress_direction lightening_confidence verblassung_ki fortschritt_foto_file_id is_draft is_no_show zonen_id createdAt updatedAt';
+    'case customer studio session_number treatment_date treatment_time removal_pct verblassung_prozent comparison_eligible uncertainty_level progress_direction lightening_confidence verblassung_ki fortschritt_foto_file_id post_treatment_foto_file_id is_draft is_no_show zonen_id createdAt updatedAt';
 
 /**
  * Resolve catalog laser + per-wavelength entries. Fills legacy wavelength_nm /
@@ -183,6 +183,9 @@ const formatSession = (doc, role, options = {}) => {
         ki_analysis_available: Number(s.session_number) >= 2,
         fortschritt_foto_file_id: s.fortschritt_foto_file_id
             ? String(s.fortschritt_foto_file_id)
+            : null,
+        post_treatment_foto_file_id: s.post_treatment_foto_file_id
+            ? String(s.post_treatment_foto_file_id)
             : null,
         is_draft: s.is_draft,
         is_no_show: s.is_no_show,
