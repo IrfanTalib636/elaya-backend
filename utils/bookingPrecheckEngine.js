@@ -5,6 +5,7 @@ const {
     resolveSperrfristen,
 } = require('./lockoutEngine');
 const { computeAmpel } = require('./anamnesisEngine');
+const { t, messagePair, labelPair } = require('./bookingPrecheckI18n');
 
 const addDays = (date, days) => {
     const d = new Date(date);
@@ -13,12 +14,20 @@ const addDays = (date, days) => {
     return d;
 };
 
-/** KO fields re-asked at booking when originally flagged in anamnesis. */
+const koOption = (frageKey, value) => {
+    const suffix = value === 'changed' ? 'optionChanged' : 'optionStill';
+    return {
+        value,
+        ...labelPair(`ko.${frageKey}.${suffix}`),
+    };
+};
+
+/** KO fields re-asked at booking when originally flagged in anamnesis (copy from locales). */
 const KO_RECHECKS = [
     {
         frage_key: 'mindestalter_18',
         frage_nr: 19,
-        frage_text: 'Mindestalter 18',
+        i18nKey: 'ko.mindestalter_18',
         trigger: (a) => a.mindestalter_18 === 'nein',
         permanent: true,
         options: [],
@@ -26,48 +35,41 @@ const KO_RECHECKS = [
     {
         frage_key: 'schwanger',
         frage_nr: 16,
-        frage_text: 'Schwangerschaft / Stillzeit',
+        i18nKey: 'ko.schwanger',
         trigger: (a) => a.schwanger === 'ja',
         cleared_value: 'nein',
-        options: [
-            { value: 'changed', label_de: 'Ja, nicht mehr schwanger/stillend' },
-            { value: 'still', label_de: 'Nein, bin noch schwanger/stillend' },
-        ],
+        options: [koOption('schwanger', 'changed'), koOption('schwanger', 'still')],
     },
     {
         frage_key: 'akute_erkrankung',
         frage_nr: 3,
-        frage_text: 'Akute Erkrankung',
+        i18nKey: 'ko.akute_erkrankung',
         trigger: (a) => a.akute_erkrankung === 'ja',
         cleared_value: 'nein',
-        options: [
-            { value: 'changed', label_de: 'Ja, bin genesen' },
-            { value: 'still', label_de: 'Nein, bin noch krank' },
-        ],
+        options: [koOption('akute_erkrankung', 'changed'), koOption('akute_erkrankung', 'still')],
     },
     {
         frage_key: 'alkohol_drogen',
         frage_nr: 17,
-        frage_text: 'Alkohol / Drogen',
+        i18nKey: 'ko.alkohol_drogen',
         trigger: (a) => a.alkohol_drogen === 'ja',
         cleared_value: 'nein',
-        options: [
-            { value: 'changed', label_de: 'Nein, nicht mehr' },
-            { value: 'still', label_de: 'Ja, stimmt noch' },
-        ],
+        options: [koOption('alkohol_drogen', 'changed'), koOption('alkohol_drogen', 'still')],
     },
     {
         frage_key: 'urteilsfaehig',
         frage_nr: 18,
-        frage_text: 'Urteilsfähigkeit',
+        i18nKey: 'ko.urteilsfaehig',
         trigger: (a) => a.urteilsfaehig === 'nein',
         cleared_value: 'ja',
-        options: [
-            { value: 'changed', label_de: 'Ja, bin jetzt urteilsfähig' },
-            { value: 'still', label_de: 'Nein, stimmt noch' },
-        ],
+        options: [koOption('urteilsfaehig', 'changed'), koOption('urteilsfaehig', 'still')],
     },
 ];
+
+const resolveKoCopy = (def) => ({
+    frage_text: t('de', `${def.i18nKey}.frageText`),
+    frage_text_en: t('en', `${def.i18nKey}.frageText`),
+});
 
 /**
  * Option catalogues carry the studio's configured `lock_days`, which is what the
@@ -78,67 +80,67 @@ const medicationGroups = (sperrfristen) => {
     const { medUsesClearanceNotDateLock } = require('./medicalClearanceService');
     const antiClearance = medUsesClearanceNotDateLock('antidepressiva', sperrfristen);
     return [
-        { key: 'keine', label_de: 'Keine / keine Medikamente', label_en: 'None / no medications', lock_days: 0 },
-        { key: 'antibiotika', label_de: 'Antibiotika', label_en: 'Antibiotics', lock_days: cfg.medikament_kurz_tage },
+        { key: 'keine', ...labelPair('meds.keine'), lock_days: 0 },
+        {
+            key: 'antibiotika',
+            ...labelPair('meds.antibiotika'),
+            lock_days: cfg.medikament_kurz_tage,
+        },
         {
             key: 'antidepressiva',
-            label_de: 'Antidepressiva',
-            label_en: 'Antidepressants',
+            ...labelPair('meds.antidepressiva'),
             // 0 day-lock when clearance is required — treatment gated by verified certificate
             lock_days: antiClearance ? 0 : cfg.medikament_kurz_tage,
             requires_medical_clearance: antiClearance,
         },
-        { key: 'retinoide', label_de: 'Retinoide', label_en: 'Retinoids', lock_days: cfg.medikament_retinoide_tage },
+        {
+            key: 'retinoide',
+            ...labelPair('meds.retinoide'),
+            lock_days: cfg.medikament_retinoide_tage,
+        },
     ];
 };
 
 const uvOptions = (sperrfristen) => {
     const cfg = resolveSperrfristen(sperrfristen);
     return [
-        { value: 'keine', label_de: 'Keine', label_en: 'None', lock_days: 0 },
-        { value: 'leicht', label_de: 'Leicht', label_en: 'Light', lock_days: 0 },
-        { value: 'mittel', label_de: 'Mittel', label_en: 'Moderate', lock_days: cfg.uv_mittel_tage },
-        { value: 'intensiv', label_de: 'Intensiv', label_en: 'Intense', lock_days: cfg.uv_intensiv_tage },
+        { value: 'keine', ...labelPair('uv.keine'), lock_days: 0 },
+        { value: 'leicht', ...labelPair('uv.leicht'), lock_days: 0 },
+        { value: 'mittel', ...labelPair('uv.mittel'), lock_days: cfg.uv_mittel_tage },
+        { value: 'intensiv', ...labelPair('uv.intensiv'), lock_days: cfg.uv_intensiv_tage },
     ];
 };
 
+const blockMessage = (code, localeKey) => ({
+    code,
+    ...messagePair(localeKey),
+});
+
 const CLARIFICATION_MESSAGE = {
     code: 'studio_clarification_required',
-    message_de:
-        'Medizinische Abklärung durch das Studio ist erforderlich. Du kannst den Termin trotzdem buchen — das Studio kontaktiert dich vor der Behandlung und trifft die endgültige Entscheidung.',
-    message_en:
-        'Medical/studio clarification is required. You can still book — the studio will contact you before treatment and make the final decision.',
+    ...messagePair('blocks.studio_clarification'),
 };
 
 const BLOCK_MESSAGES = {
-    mindestalter_18: {
-        code: 'ko_permanent',
-        message_de: 'Die Behandlung ist erst ab 18 Jahren möglich. Bitte kontaktiere das Studio.',
-    },
+    mindestalter_18: blockMessage('ko_permanent', 'blocks.mindestalter_18'),
     studio_clarification: CLARIFICATION_MESSAGE,
-    pre_session_incomplete: {
-        code: 'pre_session_incomplete',
-        message_de: 'Bitte beantworte alle Pflichtfragen im Kurz-Check.',
-    },
-    wiederholungen_incomplete: {
-        code: 'wiederholungen_incomplete',
-        message_de: 'Bitte bestätige alle Rückfragen zur Anamnese.',
-    },
-    ko_signature_required: {
-        code: 'ko_signature_required',
-        message_de: 'Bitte unterschreibe zur Bestätigung deiner geänderten Angaben.',
-    },
-    anamnesis_required: {
-        code: 'anamnesis_required',
-        message_de: 'Bitte schliesse zuerst die medizinische Anamnese ab.',
-    },
-    medical_clearance_required: {
-        code: 'medical_clearance_required',
-        message_de:
-            'Für die Behandlung ist eine ärztliche Freigabe (Attest) nötig. Bitte lade das Dokument hoch — dein Studio prüft nur, ob eine passende Bestätigung vorliegt. Beratungen bleiben buchbar.',
-        message_en:
-            'A doctor\'s certificate is required before treatment. Please upload it — your studio only verifies that an appropriate confirmation exists. Consultation appointments stay bookable.',
-    },
+    pre_session_incomplete: blockMessage(
+        'pre_session_incomplete',
+        'blocks.pre_session_incomplete'
+    ),
+    wiederholungen_incomplete: blockMessage(
+        'wiederholungen_incomplete',
+        'blocks.wiederholungen_incomplete'
+    ),
+    ko_signature_required: blockMessage(
+        'ko_signature_required',
+        'blocks.ko_signature_required'
+    ),
+    anamnesis_required: blockMessage('anamnesis_required', 'blocks.anamnesis_required'),
+    medical_clearance_required: blockMessage(
+        'medical_clearance_required',
+        'blocks.medical_clearance_required'
+    ),
 };
 
 const lookupWiederholung = (wiederholungen = {}, frage = {}) => {
@@ -180,10 +182,30 @@ const parseAktuellGleich = (ans) => {
 };
 
 const KO_RECOVERY_LABELS = {
-    schwanger: { original: 'Schwanger/stillend', neu: 'Nicht mehr schwanger/stillend' },
-    akute_erkrankung: { original: 'Akut krank', neu: 'Von akuter Erkrankung genesen' },
-    alkohol_drogen: { original: 'Unter Einfluss', neu: 'Nicht mehr unter Einfluss' },
-    urteilsfaehig: { original: 'Nicht urteilsfähig', neu: 'Urteilsfähigkeit wiederhergestellt' },
+    schwanger: {
+        original: t('de', 'ko.schwanger.recoveryOriginal'),
+        neu: t('de', 'ko.schwanger.recoveryNeu'),
+        original_en: t('en', 'ko.schwanger.recoveryOriginal'),
+        neu_en: t('en', 'ko.schwanger.recoveryNeu'),
+    },
+    akute_erkrankung: {
+        original: t('de', 'ko.akute_erkrankung.recoveryOriginal'),
+        neu: t('de', 'ko.akute_erkrankung.recoveryNeu'),
+        original_en: t('en', 'ko.akute_erkrankung.recoveryOriginal'),
+        neu_en: t('en', 'ko.akute_erkrankung.recoveryNeu'),
+    },
+    alkohol_drogen: {
+        original: t('de', 'ko.alkohol_drogen.recoveryOriginal'),
+        neu: t('de', 'ko.alkohol_drogen.recoveryNeu'),
+        original_en: t('en', 'ko.alkohol_drogen.recoveryOriginal'),
+        neu_en: t('en', 'ko.alkohol_drogen.recoveryNeu'),
+    },
+    urteilsfaehig: {
+        original: t('de', 'ko.urteilsfaehig.recoveryOriginal'),
+        neu: t('de', 'ko.urteilsfaehig.recoveryNeu'),
+        original_en: t('en', 'ko.urteilsfaehig.recoveryOriginal'),
+        neu_en: t('en', 'ko.urteilsfaehig.recoveryNeu'),
+    },
 };
 
 const collectRecoveryKeys = (answers = {}, koAnswers = {}, wiederholungen = {}) => {
@@ -217,14 +239,18 @@ const clarificationWarning = (frageKey, frageText) => ({
 });
 
 const buildKoRechecks = (answers = {}) =>
-    KO_RECHECKS.filter((def) => def.trigger(answers)).map((def) => ({
-        frage_key: def.frage_key,
-        frage_nr: def.frage_nr,
-        frage_text: def.frage_text,
-        original_antwort: answers[def.frage_key] ?? null,
-        permanent: def.permanent === true,
-        options: def.options,
-    }));
+    KO_RECHECKS.filter((def) => def.trigger(answers)).map((def) => {
+        const copy = resolveKoCopy(def);
+        return {
+            frage_key: def.frage_key,
+            frage_nr: def.frage_nr,
+            frage_text: copy.frage_text,
+            frage_text_en: copy.frage_text_en,
+            original_antwort: answers[def.frage_key] ?? null,
+            permanent: def.permanent === true,
+            options: def.options,
+        };
+    });
 
 const buildRoteFragenRechecks = (roteFragen = []) =>
     roteFragen.map((f) => ({
@@ -237,13 +263,19 @@ const buildRoteFragenRechecks = (roteFragen = []) =>
 const buildPrerequisites = (caseDoc) => {
     const anamnesisComplete = caseDoc.anamnesis_complete === true;
     const signatureComplete = !!caseDoc.unterschrift?.zeitstempel;
-    const blockReason = !anamnesisComplete ? BLOCK_MESSAGES.anamnesis_required.message_de : null;
+    const blockReason = !anamnesisComplete
+        ? BLOCK_MESSAGES.anamnesis_required.message_de
+        : null;
+    const blockReasonEn = !anamnesisComplete
+        ? BLOCK_MESSAGES.anamnesis_required.message_en
+        : null;
 
     return {
         anamnesis_complete: anamnesisComplete,
         signature_complete: signatureComplete,
         can_book_treatment: anamnesisComplete,
         block_reason: blockReason,
+        block_reason_en: blockReasonEn,
     };
 };
 
@@ -258,13 +290,13 @@ const buildBookingPrecheckForm = (caseDoc, anamnesis, sperrfristen = null) => {
         consultation_only_skips_ps01: true,
         prerequisites: buildPrerequisites(caseDoc),
         ps01: {
-            title: 'Kurz-Check vor dem Termin',
-            subtitle: 'Dauert nur 30 Sekunden. Pflicht vor jeder Behandlung.',
+            title: t('de', 'ps01.title'),
+            title_en: t('en', 'ps01.title'),
+            subtitle: t('de', 'ps01.subtitle'),
+            subtitle_en: t('en', 'ps01.subtitle'),
             uv_options: uvOptions(sperrfristen),
-            medication_question:
-                'Hast du in den letzten 6 Monaten Medikamente eingenommen?',
-            medication_question_en:
-                'Have you taken any medications in the last 6 months?',
+            medication_question: t('de', 'ps01.medicationQuestion'),
+            medication_question_en: t('en', 'ps01.medicationQuestion'),
             medication_groups: medicationGroups(sperrfristen),
             ko_rechecks: buildKoRechecks(answers),
             rote_fragen_rechecks: buildRoteFragenRechecks(ampel.rote_fragen),
@@ -300,15 +332,19 @@ const isPreSessionComplete = (preSession = {}) => {
     return uvOk && medOk;
 };
 
-const formatNotice = ({ source, days, earliest, active, label_de, label_en }) => {
+const formatNotice = ({ source, days, earliest, active, labelKey }) => {
+    const label_de = t('de', labelKey);
+    const label_en = t('en', labelKey);
     if (!active) {
         return {
             source,
             days,
             earliest: null,
             active: false,
-            message_de: `Keine aktive Sperrfrist für ${label_de}.`,
-            message_en: `No active blocking period for ${label_en}.`,
+            ...messagePair('notices.inactive', {
+                de: { label: label_de },
+                en: { label: label_en },
+            }),
         };
     }
     return {
@@ -316,8 +352,7 @@ const formatNotice = ({ source, days, earliest, active, label_de, label_en }) =>
         days,
         earliest,
         active: true,
-        message_de: `Sperrfrist ${days} Tage — Behandlung frühestens am ${earliest} buchbar.`,
-        message_en: `Blocking period ${days} days — earliest treatment ${earliest}.`,
+        ...messagePair('notices.active', { days, earliest }),
     };
 };
 
@@ -344,8 +379,10 @@ const summarizePreSessionLockouts = (preSession = {}, now = new Date(), sperrfri
                 days,
                 earliest: toDateKey(until),
                 active: until > heute,
-                label_de: check.uv_exposition === 'intensiv' ? 'intensive UV-Exposition' : 'mittlere UV-Exposition',
-                label_en: check.uv_exposition === 'intensiv' ? 'intense UV exposure' : 'moderate UV exposure',
+                labelKey:
+                    check.uv_exposition === 'intensiv'
+                        ? 'noticeLabels.uvIntensiv'
+                        : 'noticeLabels.uvMittel',
             })
         );
     }
@@ -358,20 +395,17 @@ const summarizePreSessionLockouts = (preSession = {}, now = new Date(), sperrfri
             {
                 key: 'retinoide',
                 days: cfg.medikament_retinoide_tage,
-                label_de: 'Retinoide',
-                label_en: 'retinoids',
+                labelKey: 'noticeLabels.retinoide',
             },
             {
                 key: 'antibiotika',
                 days: cfg.medikament_kurz_tage,
-                label_de: 'Antibiotika',
-                label_en: 'antibiotics',
+                labelKey: 'noticeLabels.antibiotika',
             },
             {
                 key: 'antidepressiva',
                 days: cfg.medikament_kurz_tage,
-                label_de: 'Antidepressiva',
-                label_en: 'antidepressants',
+                labelKey: 'noticeLabels.antidepressiva',
             },
         ];
         for (const group of groups) {
@@ -383,8 +417,7 @@ const summarizePreSessionLockouts = (preSession = {}, now = new Date(), sperrfri
                     days: group.days,
                     earliest: toDateKey(until),
                     active: until > heute,
-                    label_de: group.label_de,
-                    label_en: group.label_en,
+                    labelKey: group.labelKey,
                 })
             );
         }
@@ -606,10 +639,11 @@ const buildWiederholungenEntries = (roteFragen, wiederholungen, koAnswers, answe
     for (const def of KO_RECHECKS) {
         if (def.permanent || !def.trigger(answers)) continue;
         if (koAnswers[def.frage_key] === 'changed') {
+            const copy = resolveKoCopy(def);
             entries.push({
                 frage_nr: def.frage_nr,
                 frage_key: def.frage_key,
-                frage_text: def.frage_text,
+                frage_text: copy.frage_text,
                 original_antwort: answers[def.frage_key] || '',
                 aktuell_gleich: false,
                 aenderung: '',
@@ -632,11 +666,12 @@ const buildStatuswechselEntries = (koAnswers, answers, koSignature, customerName
         if (koAnswers[def.frage_key] !== 'changed') continue;
 
         const info = KO_INFO[def.frage_key] || {};
+        const copy = resolveKoCopy(def);
         entries.push({
             von: 'rot',
             nach: 'gruen',
             frage_key: def.frage_key,
-            frage_text: def.frage_text,
+            frage_text: copy.frage_text,
             original_antwort: info.original || answers[def.frage_key] || '',
             neue_antwort: info.neu || def.cleared_value,
             zeitstempel: now,
@@ -663,23 +698,25 @@ const buildActivityEntries = (roteFragen, wiederholungen, koAnswers) => {
         if (!parsed.ok) continue;
         entries.push({
             type: 'rueckfrage_beantwortet',
-            details: `Rückfrage: ${f.frage_text} → ${parsed.value ? 'Ja, stimmt noch' : 'Nein, hat sich geändert'}`,
+            details: t(
+                'de',
+                parsed.value ? 'activity.recheckSame' : 'activity.recheckChanged',
+                { text: f.frage_text }
+            ),
             ts: now,
         });
     }
 
-    const koLabels = {
-        schwanger: 'Schwangerschaft',
-        akute_erkrankung: 'Akute Erkrankung',
-        alkohol_drogen: 'Alkohol/Drogen',
-        urteilsfaehig: 'Urteilsfähigkeit',
-    };
-
-    for (const [key, label] of Object.entries(koLabels)) {
+    for (const key of ['schwanger', 'akute_erkrankung', 'alkohol_drogen', 'urteilsfaehig']) {
         if (!koAnswers[key]) continue;
+        const label = t('de', `ko.${key}.activityLabel`);
         entries.push({
             type: 'rueckfrage_beantwortet',
-            details: `Rückfrage: ${label} → ${koAnswers[key] === 'changed' ? 'Hat sich geändert' : 'Unverändert'}`,
+            details: t(
+                'de',
+                koAnswers[key] === 'changed' ? 'activity.koChanged' : 'activity.koUnchanged',
+                { label }
+            ),
             ts: now,
         });
     }
