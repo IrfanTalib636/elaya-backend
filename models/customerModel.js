@@ -65,8 +65,8 @@ const customerSchema = new mongoose.Schema(
         },
         telefon: {
             type: String,
-            required: [true, 'telefon is required'],
             trim: true,
+            default: '',
         },
         geburtsdatum: {
             type: Date,

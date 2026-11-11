@@ -32,7 +32,8 @@ const registerCustomerSchema = z.object({
     vorname: requiredTrimmedString('vorname'),
     nachname: requiredTrimmedString('nachname'),
     email: emailSchema,
-    telefon: requiredTrimmedString('telefon'),
+    // Optional for App Store 5.1.1(v) — not required for core account creation.
+    telefon: optionalTrimmedString.default(''),
     password: passwordSchema,
     studio_code: requiredTrimmedString('studio_code'),
     geburtsdatum: z.coerce.date().optional().nullable(),
