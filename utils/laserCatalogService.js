@@ -75,16 +75,22 @@ const colorStateFor = (ctx, deviceId) => {
     };
 };
 
+const { inferLaserType } = require('../config/laserCatalogDefaults');
+
 const formatLaserDevice = (doc, colorCtx = null) => {
     const d = doc?.toObject ? doc.toObject() : doc;
     if (!d) return null;
     const id = String(d._id);
+    const laserType =
+        (d.laser_type && String(d.laser_type).trim()) ||
+        inferLaserType(d.manufacturer, d.model, d.notes) ||
+        '';
     return {
         id,
         manufacturer: d.manufacturer,
         model: d.model,
         wavelengths_nm: Array.isArray(d.wavelengths_nm) ? d.wavelengths_nm : [],
-        laser_type: d.laser_type || '',
+        laser_type: laserType,
         notes: d.notes || '',
         ...(colorCtx ? colorStateFor(colorCtx, id) : {}),
         active: Boolean(d.active),
@@ -103,10 +109,6 @@ const setLiveLaserColors = async (entries) => {
     await PlatformConfig.updateOne({ key: 'platform' }, { $set });
 };
 
-/**
- * First catalog insert only: known devices get sparse profile diffs vs platform
- * defaults. New lasers created later inherit until a colour is explicitly changed.
- */
 const seedProfileOverrides = async (docs) => {
     if (!docs.length) return 0;
     const ctx = await loadColorContext();
@@ -123,17 +125,31 @@ const seedProfileOverrides = async (docs) => {
     return entries.length;
 };
 
+const backfillMissingLaserTypes = async () => {
+    const docs = await LaserDevice.find({
+        $or: [{ laser_type: { $exists: false } }, { laser_type: null }, { laser_type: '' }],
+    });
+    for (const doc of docs) {
+        const inferred = inferLaserType(doc.manufacturer, doc.model, doc.notes);
+        if (!inferred) continue;
+        doc.laser_type = inferred;
+        await doc.save();
+    }
+};
+
 const ensureLaserCatalogSeeded = async () => {
     const count = await LaserDevice.countDocuments();
-    if (count > 0) return count;
-    const inserted = await LaserDevice.insertMany(
-        LASER_CATALOG_DEFAULTS.map((row) => ({
-            ...row,
-            wavelengths_nm: [...(row.wavelengths_nm || [])],
-        }))
-    );
-    await seedProfileOverrides(inserted);
-    return inserted.length;
+    if (count === 0) {
+        const inserted = await LaserDevice.insertMany(
+            LASER_CATALOG_DEFAULTS.map((row) => ({
+                ...row,
+                wavelengths_nm: [...(row.wavelengths_nm || [])],
+            }))
+        );
+        await seedProfileOverrides(inserted);
+    }
+    await backfillMissingLaserTypes();
+    return LaserDevice.countDocuments();
 };
 
 const listLaserDevices = async ({ activeOnly = false } = {}) => {
@@ -145,7 +161,6 @@ const listLaserDevices = async ({ activeOnly = false } = {}) => {
         .map((doc) => formatLaserDevice(doc, ctx));
 };
 
-/** Platform colour deltas a new laser starts from (LIVE value until a draft is published). */
 const getDefaultLaserColors = async () => {
     const ctx = await loadColorContext();
     return pickColors(ctx.live.tattoo_deltas?.color || {});
@@ -185,7 +200,6 @@ const createLaserDevice = async (payload, userId = null) => {
         }
         throw err;
     }
-    // New lasers inherit platform colour deltas until a colour is explicitly overridden.
     return formatLaserDevice(doc, await loadColorContext());
 };
 
@@ -212,10 +226,7 @@ const updateLaserDevice = async (id, payload, userId = null) => {
     return formatLaserDevice(doc, await loadColorContext());
 };
 
-/**
- * Laser profile colour edit → shared session_prediction DRAFT (never LIVE).
- * Returns true when the draft changed.
- */
+
 const saveLaserColorDraft = async (deviceId, colors, { userId = null, label = '' } = {}) => {
     const ctx = await loadColorContext();
     const platform = (ctx.draft || ctx.live).tattoo_deltas?.color || {};

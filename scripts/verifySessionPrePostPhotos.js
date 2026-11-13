@@ -193,8 +193,16 @@ check(
     'NewSession uploads pre + post'
 );
 check(
-    /uploaded && wantsPrePhoto && autoAnalyze/.test(newSession),
-    'NewSession AI analyze gated on wantsPrePhoto (not post)'
+    /runAi\s*=\s*[\s\S]*?preUploaded[\s\S]*?autoAnalyze[\s\S]*?pre_photo_unavailable/.test(
+        newSession
+    ) ||
+        /preUploaded\s*&&\s*autoAnalyze/.test(newSession),
+    'NewSession AI analyze gated on preUploaded + autoAnalyze (not post)'
+);
+check(
+    /!form\.pre_photo_unavailable/.test(newSession) &&
+        newSession.includes('analyzeVerblassung'),
+    'NewSession skips AI when pre-photo unavailable'
 );
 check(
     !/wantsPostPhoto && autoAnalyze/.test(newSession) &&

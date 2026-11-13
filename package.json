@@ -29,7 +29,9 @@
     "verify:laser-assignment": "node scripts/verifyStudioLaserAssignment.js",
     "verify:case-documents": "node scripts/verifyCaseDocuments.js",
     "verify:session-outcome": "node scripts/verifySessionOutcome.js",
-    "verify:session-forecast": "node scripts/verifySessionForecast.js"
+    "verify:session-forecast": "node scripts/verifySessionForecast.js",
+    "verify:session-completion": "node scripts/verifySessionCompletionValidation.js",
+    "verify:session-photos": "node scripts/verifySessionPrePostPhotos.js"
   },
   "keywords": [],
   "author": "",

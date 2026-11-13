@@ -28,14 +28,11 @@ const { evaluateAndApplySessionLightening } = require('../utils/lighteningSessio
 const { emitAvailabilityChanged } = require('../sockets/availabilityEmit');
 const { applySessionOutcomeMirrors } = require('../utils/sessionOutcomeNormalize');
 const { applySessionForecastToCase } = require('../utils/sessionForecastFromProgress');
+const { validateSessionCompletion } = require('../utils/sessionCompletionValidation');
 
 const CUSTOMER_SESSION_SELECT =
     'case customer studio session_number treatment_date treatment_time removal_pct verblassung_prozent comparison_eligible uncertainty_level progress_direction lightening_confidence verblassung_ki fortschritt_foto_file_id post_treatment_foto_file_id is_draft is_no_show zonen_id createdAt updatedAt';
 
-/**
- * Resolve catalog laser + per-wavelength entries. Fills legacy wavelength_nm /
- * fluence fields for older readers. Enforces studio inventory + approved λ.
- */
 const resolveSessionLaserFields = async (fields, studioId) => {
     const out = { ...fields };
     const entries = Array.isArray(out.wavelength_entries) ? out.wavelength_entries : [];
@@ -83,8 +80,14 @@ const resolveSessionLaserFields = async (fields, studioId) => {
         out.studio_laser_brand = device.manufacturer;
         out.studio_laser_model = device.model;
         out.laser_typ = device.laser_type || out.laser_typ || '';
-    } else {
+    } else if (
+        Object.prototype.hasOwnProperty.call(fields, 'laser_device_id') ||
+        Object.prototype.hasOwnProperty.call(fields, 'laser_id')
+    ) {
         out.laser_device_id = null;
+    } else {
+        delete out.laser_device_id;
+        delete out.laser_id;
     }
 
     if (entries.length) {
@@ -229,7 +232,7 @@ const formatSession = (doc, role, options = {}) => {
         spot_size_mm: s.spot_size_mm,
         frequency_hz: s.frequency_hz,
         pass_count: s.pass_count,
-        cooling_used: s.cooling_used,
+        cooling_used: s.cooling_used === true || s.cooling_used === false ? s.cooling_used : null,
         endpoint_reaction: s.endpoint_reaction,
         endpoint_reactions: Array.isArray(s.endpoint_reactions) ? s.endpoint_reactions : [],
         endpoint_reaction_note: s.endpoint_reaction_note || '',
@@ -246,6 +249,8 @@ const formatSession = (doc, role, options = {}) => {
         unusual_reaction_treatment_stopped: !!s.unusual_reaction_treatment_stopped,
         special_notes: s.special_notes,
         fortschritt_foto_data: s.fortschritt_foto_data,
+        pre_photo_unavailable: !!s.pre_photo_unavailable,
+        pre_photo_unavailable_reason: s.pre_photo_unavailable_reason || '',
         lightening_internal_pct: s.lightening_internal_pct ?? null,
         lightening_score: s.lightening_score ?? null,
         lightening_confidence: s.lightening_confidence ?? null,
@@ -281,13 +286,6 @@ const validateLinkedAppointment = async (appointmentId, caseDoc) => {
     return appointmentId;
 };
 
-/**
- * Resolve which zone a session belongs to.
- *
- * Zone cases must name a zone, because the session log, fading series and
- * progress are all tracked per zone — an unassigned treatment could not be
- * compared against anything. Single-tattoo cases must not name one.
- */
 const resolveSessionZone = async (caseDoc, zonenId) => {
     const requested = typeof zonenId === 'string' ? zonenId.trim() : null;
 
@@ -328,7 +326,6 @@ const isOpenTreatmentAppointment = (appointment) =>
     !appointment.consultationOnly &&
     appointment.type !== APPOINTMENT_TYPE.BERATUNG;
 
-/** Mark the matching booked treatment as completed so it is no longer "upcoming". */
 const markAppointmentCompletedForSession = async (session) => {
     if (!session || session.is_draft) return;
 
@@ -420,7 +417,7 @@ const createSession = asyncHandler(async (req, res) => {
 
     const laserFields = await resolveSessionLaserFields(fields, caseDoc.studio);
 
-    const session = await Session.create({
+    const createPayload = {
         ...laserFields,
         mitarbeiter_id,
         mitarbeiter_name,
@@ -437,7 +434,18 @@ const createSession = asyncHandler(async (req, res) => {
             : `s${session_number}-${caseDoc._id.toString().slice(-6)}`,
         appointment: linkedAppointment,
         ...(zahlung ? { zahlung } : {}),
-    });
+    };
+
+    if (!createPayload.is_draft) {
+        const completionErrors = validateSessionCompletion(createPayload, {
+            requirePrePhoto: true,
+        });
+        if (completionErrors.length) {
+            throw new ApiError(400, completionErrors[0], completionErrors);
+        }
+    }
+
+    const session = await Session.create(createPayload);
 
     void require('../utils/activityLog').recordActivityFromUser(req.user, {
         studio: caseDoc.studio,
@@ -458,11 +466,13 @@ const createSession = asyncHandler(async (req, res) => {
         },
     });
 
-    const enteredFade = fields.verblassung_prozent ?? fields.removal_pct;
-    await evaluateAndApplySessionLightening(session, caseDoc, {
-        visual_fade_pct: Number(enteredFade) > 0 ? Number(enteredFade) : null,
-    });
-    if (session.isModified()) await session.save();
+    if (!session.pre_photo_unavailable) {
+        const enteredFade = fields.verblassung_prozent ?? fields.removal_pct;
+        await evaluateAndApplySessionLightening(session, caseDoc, {
+            visual_fade_pct: Number(enteredFade) > 0 ? Number(enteredFade) : null,
+        });
+        if (session.isModified()) await session.save();
+    }
 
     if (!session.is_draft && !session.is_no_show) {
         await syncCaseSessionStats(caseDoc._id);
@@ -481,8 +491,6 @@ const createSession = asyncHandler(async (req, res) => {
         }
     }
 
-    // A documented treatment starts the same-case interval and the cross-case
-    // blocking period for the customer's other tattoos.
     emitAvailabilityChanged({
         customerId: caseDoc.customer,
         studioId: caseDoc.studio,
@@ -626,9 +634,6 @@ const updateSession = asyncHandler(async (req, res) => {
         const caseDoc = await Case.findById(session.case);
         session.appointment = await validateLinkedAppointment(appointment_id, caseDoc);
     }
-
-    // Reassigning a session to another zone would invalidate both zones' session
-    // numbering and fading series, so it is refused rather than silently allowed.
     if (zonen_id !== undefined) {
         const requested = typeof zonen_id === 'string' ? zonen_id.trim() : null;
         if ((requested || null) !== (session.zonen_id || null)) {
@@ -650,9 +655,18 @@ const updateSession = asyncHandler(async (req, res) => {
         session.lightening_studio_reviewed_at = new Date();
     }
 
+    if (!session.is_draft) {
+        const completionErrors = validateSessionCompletion(session.toObject(), {
+            requirePrePhoto: true,
+        });
+        if (completionErrors.length) {
+            throw new ApiError(400, completionErrors[0], completionErrors);
+        }
+    }
+
     const caseDoc = await Case.findById(session.case);
     let lighteningAssessment = null;
-    if (caseDoc) {
+    if (caseDoc && !session.pre_photo_unavailable) {
         const enteredFade = fields.verblassung_prozent ?? fields.removal_pct;
         lighteningAssessment = await evaluateAndApplySessionLightening(session, caseDoc, {
             visual_fade_pct:

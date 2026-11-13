@@ -181,6 +181,13 @@ const analyzeVerblassung = asyncHandler(async (req, res) => {
     if (!caseDoc) throw new ApiError(404, 'Case not found');
     await assertCaseAccess(req.user, caseDoc);
 
+    if (sessionDoc.pre_photo_unavailable) {
+        throw new ApiError(
+            400,
+            'AI fading analysis is not available when the pre-treatment photo could not be taken'
+        );
+    }
+
     if (Number(sessionDoc.session_number) < 2) {
         throw new ApiError(400, FIRST_SESSION_AI_MESSAGE);
     }

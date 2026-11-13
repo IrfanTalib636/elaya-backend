@@ -93,7 +93,7 @@ const sessionSchema = new mongoose.Schema(
         spot_size_mm: { type: Number, default: null },
         frequency_hz: { type: Number, default: null },
         pass_count: { type: Number, default: null, min: 0 },
-        cooling_used: { type: Boolean, default: false },
+        cooling_used: { type: Boolean, default: null },
         endpoint_reaction: { type: String, default: '' },
         endpoint_reactions: {
             type: [String],
@@ -150,6 +150,8 @@ const sessionSchema = new mongoose.Schema(
             ref: 'FileAsset',
             default: null,
         },
+        pre_photo_unavailable: { type: Boolean, default: false },
+        pre_photo_unavailable_reason: { type: String, trim: true, default: '' },
         post_treatment_foto_file_id: {
             type: mongoose.Schema.Types.ObjectId,
             ref: 'FileAsset',
