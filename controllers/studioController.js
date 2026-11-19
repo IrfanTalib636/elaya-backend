@@ -436,9 +436,31 @@ const formatPublicStudio = (studio) => {
     };
 };
 
-/** Active studios for customer registration dropdown — no auth, no internal fields. */
 const listPublicStudios = asyncHandler(async (req, res) => {
-    const studios = await Studio.find({ status: STUDIO_STATUS.AKTIV })
+    const rawQ = typeof req.query.q === 'string' ? req.query.q.trim() : '';
+    if (rawQ && rawQ.length < 3) {
+        return res.status(200).json({
+            success: true,
+            data: { studios: [] },
+        });
+    }
+
+    const filter = { status: STUDIO_STATUS.AKTIV };
+    if (rawQ.length >= 3) {
+        const escaped = rawQ.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        const re = new RegExp(escaped, 'i');
+        filter.$or = [
+            { firma: re },
+            { studio_code: re },
+            { plz: re },
+            { ort: re },
+            { 'standorte.name': re },
+            { 'standorte.plz': re },
+            { 'standorte.ort': re },
+        ];
+    }
+
+    const studios = await Studio.find(filter)
         .select('studio_code firma strasse plz ort land standorte')
         .sort({ firma: 1 })
         .lean();

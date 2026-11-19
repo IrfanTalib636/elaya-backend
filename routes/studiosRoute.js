@@ -14,7 +14,16 @@ const router = express.Router();
  *       Returns only studios with status `aktiv`. Each row includes Mongo `id` (for studio
  *       transfer `zu_firma_id`) and `studio_code` for `POST /auth/register/customer`.
  *       additional locations are in `standorte`.
+ *
+ *       Optional `q`: omitted → full active list (mobile). length &lt; 3 → empty array.
+ *       length ≥ 3 → case-insensitive match on firma, studio_code, plz, ort, standorte.
  *     tags: [Studios]
+ *     parameters:
+ *       - in: query
+ *         name: q
+ *         schema: { type: string, minLength: 3 }
+ *         required: false
+ *         description: Text search (name / PLZ / city / code). Min 3 characters when set.
  *     responses:
  *       200:
  *         description: Active studios sorted by firma
