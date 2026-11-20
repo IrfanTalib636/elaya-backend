@@ -30,8 +30,25 @@ const markReadSchema = z
     })
     .strict();
 
+const pinConversationSchema = z
+    .object({
+        pinned: z.boolean(),
+    })
+    .strict();
+
+const deleteConversationsSchema = z
+    .object({
+        conversation_ids: z
+            .array(objectId)
+            .min(1, 'conversation_ids is required')
+            .max(100, 'At most 100 conversations can be deleted at once'),
+    })
+    .strict();
+
 module.exports = {
     createConversationSchema,
     sendLiveChatMessageSchema,
     markReadSchema,
+    pinConversationSchema,
+    deleteConversationsSchema,
 };

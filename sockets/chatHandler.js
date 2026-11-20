@@ -124,11 +124,13 @@ const registerChatHandlers = (io, socket) => {
             const result = await messagingService.markConversationRead(user, conversationId, {
                 up_to_message_id: payload.up_to_message_id || payload.upToMessageId,
             });
-            emitConversationRead(conversationId, {
-                ...result,
-                reader_role: user.role,
-                reader_user_id: String(user._id),
-            });
+            if (result.changed) {
+                emitConversationRead(conversationId, {
+                    ...result,
+                    reader_role: user.role,
+                    reader_user_id: String(user._id),
+                });
+            }
             safeAck(ack, { success: true, ...result });
         } catch (err) {
             const message = err.message || 'Read failed';

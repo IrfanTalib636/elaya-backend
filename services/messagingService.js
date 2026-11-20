@@ -1,6 +1,8 @@
+const mongoose = require('mongoose');
 const ApiError = require('../utils/ApiError');
 const ChatConversation = require('../models/chatConversationModel');
 const ChatMessage = require('../models/chatMessageModel');
+const AppNotification = require('../models/appNotificationModel');
 const Customer = require('../models/customerModel');
 const Studio = require('../models/studioModel');
 const Case = require('../models/caseModel');
@@ -88,6 +90,8 @@ const formatConversation = (doc, extras = {}) => {
         last_sender_role: c.last_sender_role || null,
         unread_customer: c.unread_customer || 0,
         unread_studio: c.unread_studio || 0,
+        pinned_by_studio: Boolean(c.pinned_by_studio),
+        pinned_by_studio_at: c.pinned_by_studio_at || null,
         createdAt: c.createdAt,
         updatedAt: c.updatedAt,
     };
@@ -210,9 +214,13 @@ const listConversations = async (user, { skip = 0, limit = 20 } = {}) => {
         throw new ApiError(403, 'You do not have permission for this action');
     }
 
+    const sort = isStudio(user.role)
+        ? { pinned_by_studio: -1, pinned_by_studio_at: -1, last_message_at: -1, updatedAt: -1 }
+        : { last_message_at: -1, updatedAt: -1 };
+
     const [rows, total] = await Promise.all([
         ChatConversation.find(filter)
-            .sort({ last_message_at: -1, updatedAt: -1 })
+            .sort(sort)
             .skip(skip)
             .limit(limit)
             .populate('customer', 'vorname nachname email')
@@ -447,6 +455,7 @@ const markConversationRead = async (user, conversationId, { up_to_message_id } =
 
     const now = new Date();
     const filter = { conversation: conversationId };
+    let changed = false;
 
     if (up_to_message_id) {
         filter._id = { $lte: up_to_message_id };
@@ -454,19 +463,92 @@ const markConversationRead = async (user, conversationId, { up_to_message_id } =
 
     if (isCustomer(user.role)) {
         filter.read_by_customer_at = null;
-        await ChatMessage.updateMany(filter, { $set: { read_by_customer_at: now } });
+        const result = await ChatMessage.updateMany(filter, {
+            $set: { read_by_customer_at: now },
+        });
+        changed = (result.modifiedCount || 0) > 0 || (conversation.unread_customer || 0) > 0;
         conversation.unread_customer = 0;
     } else if (isStudio(user.role) || isAdmin(user.role)) {
         filter.read_by_studio_at = null;
-        await ChatMessage.updateMany(filter, { $set: { read_by_studio_at: now } });
+        const result = await ChatMessage.updateMany(filter, {
+            $set: { read_by_studio_at: now },
+        });
+        changed = (result.modifiedCount || 0) > 0 || (conversation.unread_studio || 0) > 0;
         conversation.unread_studio = 0;
     }
 
-    await conversation.save();
+    if (changed) {
+        await conversation.save();
+    }
+
+    const populated = await ChatConversation.findById(conversation._id)
+        .populate('customer', 'vorname nachname email')
+        .populate('studio', 'firma studio_code');
 
     return {
-        conversation: formatConversation(conversation),
+        conversation: formatConversation(populated || conversation),
         read_at: now,
+        changed,
+    };
+};
+
+const setConversationPinned = async (user, conversationId, pinned) => {
+    if (!isStudio(user.role) && !isAdmin(user.role)) {
+        throw new ApiError(403, 'Only studio staff can pin conversations');
+    }
+
+    const conversation = await ChatConversation.findById(conversationId)
+        .populate('customer', 'vorname nachname email')
+        .populate('studio', 'firma studio_code');
+    if (!conversation) {
+        throw new ApiError(404, 'Conversation not found');
+    }
+    await assertConversationAccess(user, conversation, { write: false });
+
+    const nextPinned = Boolean(pinned);
+    conversation.pinned_by_studio = nextPinned;
+    conversation.pinned_by_studio_at = nextPinned ? new Date() : null;
+    await conversation.save();
+
+    return formatConversation(conversation);
+};
+
+const deleteConversations = async (user, conversationIds = []) => {
+    if (!isStudio(user.role) && !isAdmin(user.role)) {
+        throw new ApiError(403, 'Only studio staff can delete conversations');
+    }
+
+    const ids = [...new Set((conversationIds || []).map(String).filter(Boolean))];
+    if (!ids.length) {
+        throw new ApiError(400, 'conversation_ids is required');
+    }
+    if (ids.length > 100) {
+        throw new ApiError(400, 'At most 100 conversations can be deleted at once');
+    }
+    if (ids.some((id) => !mongoose.Types.ObjectId.isValid(id))) {
+        throw new ApiError(400, 'conversation_ids must be valid ids');
+    }
+
+    const conversations = await ChatConversation.find({ _id: { $in: ids } });
+    if (!conversations.length) {
+        throw new ApiError(404, 'No conversations found');
+    }
+
+    for (const conversation of conversations) {
+        await assertConversationAccess(user, conversation, { write: false });
+    }
+
+    const allowedIds = conversations.map((c) => c._id);
+
+    await Promise.all([
+        ChatMessage.deleteMany({ conversation: { $in: allowedIds } }),
+        AppNotification.deleteMany({ conversation: { $in: allowedIds } }),
+        ChatConversation.deleteMany({ _id: { $in: allowedIds } }),
+    ]);
+
+    return {
+        deleted_ids: allowedIds.map(String),
+        deleted_count: allowedIds.length,
     };
 };
 
@@ -486,4 +568,6 @@ module.exports = {
     sendMessage,
     postSystemMessage,
     markConversationRead,
+    setConversationPinned,
+    deleteConversations,
 };

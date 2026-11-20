@@ -6,6 +6,8 @@ const {
     createConversationSchema,
     sendLiveChatMessageSchema,
     markReadSchema,
+    pinConversationSchema,
+    deleteConversationsSchema,
 } = require('../validators/messagingValidator');
 const {
     listConversations,
@@ -15,6 +17,8 @@ const {
     sendMessage,
     markRead,
     getUnreadCount,
+    pinConversation,
+    deleteConversations,
 } = require('../controllers/messagingController');
 const { requireFeature } = require('../utils/featureGate');
 
@@ -22,6 +26,13 @@ const router = express.Router();
 
 const MESSAGING_ROLES = [
     USER_ROLES.CUSTOMER,
+    USER_ROLES.STUDIO_ADMIN,
+    USER_ROLES.STUDIO_STAFF,
+    USER_ROLES.ADMIN,
+    USER_ROLES.SUPER_ADMIN,
+];
+
+const STUDIO_MESSAGING_ROLES = [
     USER_ROLES.STUDIO_ADMIN,
     USER_ROLES.STUDIO_STAFF,
     USER_ROLES.ADMIN,
@@ -92,6 +103,14 @@ router.post(
     createOrGetConversation
 );
 
+router.post(
+    '/conversations/delete',
+    protect,
+    authorize(...STUDIO_MESSAGING_ROLES),
+    validateMiddleware(deleteConversationsSchema),
+    deleteConversations
+);
+
 /**
  * @swagger
  * /messaging/conversations/{conversationId}:
@@ -153,6 +172,14 @@ router.post(
     authorize(...MESSAGING_ROLES),
     validateMiddleware(markReadSchema),
     markRead
+);
+
+router.patch(
+    '/conversations/:conversationId/pin',
+    protect,
+    authorize(...STUDIO_MESSAGING_ROLES),
+    validateMiddleware(pinConversationSchema),
+    pinConversation
 );
 
 module.exports = router;

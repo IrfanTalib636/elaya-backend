@@ -86,11 +86,13 @@ const markRead = asyncHandler(async (req, res) => {
         req.params.conversationId,
         req.body
     );
-    emitConversationRead(req.params.conversationId, {
-        ...result,
-        reader_role: req.user.role,
-        reader_user_id: String(req.user._id),
-    });
+    if (result.changed) {
+        emitConversationRead(req.params.conversationId, {
+            ...result,
+            reader_role: req.user.role,
+            reader_user_id: String(req.user._id),
+        });
+    }
     res.status(200).json({
         success: true,
         data: result,
@@ -105,6 +107,29 @@ const getUnreadCount = asyncHandler(async (req, res) => {
     });
 });
 
+const pinConversation = asyncHandler(async (req, res) => {
+    const conversation = await messagingService.setConversationPinned(
+        req.user,
+        req.params.conversationId,
+        req.body.pinned
+    );
+    res.status(200).json({
+        success: true,
+        data: { conversation },
+    });
+});
+
+const deleteConversations = asyncHandler(async (req, res) => {
+    const result = await messagingService.deleteConversations(
+        req.user,
+        req.body.conversation_ids
+    );
+    res.status(200).json({
+        success: true,
+        data: result,
+    });
+});
+
 module.exports = {
     listConversations,
     createOrGetConversation,
@@ -113,4 +138,6 @@ module.exports = {
     sendMessage,
     markRead,
     getUnreadCount,
+    pinConversation,
+    deleteConversations,
 };

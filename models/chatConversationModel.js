@@ -50,11 +50,21 @@ const chatConversationSchema = new mongoose.Schema(
             default: 0,
             min: 0,
         },
+        pinned_by_studio: {
+            type: Boolean,
+            default: false,
+            index: true,
+        },
+        pinned_by_studio_at: {
+            type: Date,
+            default: null,
+        },
     },
     { timestamps: true }
 );
 
 chatConversationSchema.index({ customer: 1, studio: 1 }, { unique: true });
+chatConversationSchema.index({ studio: 1, pinned_by_studio: -1, pinned_by_studio_at: -1, last_message_at: -1 });
 chatConversationSchema.index({ studio: 1, last_message_at: -1 });
 chatConversationSchema.index({ customer: 1, last_message_at: -1 });
 
