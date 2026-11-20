@@ -9,6 +9,7 @@ const { mergeOeffnungszeiten } = require('../config/studioDefaults');
 const { normalizeAusnahmen, buildStudioScheduleSnapshot } = require('../utils/studioHours');
 const { parsePagination, buildPaginationMeta } = require('../utils/pagination');
 const { emitStudioScheduleUpdated } = require('../sockets/studioScheduleEmit');
+const { sendStudioActivatedEmail } = require('../services/emailService');
 
 const PROFILE_FIELDS = ['firma', 'telefon', 'strasse', 'plz', 'ort', 'land', 'notizen'];
 
@@ -509,6 +510,18 @@ const patchStudioStatus = asyncHandler(async (req, res) => {
     const owner = studio.owner
         ? await User.findById(studio.owner).select('email status').lean()
         : null;
+
+    if (status === STUDIO_STATUS.AKTIV && studio.email && studio.studio_code) {
+        try {
+            await sendStudioActivatedEmail({
+                to: studio.email,
+                firma: studio.firma,
+                studioCode: studio.studio_code,
+            });
+        } catch (emailError) {
+            console.error('[patchStudioStatus] activation email failed:', emailError.message);
+        }
+    }
 
     res.status(200).json({
         success: true,

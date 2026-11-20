@@ -4,8 +4,10 @@ const Studio = require('../models/studioModel');
 const RefreshToken = require('../models/refreshTokenModel');
 const {
     sendPasswordResetEmail,
+    sendStudioRegistrationEmail,
     buildResetPasswordUrl,
 } = require('../services/emailService');
+const { allocateUniqueStudioCode } = require('../utils/studioCode');
 const {
     roleMatchesPortal,
     createPasswordResetToken,
@@ -147,22 +149,22 @@ const registerCustomer = asyncHandler(async (req, res) => {
 });
 
 const registerStudio = asyncHandler(async (req, res) => {
-    const { firma, studio_code, email, telefon, password, strasse, plz, ort, land, standorte } =
-        req.body;
+    const { firma, email, telefon, password, strasse, plz, ort, land, standorte } = req.body;
 
-    const normalizedCode = studio_code.toUpperCase();
-
-    const [existingUser, existingStudio] = await Promise.all([
-        User.findOne({ email }),
-        Studio.findOne({ studio_code: normalizedCode }),
-    ]);
-
+    const existingUser = await User.findOne({ email });
     if (existingUser) {
         throw new ApiError(409, 'Email already registered');
     }
 
-    if (existingStudio) {
-        throw new ApiError(409, 'Studio code already exists');
+    let studioCode;
+    try {
+        studioCode = await allocateUniqueStudioCode({
+            firma,
+            ort,
+            existsFn: async (code) => Boolean(await Studio.exists({ studio_code: code })),
+        });
+    } catch {
+        throw new ApiError(500, 'Unable to generate a unique studio code');
     }
 
     let user = null;
@@ -179,7 +181,7 @@ const registerStudio = asyncHandler(async (req, res) => {
 
         studio = await Studio.create({
             firma,
-            studio_code: normalizedCode,
+            studio_code: studioCode,
             email,
             telefon,
             strasse,
@@ -202,6 +204,16 @@ const registerStudio = asyncHandler(async (req, res) => {
             await User.deleteOne({ _id: user._id });
         }
         throw error;
+    }
+
+    try {
+        await sendStudioRegistrationEmail({
+            to: email,
+            firma: studio.firma,
+            studioCode: studio.studio_code,
+        });
+    } catch (emailError) {
+        console.error('[registerStudio] confirmation email failed:', emailError.message);
     }
 
     res.status(201).json({

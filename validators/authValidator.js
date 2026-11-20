@@ -46,7 +46,7 @@ const registerCustomerSchema = z.object({
 
 const registerStudioSchema = z.object({
     firma: requiredTrimmedString('firma'),
-    studio_code: requiredTrimmedString('studio_code'),
+    // studio_code is allocated server-side — ignore any client value
     email: emailSchema,
     telefon: optionalTrimmedString.default(''),
     password: passwordSchema,
