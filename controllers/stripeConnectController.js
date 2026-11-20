@@ -12,8 +12,35 @@ const {
     retrieveConnectAccount,
 } = require('../utils/stripeService');
 
-const frontendBase = () =>
-    (process.env.APP_FRONTEND_URL || 'http://localhost:5173').replace(/\/$/, '');
+const frontendBase = (req) => {
+    const configured = String(
+        process.env.STUDIO_FRONTEND_URL ||
+            process.env.APP_STUDIO_URL ||
+            process.env.APP_FRONTEND_URL ||
+            ''
+    )
+        .trim()
+        .replace(/\/$/, '');
+    if (configured && !/localhost|127\.0\.0\.1/i.test(configured)) {
+        return configured;
+    }
+
+    const origin = String(req?.headers?.origin || '').trim().replace(/\/$/, '');
+    if (origin && /^https?:\/\//i.test(origin)) {
+        return origin;
+    }
+
+    return configured || 'http://localhost:5173';
+};
+
+const throwAsApiError = (err) => {
+    if (err instanceof ApiError) throw err;
+    const status = Number(err?.statusCode) || 502;
+    throw new ApiError(
+        status >= 400 && status < 600 ? status : 502,
+        err?.message || 'Stripe request failed'
+    );
+};
 
 const syncStudioFromAccount = async (studio, account) => {
     studio.stripe_account_id = account.id;
@@ -73,33 +100,38 @@ const startStripeConnect = asyncHandler(async (req, res) => {
     const studio = await Studio.findById(studioId);
     if (!studio) throw new ApiError(404, 'Studio not found');
 
-    if (!studio.stripe_account_id) {
-        const account = await createConnectExpressAccount({
-            email: studio.email,
-            studioId: studio._id,
-            firma: studio.firma,
+    try {
+        if (!studio.stripe_account_id) {
+            const account = await createConnectExpressAccount({
+                email: studio.email,
+                studioId: studio._id,
+                firma: studio.firma,
+            });
+            studio.stripe_account_id = account.id;
+            await studio.save();
+        }
+
+        const base = frontendBase(req);
+        const returnUrl = `${base}/studio/settings?tab=stripe&stripe=return`;
+        const refreshUrl = `${base}/studio/settings?tab=stripe&stripe=refresh`;
+
+        const link = await createAccountLink({
+            accountId: studio.stripe_account_id,
+            refreshUrl,
+            returnUrl,
         });
-        studio.stripe_account_id = account.id;
-        await studio.save();
+
+        res.json({
+            success: true,
+            data: {
+                url: link.url,
+                account_id: studio.stripe_account_id,
+                expires_at: link.expires_at,
+            },
+        });
+    } catch (err) {
+        throwAsApiError(err);
     }
-
-    const returnUrl = `${frontendBase()}/studio/settings?tab=stripe&stripe=return`;
-    const refreshUrl = `${frontendBase()}/studio/settings?tab=stripe&stripe=refresh`;
-
-    const link = await createAccountLink({
-        accountId: studio.stripe_account_id,
-        refreshUrl,
-        returnUrl,
-    });
-
-    res.json({
-        success: true,
-        data: {
-            url: link.url,
-            account_id: studio.stripe_account_id,
-            expires_at: link.expires_at,
-        },
-    });
 });
 
 /** POST /studio/stripe/refresh — refresh status after onboarding return */
@@ -118,8 +150,12 @@ const refreshStripeConnect = asyncHandler(async (req, res) => {
         throw new ApiError(400, 'Studio has no Stripe account yet');
     }
 
-    const account = await retrieveConnectAccount(studio.stripe_account_id);
-    await syncStudioFromAccount(studio, account);
+    try {
+        const account = await retrieveConnectAccount(studio.stripe_account_id);
+        await syncStudioFromAccount(studio, account);
+    } catch (err) {
+        throwAsApiError(err);
+    }
 
     res.json({
         success: true,

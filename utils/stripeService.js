@@ -95,40 +95,71 @@ const constructWebhookEvent = (rawBody, signature) => {
     return stripe.webhooks.constructEvent(rawBody, signature, secret);
 };
 
+const wrapStripeError = (err) => {
+    const message = String(err?.message || 'Stripe request failed');
+    const statusCode = Number(err?.statusCode) || 502;
+    const out = new Error(message);
+    out.statusCode = statusCode >= 400 && statusCode < 600 ? statusCode : 502;
+    out.code = err?.code || undefined;
+    out.type = err?.type || err?.rawType || 'StripeError';
+
+    if (/signed up for Connect/i.test(message) || /Connect.*dashboard\.stripe\.com\/connect/i.test(message)) {
+        out.code = 'STRIPE_CONNECT_NOT_ENABLED';
+        out.statusCode = 503;
+        out.message =
+            'Stripe Connect is not enabled on the platform Stripe account. ' +
+            'Open https://dashboard.stripe.com/connect (Test mode), complete Connect signup, then retry.';
+    }
+
+    return out;
+};
+
 const createConnectExpressAccount = async ({ email, studioId, firma }) => {
     const stripe = getStripe();
     if (!stripe) throw new Error('Stripe is not configured');
-    return stripe.accounts.create({
-        type: 'express',
-        country: 'CH',
-        email: email || undefined,
-        capabilities: {
-            transfers: { requested: true },
-            card_payments: { requested: true },
-        },
-        business_type: 'company',
-        metadata: {
-            studio_id: String(studioId),
-            firma: String(firma || ''),
-        },
-    });
+    try {
+        return await stripe.accounts.create({
+            type: 'express',
+            country: 'CH',
+            email: email || undefined,
+            capabilities: {
+                transfers: { requested: true },
+                card_payments: { requested: true },
+            },
+            business_type: 'company',
+            metadata: {
+                studio_id: String(studioId),
+                firma: String(firma || ''),
+            },
+        });
+    } catch (err) {
+        throw wrapStripeError(err);
+    }
 };
 
 const createAccountLink = async ({ accountId, refreshUrl, returnUrl }) => {
     const stripe = getStripe();
     if (!stripe) throw new Error('Stripe is not configured');
-    return stripe.accountLinks.create({
-        account: accountId,
-        refresh_url: refreshUrl,
-        return_url: returnUrl,
-        type: 'account_onboarding',
-    });
+    try {
+        return await stripe.accountLinks.create({
+            account: accountId,
+            refresh_url: refreshUrl,
+            return_url: returnUrl,
+            type: 'account_onboarding',
+        });
+    } catch (err) {
+        throw wrapStripeError(err);
+    }
 };
 
 const retrieveConnectAccount = async (accountId) => {
     const stripe = getStripe();
     if (!stripe) throw new Error('Stripe is not configured');
-    return stripe.accounts.retrieve(accountId);
+    try {
+        return await stripe.accounts.retrieve(accountId);
+    } catch (err) {
+        throw wrapStripeError(err);
+    }
 };
 
 /** Transfer studio commission (provision) to connected Express account. */
@@ -172,4 +203,5 @@ module.exports = {
     createAccountLink,
     retrieveConnectAccount,
     createCommissionTransfer,
+    wrapStripeError,
 };
