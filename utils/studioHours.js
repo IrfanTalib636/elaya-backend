@@ -45,6 +45,20 @@ const weekdayKeyForDate = (date) => {
     return JS_DAY_TO_KEY[d.getDay()];
 };
 
+const normalizePausen = (list = []) => {
+    if (!Array.isArray(list) || !list.length) return [];
+    const out = [];
+    for (const item of list) {
+        const von = String(item?.von || '').trim();
+        const bis = String(item?.bis || '').trim();
+        const start = timeToMinutes(von);
+        const end = timeToMinutes(bis);
+        if (start == null || end == null || end <= start) continue;
+        out.push({ von, bis });
+    }
+    return out;
+};
+
 const resolveHoursForDate = (oeffnungszeiten, ausnahmen, date) => {
     const key = typeof date === 'string' ? date.slice(0, 10) : toDateKey(date);
     const exception = (ausnahmen || []).find((item) => item.datum === key);
@@ -53,6 +67,7 @@ const resolveHoursForDate = (oeffnungszeiten, ausnahmen, date) => {
             offen: exception.offen !== false,
             von: exception.von || DEFAULT_DAY_HOURS.von,
             bis: exception.bis || DEFAULT_DAY_HOURS.bis,
+            pausen: [],
             notiz: exception.notiz || '',
             source: 'exception',
         };
@@ -64,6 +79,7 @@ const resolveHoursForDate = (oeffnungszeiten, ausnahmen, date) => {
         offen: weekday.offen !== false,
         von: weekday.von || DEFAULT_DAY_HOURS.von,
         bis: weekday.bis || DEFAULT_DAY_HOURS.bis,
+        pausen: normalizePausen(weekday.pausen),
         notiz: '',
         source: 'weekly',
     };
@@ -98,12 +114,12 @@ const minutesToTime = (total) => {
     const m = total % 60;
     return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
 };
-
-/**
- * Build bookable start times between von (inclusive) and bis (exclusive).
- * The interval comes from the studio's schedule.
- */
-const buildTimeSlots = (von, bis, intervalMinutes = DEFAULT_SLOT_INTERVAL_MINUTEN) => {
+const buildTimeSlots = (
+    von,
+    bis,
+    intervalMinutes = DEFAULT_SLOT_INTERVAL_MINUTEN,
+    pausen = []
+) => {
     const start = timeToMinutes(von);
     const end = timeToMinutes(bis);
     const step = Math.max(
@@ -112,8 +128,17 @@ const buildTimeSlots = (von, bis, intervalMinutes = DEFAULT_SLOT_INTERVAL_MINUTE
     );
     if (start == null || end == null || end <= start) return [];
 
+    const breaks = normalizePausen(pausen).map((p) => ({
+        start: timeToMinutes(p.von),
+        end: timeToMinutes(p.bis),
+    }));
+
     const slots = [];
     for (let cursor = start; cursor < end; cursor += step) {
+        const overlapsBreak = breaks.some(
+            (b) => b.start != null && b.end != null && slotOverlapsWindow(cursor, step, b.start, b.end)
+        );
+        if (overlapsBreak) continue;
         slots.push(minutesToTime(cursor));
     }
     return slots;
@@ -141,12 +166,6 @@ const findStandort = (studio, id) => {
 
 const activeStandorte = (studio) =>
     (studio?.standorte || []).filter((s) => s.aktiv !== false);
-
-/**
- * Studio-shaped schedule view for a single location. Any field the location does
- * not override falls back to the studio-wide value, so studios without
- * locations (or with locations that share one schedule) behave exactly as before.
- */
 const resolveStandortSchedule = (studio, id) => {
     const standort = findStandort(studio, id);
     if (!standort) return studio;
@@ -168,7 +187,6 @@ const resolveStandortSchedule = (studio, id) => {
     };
 };
 
-/** Rooms with no `standort_id` are shared across all locations. */
 const roomsForStandort = (studio, id) =>
     (studio?.behandlungsraeume || []).filter(
         (room) =>
@@ -176,7 +194,6 @@ const roomsForStandort = (studio, id) =>
             (!id || !room.standort_id || String(room.standort_id) === String(id))
     );
 
-/** Staff with no `standort_id` work at all locations. */
 const staffForStandort = (studio, id) =>
     (studio?.mitarbeiter || []).filter(
         (member) =>
@@ -228,18 +245,28 @@ const slotsForStudioDate = (
 ) => {
     const ausnahmen = normalizeAusnahmen(studio?.oeffnungs_ausnahmen);
     const hours = resolveHoursForDate(studio?.oeffnungszeiten, ausnahmen, isoDate);
-    if (!hours.offen) return { offen: false, von: hours.von, bis: hours.bis, time_slots: [] };
+    if (!hours.offen) {
+        return {
+            offen: false,
+            von: hours.von,
+            bis: hours.bis,
+            pausen: [],
+            time_slots: [],
+        };
+    }
     return {
         offen: true,
         von: hours.von,
         bis: hours.bis,
-        time_slots: buildTimeSlots(hours.von, hours.bis, intervalMinutes),
+        pausen: hours.pausen || [],
+        time_slots: buildTimeSlots(hours.von, hours.bis, intervalMinutes, hours.pausen),
     };
 };
 
 module.exports = {
     toDateKey,
     normalizeAusnahmen,
+    normalizePausen,
     findStandort,
     activeStandorte,
     resolveStandortSchedule,

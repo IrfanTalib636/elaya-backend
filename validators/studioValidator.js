@@ -10,11 +10,33 @@ const timeSchema = z
     .trim()
     .regex(/^\d{2}:\d{2}$/, 'Time must be HH:MM');
 
+const timeToMinutesSafe = (value) => {
+    const match = /^(\d{2}):(\d{2})$/.exec(String(value || '').trim());
+    if (!match) return null;
+    return Number(match[1]) * 60 + Number(match[2]);
+};
+
+const pauseSchema = z
+    .object({
+        von: timeSchema,
+        bis: timeSchema,
+    })
+    .strict()
+    .refine(
+        (p) => {
+            const start = timeToMinutesSafe(p.von);
+            const end = timeToMinutesSafe(p.bis);
+            return start != null && end != null && end > start;
+        },
+        { message: 'Break end time must be after start time' }
+    );
+
 const dayHoursSchema = z
     .object({
         offen: z.boolean().optional(),
         von: timeSchema.optional(),
         bis: timeSchema.optional(),
+        pausen: z.array(pauseSchema).max(8).optional(),
     })
     .strict();
 
@@ -48,7 +70,6 @@ const standortSchema = z
         ort: z.string().trim().optional(),
         land: z.string().trim().optional(),
         aktiv: z.boolean().optional(),
-        /** Omit to inherit the studio-wide schedule. */
         oeffnungszeiten: oeffnungszeitenSchema,
         oeffnungs_ausnahmen: z.array(oeffnungsAusnahmeSchema).optional(),
         pufferzeit_minuten: z.number().int().min(0).max(120).nullable().optional(),
@@ -69,7 +90,6 @@ const behandlungsraumSchema = z
         laser_model: z.string().trim().optional(),
         laser_device_id: z.string().trim().nullable().optional(),
         laser_device_ids: z.array(z.string().trim().min(1)).optional(),
-        /** Empty means the room is used at every location. */
         standort_id: z.string().trim().optional(),
     })
     .strict();
@@ -89,7 +109,6 @@ const mitarbeiterSchema = z
             )
             .optional(),
         raum_id: z.string().trim().optional(),
-        /** Empty means the staff member works at every location. */
         standort_id: z.string().trim().optional(),
         aktiv: z.boolean().optional(),
         user_id: z.string().trim().nullable().optional(),
