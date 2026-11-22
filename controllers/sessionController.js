@@ -21,7 +21,13 @@ const {
     processNewSessionElaycoins,
     processNoShowMalus,
     processFinalizedSessionElaycoins,
+    zieheElaycoinsAb,
+    hasRedeemForSession,
+    coinsToChf,
 } = require('../utils/elaycoinEngine');
+const { resolveEffectiveCoinWert } = require('../utils/configService');
+const Customer = require('../models/customerModel');
+const Studio = require('../models/studioModel');
 const { parsePagination, buildPaginationMeta } = require('../utils/pagination');
 const { APPOINTMENT_STATUS, APPOINTMENT_TYPE } = require('../config/constants');
 const { evaluateAndApplySessionLightening } = require('../utils/lighteningSessionService');
@@ -29,6 +35,110 @@ const { emitAvailabilityChanged } = require('../sockets/availabilityEmit');
 const { applySessionOutcomeMirrors } = require('../utils/sessionOutcomeNormalize');
 const { applySessionForecastToCase } = require('../utils/sessionForecastFromProgress');
 const { validateSessionCompletion } = require('../utils/sessionCompletionValidation');
+
+const round2 = (n) => Math.round(Number(n || 0) * 100) / 100;
+
+const normalizeSessionZahlung = async ({
+    zahlung,
+    customerId,
+    studioId,
+    previousRedeemed = 0,
+}) => {
+    if (!zahlung || typeof zahlung !== 'object') {
+        return { zahlung: null, coinsToDebit: 0, coinWert: 0 };
+    }
+
+    const coinWert = await resolveEffectiveCoinWert(studioId);
+    const customer = await Customer.findById(customerId).select('elaycoins.balance').lean();
+    const balance = Math.max(0, Number(customer?.elaycoins?.balance || 0));
+
+    const rabatt = Math.max(0, Number(zahlung.rabatt || 0));
+    const requestedCoins = Math.max(0, Math.floor(Number(zahlung.elaycoins_redeemed || 0)));
+    const previous = Math.max(0, Math.floor(Number(previousRedeemed || 0)));
+
+    let behandlungPreis =
+        zahlung.behandlung_preis_chf != null && zahlung.behandlung_preis_chf !== ''
+            ? Number(zahlung.behandlung_preis_chf)
+            : null;
+    if (behandlungPreis == null || !Number.isFinite(behandlungPreis)) {
+        const legacyPaid = Number(zahlung.betragCHF ?? zahlung.betrag ?? 0);
+        behandlungPreis = round2(legacyPaid + coinsToChf(requestedCoins || previous, coinWert) + rabatt);
+    }
+    behandlungPreis = Math.max(0, round2(behandlungPreis));
+
+    const maxByPrice =
+        coinWert > 0 ? Math.floor(Math.max(0, behandlungPreis - rabatt) / coinWert) : 0;
+    let coins;
+    if (previous > 0) {
+        if (requestedCoins !== previous && requestedCoins > 0) {
+            throw new ApiError(
+                400,
+                'ElayaCoins already redeemed on this session are locked and cannot be changed'
+            );
+        }
+        coins = previous;
+    } else {
+        coins = Math.min(requestedCoins, balance, maxByPrice);
+    }
+
+    const discount = round2(coins * coinWert);
+    const remaining = Math.max(0, round2(behandlungPreis - discount - rabatt));
+
+    const normalized = {
+        ...zahlung,
+        behandlung_preis_chf: behandlungPreis,
+        elaycoins_redeemed: coins,
+        elaycoins_discount_chf: discount,
+        rabatt,
+        betragCHF: remaining,
+        betrag: remaining,
+    };
+
+    const coinsToDebit = previous > 0 ? 0 : coins;
+    return { zahlung: normalized, coinsToDebit, coinWert, coins };
+};
+
+const applySessionCoinRedeem = async ({
+    session,
+    caseDoc,
+    coinsToDebit,
+    coinWert,
+}) => {
+    if (!coinsToDebit || coinsToDebit <= 0) return coinsToDebit;
+    const sessionKey = session.session_id || String(session._id);
+    const customer = await Customer.findById(session.customer)
+        .select('elaycoins.transactions')
+        .lean();
+    if (customer && hasRedeemForSession(customer.elaycoins?.transactions || [], sessionKey)) {
+        return coinsToDebit;
+    }
+    const studio = await Studio.findById(session.studio).select('firma').lean();
+    const chfValue = round2(coinsToDebit * coinWert);
+    const debited = await zieheElaycoinsAb(
+        session.customer,
+        'behandlung_einloesung',
+        {
+            session_id: sessionKey,
+            case_id: caseDoc?._id || session.case,
+            coins: coinsToDebit,
+            chf_value: chfValue,
+            herkunft_studio_id: String(session.studio),
+            herkunft_studio_name: studio?.firma || '',
+        },
+        {
+            amountOverride: coinsToDebit,
+            coinWert,
+            studio: studio ? { _id: session.studio, firma: studio.firma } : null,
+        }
+    );
+    if (debited < coinsToDebit) {
+        throw new ApiError(
+            400,
+            'Insufficient ElayaCoin balance to apply the requested redeem'
+        );
+    }
+    return debited;
+};
 
 const CUSTOMER_SESSION_SELECT =
     'case customer studio session_number treatment_date treatment_time removal_pct verblassung_prozent comparison_eligible uncertainty_level progress_direction lightening_confidence verblassung_ki fortschritt_foto_file_id post_treatment_foto_file_id is_draft is_no_show zonen_id createdAt updatedAt';
@@ -402,7 +512,6 @@ const createSession = asyncHandler(async (req, res) => {
     let mitarbeiter_id = fields.mitarbeiter_id || '';
     let mitarbeiter_name = fields.mitarbeiter_name || '';
     if (mitarbeiter_id && !mitarbeiter_name && caseDoc.studio) {
-        const Studio = require('../models/studioModel');
         const studio = await Studio.findById(caseDoc.studio).select('mitarbeiter').lean();
         const m = (studio?.mitarbeiter || []).find((x) => String(x._id) === String(mitarbeiter_id));
         if (m) {
@@ -416,6 +525,17 @@ const createSession = asyncHandler(async (req, res) => {
         '';
 
     const laserFields = await resolveSessionLaserFields(fields, caseDoc.studio);
+
+    const {
+        zahlung: normalizedZahlung,
+        coinsToDebit,
+        coinWert,
+    } = await normalizeSessionZahlung({
+        zahlung,
+        customerId: caseDoc.customer,
+        studioId: caseDoc.studio,
+        previousRedeemed: 0,
+    });
 
     const createPayload = {
         ...laserFields,
@@ -433,7 +553,7 @@ const createSession = asyncHandler(async (req, res) => {
             ? `s${session_number}-${zonenId}-${caseDoc._id.toString().slice(-6)}`
             : `s${session_number}-${caseDoc._id.toString().slice(-6)}`,
         appointment: linkedAppointment,
-        ...(zahlung ? { zahlung } : {}),
+        ...(normalizedZahlung ? { zahlung: normalizedZahlung } : {}),
     };
 
     if (!createPayload.is_draft) {
@@ -446,6 +566,20 @@ const createSession = asyncHandler(async (req, res) => {
     }
 
     const session = await Session.create(createPayload);
+
+    if (coinsToDebit > 0) {
+        try {
+            await applySessionCoinRedeem({
+                session,
+                caseDoc,
+                coinsToDebit,
+                coinWert,
+            });
+        } catch (err) {
+            await Session.deleteOne({ _id: session._id });
+            throw err;
+        }
+    }
 
     void require('../utils/activityLog').recordActivityFromUser(req.user, {
         studio: caseDoc.studio,
@@ -535,7 +669,6 @@ const listSessions = asyncHandler(async (req, res) => {
     if (req.query.case_id) {
         filter.case = req.query.case_id;
     }
-    // Lets a client show the session log of one zone on its own.
     if (req.query.zonen_id) {
         filter.zonen_id = req.query.zonen_id;
     }
@@ -647,8 +780,19 @@ const updateSession = asyncHandler(async (req, res) => {
     const laserFields = await resolveSessionLaserFields(fields, session.studio);
     Object.assign(session, laserFields);
 
+    let coinsToDebit = 0;
+    let coinWert = 0;
     if (zahlung) {
-        session.zahlung = { ...(session.zahlung || {}), ...zahlung };
+        const previousRedeemed = Number(session.zahlung?.elaycoins_redeemed || 0);
+        const normalized = await normalizeSessionZahlung({
+            zahlung: { ...(session.zahlung?.toObject?.() || session.zahlung || {}), ...zahlung },
+            customerId: session.customer,
+            studioId: session.studio,
+            previousRedeemed,
+        });
+        session.zahlung = normalized.zahlung;
+        coinsToDebit = normalized.coinsToDebit;
+        coinWert = normalized.coinWert;
     }
 
     if (fields.lightening_studio_pct != null || fields.lightening_studio_notes) {
@@ -665,6 +809,16 @@ const updateSession = asyncHandler(async (req, res) => {
     }
 
     const caseDoc = await Case.findById(session.case);
+
+    if (coinsToDebit > 0 && caseDoc) {
+        await applySessionCoinRedeem({
+            session,
+            caseDoc,
+            coinsToDebit,
+            coinWert,
+        });
+    }
+
     let lighteningAssessment = null;
     if (caseDoc && !session.pre_photo_unavailable) {
         const enteredFade = fields.verblassung_prozent ?? fields.removal_pct;
@@ -680,6 +834,7 @@ const updateSession = asyncHandler(async (req, res) => {
     }
 
     await session.save();
+
     await syncCaseSessionStats(session.case);
     await syncCustomerPipeline(session.customer);
 

@@ -5,6 +5,9 @@ const zahlungSchema = new mongoose.Schema(
     {
         betrag: { type: Number, default: 0, min: 0 },
         betragCHF: { type: Number, default: 0, min: 0 },
+        behandlung_preis_chf: { type: Number, default: null, min: 0 },
+        elaycoins_redeemed: { type: Number, default: 0, min: 0 },
+        elaycoins_discount_chf: { type: Number, default: 0, min: 0 },
         waehrung: {
             type: String,
             enum: Object.values(PAYMENT_CURRENCY),

@@ -151,6 +151,15 @@ const ELAYCOIN_SITUATIONS = [
         istMalus: true,
     },
     {
+        key: 'behandlung_einloesung',
+        label: 'Elaycoins bei Behandlung eingelöst',
+        label_en: 'Elaycoins redeemed on treatment',
+        kat: 'ABZÜGE',
+        coins: 0,
+        aktiv: true,
+        istMalus: true,
+    },
+    {
         key: 'admin_korrektur',
         label: 'Admin-Korrektur',
         label_en: 'Admin correction',

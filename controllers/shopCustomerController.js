@@ -29,7 +29,6 @@ const {
 
 const round2 = (n) => Math.round(n * 100) / 100;
 
-/** @param {object} [pricing] - optional precomputed { generalPromo, now } shared across a list request. */
 const formatProduct = (doc, pricing = {}) => {
     const generalPromo = pricing.generalPromo ?? null;
     const now = pricing.now ?? new Date();
@@ -41,7 +40,6 @@ const formatProduct = (doc, pricing = {}) => {
         artikelnummer: doc.artikelnummer,
         name: doc.name,
         beschreibung: doc.beschreibung ?? '',
-        // Original list price — kept for backward compatibility with older clients.
         preis_chf: doc.preis_chf,
         waehrung: doc.waehrung || 'CHF',
         kategorie: doc.kategorie,
@@ -51,7 +49,6 @@ const formatProduct = (doc, pricing = {}) => {
         bilder: Array.isArray(doc.bilder) && doc.bilder.length ? doc.bilder : doc.bild_url ? [doc.bild_url] : [],
         lagerbestand: doc.lagerbestand,
         aktiv: doc.aktiv,
-        // Discount-aware pricing (requirement: strikethrough original + highlighted final price).
         preis_final: price.final,
         discount_active: price.savings > 0,
         discount_label: price.discount_label,
@@ -103,7 +100,6 @@ const nextOrderNumber = async () => {
     return `ES-${n}`;
 };
 
-/** Decrement stock + apply/award coins once payment is confirmed. Idempotent via payment_status. */
 const fulfillPaidOrder = async (orderDoc, { simulated = false } = {}) => {
     const id = orderDoc._id || orderDoc.id;
 
@@ -111,6 +107,37 @@ const fulfillPaidOrder = async (orderDoc, { simulated = false } = {}) => {
     if (!fresh) return null;
     if (fresh.payment_status === 'paid' && fresh.paid_at) {
         return fresh;
+    }
+
+    const customerId = fresh.customer;
+    const studioId = fresh.studio?.toString?.() || fresh.studio;
+    const coinsToRedeem = fresh.elaycoins_redeemed || 0;
+
+    if (coinsToRedeem > 0) {
+        const Studio = require('../models/studioModel');
+        const studioDoc = await Studio.findById(studioId).select('firma').lean();
+        const chfValue = round2(fresh.elaycoins_discount_chf || 0);
+        const debited = await zieheElaycoinsAb(
+            customerId,
+            'shop_einloesung',
+            {
+                order_id: fresh._id.toString(),
+                herkunft_studio_id: studioId,
+                herkunft_studio_name: studioDoc?.firma || '',
+                coins: coinsToRedeem,
+                chf_value: chfValue,
+            },
+            {
+                amountOverride: coinsToRedeem,
+                studio: studioDoc ? { _id: studioId, firma: studioDoc.firma } : null,
+            }
+        );
+        if (debited < coinsToRedeem) {
+            throw new ApiError(
+                400,
+                'Insufficient ElayaCoin balance to complete this order'
+            );
+        }
     }
 
     fresh.payment_status = 'paid';
@@ -124,27 +151,6 @@ const fulfillPaidOrder = async (orderDoc, { simulated = false } = {}) => {
         if (product && product.lagerbestand != null) {
             product.lagerbestand = Math.max(0, product.lagerbestand - item.menge);
             await product.save();
-        }
-    }
-
-    const customerId = fresh.customer;
-    const studioId = fresh.studio?.toString?.() || fresh.studio;
-    const coinsToRedeem = fresh.elaycoins_redeemed || 0;
-
-    if (coinsToRedeem > 0) {
-        try {
-            await zieheElaycoinsAb(
-                customerId,
-                'shop_einloesung',
-                {
-                    order_id: fresh._id.toString(),
-                    herkunft_studio_id: studioId,
-                    coins: coinsToRedeem,
-                },
-                { amountOverride: coinsToRedeem }
-            );
-        } catch (err) {
-            console.error('[shop] elaycoin redeem failed', err.message);
         }
     }
 
@@ -164,7 +170,6 @@ const fulfillPaidOrder = async (orderDoc, { simulated = false } = {}) => {
     return fresh;
 };
 
-/** GET /shop/config — public-ish shop payment config for clients */
 const getShopPaymentConfig = asyncHandler(async (_req, res) => {
     res.json({
         success: true,
@@ -177,7 +182,6 @@ const getShopPaymentConfig = asyncHandler(async (_req, res) => {
     });
 });
 
-/** GET /shop/products */
 const listProducts = asyncHandler(async (req, res) => {
     const { page, limit, skip } = parsePagination(req.query);
     const filter = { aktiv: true };
@@ -234,7 +238,6 @@ const getShipping = asyncHandler(async (req, res) => {
     });
 });
 
-/** POST /shop/orders — create order; Stripe PaymentIntent when keys configured */
 const createOrder = asyncHandler(async (req, res) => {
     if (!isCustomer(req.user.role) || !req.user.customer_id) {
         throw new ApiError(403, 'Only customers can place shop orders');
@@ -262,7 +265,6 @@ const createOrder = asyncHandler(async (req, res) => {
             throw new ApiError(400, `Insufficient stock for ${product.name}`);
         }
         const menge = item.menge;
-        // Apply active product + general discounts at checkout (client requirement #4/#5).
         const price = resolveProductPrice(product, { generalPromo });
         const currency = price.currency;
         if (orderCurrency && orderCurrency !== currency) {
@@ -279,8 +281,6 @@ const createOrder = asyncHandler(async (req, res) => {
             produkt_id: product._id.toString(),
             produkt_name: product.name,
             menge,
-            // Unit price actually charged (post-discount) — kept as `preis_chf` for
-            // backward compatibility with existing order records/UI.
             preis_chf: price.final,
             preis_original: price.original,
             waehrung: currency,
@@ -305,12 +305,10 @@ const createOrder = asyncHandler(async (req, res) => {
     const elaya_anteil_chf = round2(warenwert - provision_betrag);
 
     const coinWert = await resolveEffectiveCoinWert(customer.aktuelle_firma_id);
-    const deckelPct = platform.deckelProzent ?? 20;
-    const maxDiscountChf = round2(warenwert * (deckelPct / 100));
     const requestedCoins = Math.max(0, Math.floor(Number(elaycoins_to_redeem) || 0));
     const balance = customer.elaycoins?.balance ?? 0;
-    const maxCoinsByDeckel = coinWert > 0 ? Math.floor(maxDiscountChf / coinWert) : 0;
-    const coinsToRedeem = Math.min(requestedCoins, balance, maxCoinsByDeckel);
+    const maxCoinsByPrice = coinWert > 0 ? Math.floor(warenwert / coinWert) : 0;
+    const coinsToRedeem = Math.min(requestedCoins, balance, maxCoinsByPrice);
     const elaycoins_discount_chf = round2(coinsToRedeem * coinWert);
 
     const brutto = round2(warenwert + versandkosten - elaycoins_discount_chf);
@@ -371,7 +369,6 @@ const createOrder = asyncHandler(async (req, res) => {
             throw new ApiError(502, `Stripe payment init failed: ${err.message}`);
         }
     } else {
-        // Legacy simulated path when Stripe keys are absent
         await fulfillPaidOrder(order, { simulated: true });
     }
 
@@ -387,15 +384,6 @@ const createOrder = asyncHandler(async (req, res) => {
         },
     });
 });
-
-/**
- * POST /shop/orders/:id/confirm-payment
- * After Stripe Payment Sheet succeeds on the client, verify the PaymentIntent
- * and fulfill the order (stock + coins). Same path for test and live keys.
- *
- * Optional body.test_confirm (dev only): confirm with pm_card_visa when
- * STRIPE_ALLOW_TEST_CONFIRM=true AND sk_test_ keys — not used by the mobile app.
- */
 const confirmOrderPayment = asyncHandler(async (req, res) => {
     if (!isCustomer(req.user.role) || !req.user.customer_id) {
         throw new ApiError(403, 'Only customers can confirm shop payments');

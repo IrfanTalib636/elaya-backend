@@ -46,7 +46,6 @@ const createShopOrderSchema = z.object({
         land: z.enum(SHOP_COUNTRIES).default('Schweiz'),
     }),
     zahlungsart: z.enum(['karte', 'twint']).default('karte'),
-    /** Optional Elaycoins to redeem (capped by balance + deckelProzent of warenwert). */
     elaycoins_to_redeem: z.coerce.number().int().min(0).optional().default(0),
 });
 

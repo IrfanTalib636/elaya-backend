@@ -19,7 +19,6 @@ const { getPlatformConfig, resolveEffectiveCoinWert } = require('./configService
 
 const txCoins = (t) => t.coins ?? t.betrag ?? 0;
 
-/** Resolve live Elaycoin-Regeln from platform config (fallback: hardcoded defaults). */
 const resolveElaycoinRegeln = (platform = {}) => {
     const r = platform.elaycoin_regeln || {};
     const situations =
@@ -42,7 +41,6 @@ const resolveElaycoinRegeln = (platform = {}) => {
     };
 };
 
-/** Only real MongoDB appointment IDs go on appointment_id; composite keys stay in kontext.apt_id */
 const toAppointmentObjectId = (aptId) => {
     if (!aptId) {
         return null;
@@ -69,7 +67,7 @@ const coinsToChf = (balance, coinWert = ELAYCOIN_CHF_PRO_EINHEIT / ELAYCOIN_COIN
 
 const getEffectiveSituation = (key, studioOverrides = {}, platformRegeln = null) => {
     const map = platformRegeln?.situation_map || ELAYCOIN_SITUATION_MAP;
-    const def = map[key];
+    const def = map[key] || ELAYCOIN_SITUATION_MAP[key];
     if (!def) {
         return null;
     }
@@ -173,7 +171,6 @@ async function getCoinVerfallStatus(customerId, { forStudio = false, studioId = 
     const balance = customer?.elaycoins?.balance ?? 0;
     const letzteAktivitaet = await berechneLetzteAktivitaet(customerId);
 
-    // Advanced expiry is a separate feature flag (prototype elaycoins_erweitert).
     const { isFeatureEnabled } = require('./featureService');
     const studioForFlag = studioId || customer?.aktuelle_firma_id || null;
     const advancedOk = await isFeatureEnabled(studioForFlag, 'elaycoins_erweitert');
@@ -371,6 +368,31 @@ async function vergebeElaycoins(customerId, situationKey, kontext = {}, options 
     return coins;
 }
 
+const ELAYCOIN_REDEEM_KEYS = new Set(['shop_einloesung', 'behandlung_einloesung']);
+
+const hasRedeemForSession = (transactions, sessionId) => {
+    if (!sessionId) return false;
+    const key = String(sessionId);
+    return transactions.some(
+        (t) =>
+            t.situationKey === 'behandlung_einloesung' &&
+            (t.session_id?.toString?.() === key ||
+                t.session_id === key ||
+                t.kontext?.session_id?.toString?.() === key ||
+                t.kontext?.session_id === key)
+    );
+};
+
+const hasRedeemForOrder = (transactions, orderId) => {
+    if (!orderId) return false;
+    const key = String(orderId);
+    return transactions.some(
+        (t) =>
+            t.situationKey === 'shop_einloesung' &&
+            (t.kontext?.order_id?.toString?.() === key || t.kontext?.order_id === key)
+    );
+};
+
 async function zieheElaycoinsAb(customerId, malusKey, kontext = {}, options = {}) {
     const platform = await getPlatformConfig();
     const regeln = resolveElaycoinRegeln(platform);
@@ -388,13 +410,14 @@ async function zieheElaycoinsAb(customerId, malusKey, kontext = {}, options = {}
             : kontext.coins != null
               ? Number(kontext.coins)
               : null;
-    const abzugBetrag = Math.max(
-        regeln.grenze_pro_aktion_min,
-        Math.min(
-            regeln.grenze_pro_aktion_max,
-            Number.isFinite(override) && override > 0 ? override : sit.coins
-        )
-    );
+    const requested =
+        Number.isFinite(override) && override > 0 ? Math.floor(override) : Math.floor(sit.coins || 0);
+    const abzugBetrag = ELAYCOIN_REDEEM_KEYS.has(malusKey)
+        ? Math.max(0, requested)
+        : Math.max(
+              regeln.grenze_pro_aktion_min,
+              Math.min(regeln.grenze_pro_aktion_max, requested)
+          );
     const customer = await Customer.findById(customerId);
     if (!customer) {
         return 0;
@@ -412,10 +435,47 @@ async function zieheElaycoinsAb(customerId, malusKey, kontext = {}, options = {}
         return 0;
     }
 
+    const sessionKey = kontext.session_id?.toString?.() || kontext.session_id || null;
+    if (
+        malusKey === 'behandlung_einloesung' &&
+        sessionKey &&
+        hasRedeemForSession(txs, sessionKey)
+    ) {
+        const existing = txs.find(
+            (t) =>
+                t.situationKey === 'behandlung_einloesung' &&
+                (t.session_id?.toString?.() === String(sessionKey) ||
+                    t.session_id === sessionKey ||
+                    t.kontext?.session_id?.toString?.() === String(sessionKey) ||
+                    t.kontext?.session_id === sessionKey)
+        );
+        return Math.abs(txCoins(existing) || abzugBetrag);
+    }
+
+    const orderKey = kontext.order_id?.toString?.() || kontext.order_id || null;
+    if (malusKey === 'shop_einloesung' && orderKey && hasRedeemForOrder(txs, orderKey)) {
+        const existing = txs.find(
+            (t) =>
+                t.situationKey === 'shop_einloesung' &&
+                (t.kontext?.order_id?.toString?.() === String(orderKey) ||
+                    t.kontext?.order_id === orderKey)
+        );
+        return Math.abs(txCoins(existing) || abzugBetrag);
+    }
+
     const tatsaechlich = Math.min(abzugBetrag, fresh.elaycoins.balance || 0);
     if (tatsaechlich <= 0) {
         return 0;
     }
+
+    const coinWert =
+        options.coinWert != null
+            ? Number(options.coinWert)
+            : ELAYCOIN_CHF_PRO_EINHEIT / ELAYCOIN_COIN_GELDWERT;
+    const chfValue =
+        kontext.chf_value != null
+            ? Number(kontext.chf_value)
+            : Math.round(tatsaechlich * coinWert * 100) / 100;
 
     const studioMeta = resolveStudioMeta(options.studio, kontext);
     const tx = {
@@ -426,9 +486,16 @@ async function zieheElaycoinsAb(customerId, malusKey, kontext = {}, options = {}
         typ: 'malus',
         datum: new Date(),
         case_id: kontext.case_id || null,
-        session_id: kontext.session_id || null,
+        session_id: sessionKey,
         appointment_id: toAppointmentObjectId(aptId),
-        kontext: { ...kontext, apt_id: aptId },
+        kontext: {
+            ...kontext,
+            apt_id: aptId,
+            coins: tatsaechlich,
+            chf_value: chfValue,
+            session_id: sessionKey || kontext.session_id || null,
+            order_id: kontext.order_id || null,
+        },
         ...studioMeta,
     };
 
@@ -588,6 +655,7 @@ module.exports = {
     ELAYCOIN_COIN_GELDWERT,
     ELAYCOIN_CHF_PRO_EINHEIT,
     ELAYCOIN_TAGESLIMIT,
+    ELAYCOIN_REDEEM_KEYS,
     coinsToChf,
     resolveElaycoinRegeln,
     getEffectiveSituation,
@@ -597,6 +665,8 @@ module.exports = {
     pruefeCoinVerfallUndBenachrichtigungen,
     vergebeElaycoins,
     zieheElaycoinsAb,
+    hasRedeemForSession,
+    hasRedeemForOrder,
     getElaycoinData,
     isKurzfristigeAenderung,
     applyKurzfristigeStornierungMalusIfNeeded,

@@ -20,14 +20,17 @@ const endpointReactionsSchema = z
 
 const zahlungSchema = z
     .object({
-        betrag: z.number().min(0).optional(),
-        betragCHF: z.number().min(0).optional(),
+        betrag: z.coerce.number().min(0).optional(),
+        betragCHF: z.coerce.number().min(0).optional(),
+        behandlung_preis_chf: z.coerce.number().min(0).nullable().optional(),
+        elaycoins_redeemed: z.coerce.number().int().min(0).optional(),
+        elaycoins_discount_chf: z.coerce.number().min(0).optional(),
         waehrung: z.enum([PAYMENT_CURRENCY.CHF, PAYMENT_CURRENCY.EUR]).optional(),
         zahlungsart: z
             .enum([PAYMENT_METHOD.BAR, PAYMENT_METHOD.KARTE, PAYMENT_METHOD.TWINT])
             .nullable()
             .optional(),
-        rabatt: z.number().min(0).optional(),
+        rabatt: z.coerce.number().min(0).optional(),
     })
     .optional();
 
