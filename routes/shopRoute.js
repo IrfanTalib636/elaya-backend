@@ -41,10 +41,8 @@ router.get(
  * @swagger
  * /shop/products:
  *   get:
- *     summary: List active ElayShop products
+ *     summary: List active ElayShop products (public catalog)
  *     tags: [Shop]
- *     security:
- *       - bearerAuth: []
  *     parameters:
  *       - in: query
  *         name: kategorie
@@ -61,8 +59,6 @@ router.get(
  */
 router.get(
     '/products',
-    protect,
-    authorize(...catalogRoles),
     validate(listProductsQuerySchema, 'query'),
     shopCustomerController.listProducts
 );
@@ -71,10 +67,8 @@ router.get(
  * @swagger
  * /shop/products/{id}:
  *   get:
- *     summary: Get one product by id, product_code, or artikelnummer
+ *     summary: Get one product by id, product_code, or artikelnummer (public)
  *     tags: [Shop]
- *     security:
- *       - bearerAuth: []
  *     parameters:
  *       - in: path
  *         name: id
@@ -88,8 +82,6 @@ router.get(
  */
 router.get(
     '/products/:id',
-    protect,
-    authorize(...catalogRoles),
     shopCustomerController.getProduct
 );
 
